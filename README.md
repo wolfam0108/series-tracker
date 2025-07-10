@@ -26,7 +26,7 @@ Series Tracker — это веб-приложение, которое автом
 ### 1. Клонирование репозитория
 
 ```bash
-git clone [https://github.com/wolfam0108/series-tracker.git](https://github.com/wolfam0108/series-tracker.git)
+git clone https://github.com/wolfam0108/series-tracker.git
 cd series-tracker
 ````
 
