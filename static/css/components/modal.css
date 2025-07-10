@@ -1,0 +1,213 @@
+/* ==================================================================== */
+/* Стили для модальных окон - единый дизайн                            */
+/* ==================================================================== */
+
+/* Основные модальные окна */
+.modern-modal {
+    border: none;
+    border-radius: var(--card-border-radius);
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.15);
+    overflow: hidden;
+}
+
+.modern-header {
+    background: var(--bg-light);
+    border-bottom: 1px solid var(--border-color);
+    padding: 0 24px;
+    display: flex;
+    align-items: flex-end;
+    position: relative;
+}
+
+.modern-header .modal-title {
+    margin: 0;
+    padding: 14px 0;
+    font-size: 20px;
+    font-weight: 600;
+    color: #2c3e50;
+    white-space: nowrap;
+}
+
+.modern-close {
+    padding: 8px;
+    border-radius: 8px;
+    transition: all 0.2s ease;
+    align-self: center;
+    margin-left: auto;
+}
+
+.modern-close:hover {
+    background: rgba(0, 0, 0, 0.1);
+    transform: scale(1.1);
+}
+
+.modern-body {
+    padding: 24px;
+    background: var(--bg-white);
+}
+
+.modern-footer {
+    background: var(--bg-light);
+    border-top: 1px solid var(--border-color);
+    padding: 16px 24px;
+    display: flex;
+    gap: 12px;
+    justify-content: flex-end;
+}
+
+/* Современные табы */
+.modern-nav-tabs {
+    border-bottom: none;
+    margin-bottom: -1px;
+    display: flex;
+    gap: 2px;
+    margin-left: 24px;
+}
+
+.modern-nav-tabs .nav-item {
+    margin-bottom: 0;
+}
+
+.modern-tab-link {
+    background: rgba(0,0,0,0.03);
+    border: 1px solid var(--border-color);
+    border-bottom: none;
+    border-radius: 8px 8px 0 0;
+    padding: 12px 20px;
+    font-weight: 500;
+    color: var(--text-muted);
+    transition: all 0.3s ease;
+    position: relative;
+    text-decoration: none;
+    white-space: nowrap;
+}
+
+.modern-tab-link:hover {
+    color: #2c3e50;
+    background: rgba(255, 255, 255, 0.5);
+}
+
+.modern-tab-link.active {
+    color: var(--border-color-focus);
+    background: var(--bg-white);
+    border-color: var(--border-color) var(--border-color) var(--bg-white);
+    font-weight: 600;
+    z-index: 2;
+}
+
+.modern-tab-content {
+    animation: fadeIn 0.3s ease;
+}
+
+/* Стили для под-вкладок в Нейминге (Фикс) */
+.sticky-sub-nav-wrapper {
+    position: sticky;
+    top: -24px; /* Компенсируем padding у .modal-body */
+    z-index: 10;
+    display: flex;
+    justify-content: center; /* Центрируем панель внутри */
+    padding: 1rem 0; /* Вертикальный отступ для тени и воздуха */
+    background: transparent;
+}
+
+.sub-nav-pills {
+    display: inline-flex;
+    gap: 4px;
+    padding: 12px;
+    background-color: var(--bg-light);
+    border: 1px solid var(--border-color); /* Обводка как у рамок */
+    border-radius: 10px; /* Закругления */
+    box-shadow: 0 8px 24px rgba(0, 0, 0, 0.15); /* Большая тень */
+}
+
+.sub-nav-pills .modern-tab-link {
+    background-color: transparent;
+    border: none;
+    border-radius: 8px; /* Немного меньше, чем у родителя */
+    color: var(--text-muted);
+    font-weight: 500;
+    padding: 8px 16px;
+    transition: background-color 0.2s ease, color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.sub-nav-pills .modern-tab-link:hover {
+    color: var(--text-color);
+    background-color: rgba(0,0,0,0.05);
+}
+
+.sub-nav-pills .modern-tab-link.active {
+    background-color: var(--bg-white);
+    color: var(--border-color-focus);
+    font-weight: 600;
+    box-shadow: 0 2px 5px rgba(0, 0, 0, 0.1);
+}
+
+.naming-content-area {
+    padding-top: 1rem;
+}
+
+/* Адаптивность для модальных окон */
+@media (max-width: 768px) {
+    .modern-modal {
+        margin: 10px;
+    }
+    
+    .modern-header {
+        padding: 16px;
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .modern-header .modal-title {
+        width: 100%;
+        text-align: center;
+        margin-bottom: 1rem;
+        padding: 0;
+    }
+
+    .modern-nav-tabs {
+        width: 100%;
+        justify-content: center;
+        overflow-x: auto;
+        margin-left: 0;
+    }
+
+    .modern-close {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+    }
+
+    .modern-body {
+        padding: 20px;
+    }
+    
+    .modern-footer {
+        padding: 16px 20px;
+        flex-direction: column;
+    }
+    
+    .fieldset-content {
+        padding: 16px;
+    }
+
+    .pattern-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .pattern-controls {
+        justify-content: center;
+    }
+
+    .standard-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .standard-controls {
+        justify-content: center;
+    }
+}

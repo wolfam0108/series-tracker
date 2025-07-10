@@ -1,0 +1,28 @@
+/* ==================================================================== */
+/* CSS-переменные (тема)                                               */
+/* ==================================================================== */
+
+:root {
+    /* --- Настройки карточек --- */
+    --card-animation-duration: 0.3s;
+    --card-border-radius: 12px;
+    --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+    --card-hover-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
+    
+    /* --- Цвета статусов (убраны, т.к. теперь в card.css) --- */
+
+    /* --- Настройки анимаций --- */
+    --row-animation-speed: 0.5s;
+
+    /* --- Цвета границ и фонов --- */
+    --border-color: #e9ecef;
+    --border-color-focus: #007bff;
+    --bg-light: #f8f9fa;
+    --bg-white: #fff;
+    --text-color: #495057;
+    --text-muted: #6c757d;
+
+    /* --- Настройки из примера test_bar.html --- */
+    --color-intensity: 0.7;
+    --stripe-intensity: 0.3;
+}

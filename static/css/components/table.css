@@ -1,0 +1,103 @@
+/* ==================================================================== */
+/* Стили для GRID-таблиц в модальных окнах                             */
+/* ==================================================================== */
+.div-table {
+    display: flex;
+    flex-direction: column;
+    width: 100%;
+    border: 1px solid var(--border-color);
+    border-radius: .375rem;
+    overflow: hidden;
+}
+
+.div-table-header,
+.div-table-row {
+    display: grid; /* ИСПОЛЬЗУЕМ GRID */
+    width: 100%;
+    border-bottom: 1px solid var(--border-color);
+    align-items: center;
+}
+
+.div-table-header {
+    background-color: var(--bg-light);
+    font-weight: bold;
+    white-space: nowrap;
+}
+
+.div-table-body {
+    position: relative;
+}
+
+.div-table-body .div-table-row:last-child {
+    border-bottom: none;
+}
+
+.div-table-body .div-table-row:nth-of-type(odd) {
+    background-color: rgba(0, 0, 0, 0.02);
+}
+
+.div-table-cell {
+    padding: 0.75rem;
+    word-break: break-all;
+    display: flex;
+    align-items: center;
+    overflow: hidden;
+    min-width: 0;
+}
+
+/* --- Определения колонок для разных таблиц --- */
+.div-table.table-site-torrents .div-table-header,
+.div-table.table-site-torrents .div-table-row {
+    grid-template-columns: 2fr 4fr 2fr 2fr 3fr;
+}
+
+.div-table.table-qbit-info .div-table-header,
+.div-table.table-qbit-info .div-table-row {
+    grid-template-columns: 2fr 1.5fr 1fr 5.5fr;
+}
+
+.div-table.table-naming-preview .div-table-header,
+.div-table.table-naming-preview .div-table-row {
+    grid-template-columns: 1fr 1fr;
+}
+
+.div-table.table-torrents-history .div-table-header,
+.div-table.table-torrents-history .div-table-row {
+    grid-template-columns: 2fr 4fr 2fr 1.5fr 2fr 1fr 2.5fr;
+}
+
+.div-table.table-agent-queue .div-table-header,
+.div-table.table-agent-queue .div-table-row {
+    grid-template-columns: 1.5fr 2.5fr 2fr 2fr;
+}
+
+.div-table.table-logs .div-table-header,
+.div-table.table-logs .div-table-row {
+    grid-template-columns: 2.5fr 1.5fr 1fr 5fr;
+}
+
+/* --- ИЗМЕНЕНИЕ: Новое правило для таблицы статусов --- */
+.div-table.table-active-statuses .div-table-header,
+.div-table.table-active-statuses .div-table-row {
+    grid-template-columns: 2.5fr 2fr 1.5fr 2fr 1.5fr 1.5fr;
+}
+
+
+/* --- Стили состояний строк --- */
+.table-info-light { 
+    background-color: var(--bg-light) !important; 
+}
+
+.table-debug-light { 
+    background-color: #e0f2f1 !important; 
+}
+
+.row-danger { 
+    background-color: #f8d7da !important; 
+}
+
+/* Цвета для строк в таблице агента */
+.row-state-metadata   { background-color: #fff3cd !important; }
+.row-state-renaming   { background-color: #e9d5ff !important; }
+.row-state-checking   { background-color: #cfe2ff !important; }
+.row-state-activation { background-color: #d1e7dd !important; }

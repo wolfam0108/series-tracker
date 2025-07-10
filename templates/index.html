@@ -1,0 +1,168 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Трекер сериалов</title>
+    <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
+    <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
+    
+    <link rel="stylesheet" href="/static/css/base/variables.css">
+    <link rel="stylesheet" href="/static/css/base/layout.css">
+    
+    <link rel="stylesheet" href="/static/css/components/card.css">
+    <link rel="stylesheet" href="/static/css/components/modal.css">
+    <link rel="stylesheet" href="/static/css/components/form.css">
+    <link rel="stylesheet" href="/static/css/components/table.css">
+    
+    <link rel="stylesheet" href="/static/css/utils/animations.css">
+
+    <script src="https://cdn.jsdelivr.net/npm/vue@3.2.47/dist/vue.global.prod.js"></script>
+    <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
+</head>
+<body>
+    <div id="app" class="container mt-5">
+        <div class="toast-container position-fixed bottom-0 end-0 p-3">
+            <div id="saveToast" class="toast" role="alert" aria-live="assertive" aria-atomic="true">
+                <div class="toast-header">
+                    <strong class="me-auto">Уведомление</strong>
+                    <button type="button" class="btn-close" data-bs-dismiss="toast" aria-label="Close"></button>
+                </div>
+                <div class="toast-body">{{ toastMessage }}</div>
+            </div>
+        </div>
+
+        <div class="page-header">
+            <h1 class="page-title">Трекер сериалов</h1>
+            <div class="header-actions">
+                <button class="header-btn btn-primary" @click="openAddModal">
+                    <i class="bi bi-plus-lg"></i>
+                    Добавить сериал
+                </button>
+                <button class="header-btn btn-secondary" @click="openLogsModal">
+                    <i class="bi bi-journal-text"></i>
+                    Просмотр логов
+                </button>
+                <button class="header-btn btn-success" @click="openSettingsModal">
+                    <i class="bi bi-gear"></i>
+                    Настройки
+                </button>
+            </div>
+        </div>
+
+        <transition-group name="card" tag="div" class="series-list">
+            <div v-for="s in seriesWithPills" :key="s.id" class="series-card">
+                
+                <div class="layer-stripes" :class="getAnimationClass(s)">
+                    <div class="color-layer layer-waiting"    :style="getLayerStyle(s, 'waiting')"></div>
+                    <div class="color-layer layer-ready"      :style="getLayerStyle(s, 'ready')"></div>
+                    <div class="color-layer layer-downloading":style="getLayerStyle(s, 'downloading')"></div>
+                    <div class="color-layer layer-activation" :style="getLayerStyle(s, 'activation')"></div>
+                    <div class="color-layer layer-checking"   :style="getLayerStyle(s, 'checking')"></div>
+                    <div class="color-layer layer-renaming"   :style="getLayerStyle(s, 'renaming')"></div>
+                    <div class="color-layer layer-metadata"   :style="getLayerStyle(s, 'metadata')"></div>
+                    <div class="color-layer layer-scanning"   :style="getLayerStyle(s, 'scanning')"></div>
+                    <div class="color-layer layer-viewing"    :style="getLayerStyle(s, 'viewing')"></div>
+                    <div class="color-layer layer-error"      :style="getLayerStyle(s, 'error')"></div>
+                </div>
+
+                <div class="card-header">
+                    <div class="series-title-container">
+                        <span class="series-id unified-text-bg">#{{ s.id }}</span>
+                        <h3 class="series-title unified-text-bg">{{ s.name }}</h3>
+                    </div>
+                    <div class="d-flex align-items-center" style="gap: 8px;">
+                        <span class="series-site unified-text-bg">{{ s.site }}</span>
+                        <div class="auto-scan-switch unified-text-bg">
+                            <span>Готовность</span>
+                            <label class="switch" :title="s.auto_scan_enabled ? 'Авто-сканирование включено' : 'Авто-сканирование выключено'">
+                                <input type="checkbox" v-model="s.auto_scan_enabled" @change="toggleAutoScan(s.id, $event.target.checked)">
+                                <span class="slider"></span>
+                            </label>
+                        </div>
+                    </div>
+                </div>
+
+                <div class="card-body">
+                    <div class="status-pills-container">
+                        <transition-group name="badge-fade">
+                            <div v-for="pill in s.pills" :key="pill.key" class="status-pill">
+                                <i v-if="pill.icon" class="bi" :class="pill.icon"></i>
+                                <span v-if="pill.title">{{ pill.title }}</span>
+                            </div>
+                        </transition-group>
+                    </div>
+                    <div class="scan-time unified-text-bg">
+                        {{ formatScanTime(s.last_scan_time) }}
+                    </div>
+                    <div class="card-actions">
+                         <button class="action-btn btn-status" @click="openStatusModal(s.id)" :disabled="isStateLoading(s)" title="Статус">
+                            <i class="bi bi-info-circle"></i>
+                        </button>
+                        <button class="action-btn btn-scan" @click="scanSeries(s.id)" :disabled="isStateLoading(s)" title="Сканировать">
+                            <i class="bi bi-arrow-clockwise"></i>
+                        </button>
+                        <button class="action-btn btn-delete" @click="deleteSeries(s.id)" :disabled="isStateLoading(s)" title="Удалить">
+                            <i class="bi bi-trash"></i>
+                        </button>
+                    </div>
+                </div>
+            </div>
+        </transition-group>
+
+        <div v-if="!series.length && !isLoading" class="empty-state">
+            <i class="bi bi-collection-play"></i>
+            <h4>Сериалы не найдены</h4>
+            <p>Добавьте первый сериал, чтобы начать отслеживание</p>
+            <button class="header-btn btn-primary" @click="openAddModal">
+                <i class="bi bi-plus-lg"></i>
+                Добавить сериал
+            </button>
+        </div>
+
+        <add-series-modal ref="addModal" @show-toast="showToast"></add-series-modal>
+        <status-modal ref="statusModal" @series-updated="loadInitialSeries" @show-toast="showToast"></status-modal>
+        <logs-modal ref="logsModal" @reload-series="loadInitialSeries" @show-toast="showToast"></logs-modal>
+        
+        <settings-modal 
+            ref="settingsModal" 
+            :series="series" 
+            :agent-queue="agentQueue" 
+            @show-toast="showToast" 
+            @reload-series="loadInitialSeries">
+        </settings-modal>
+    </div>
+
+    <script>
+        function sortEpisodeKeys(keys) {
+            const getFirstNumber = (key) => {
+                const match = key.match(/\d+/);
+                // Помещаем строки без чисел (например, 'one') в конец
+                return match ? parseInt(match[0], 10) : Infinity;
+            };
+
+            return keys.sort((a, b) => {
+                const numA = getFirstNumber(a);
+                const numB = getFirstNumber(b);
+                
+                if (numA === numB) {
+                    // Если числа одинаковые, сортируем по строке, чтобы 'old' был после 'one'
+                    return a.localeCompare(b);
+                }
+                return numA - numB;
+            });
+        }
+    </script>
+    
+    <script src="/static/js/components/FileTree.js"></script>
+    <script src="/static/js/components/addSeriesModal.js"></script>
+    <script src="/static/js/components/statusModal.js"></script>
+    <script src="/static/js/components/logsModal.js"></script>
+    <script src="/static/js/components/settingsAuth.js"></script>
+    <script src="/static/js/components/settingsNaming.js"></script>
+    <script src="/static/js/components/settingsDebug.js"></script>
+    <script src="/static/js/components/settingsAgents.js"></script>
+    <script src="/static/js/components/settingsModal.js"></script>
+    <script src="/static/js/app.js"></script>
+</body>
+</html>

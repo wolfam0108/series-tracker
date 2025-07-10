@@ -1,0 +1,126 @@
+/* ==================================================================== */
+/* Анимации                                                            */
+/* ==================================================================== */
+
+/* Анимации для списков Vue */
+.list-move,
+.badge-fade-move { /* Добавлено для плашек */
+    transition: transform 0.4s ease;
+}
+
+.list-enter-active,
+.list-leave-active {
+    transition: opacity var(--row-animation-speed) ease;
+}
+
+.list-enter-from,
+.list-leave-to {
+    opacity: 0;
+}
+
+.list-leave-active {
+    position: absolute;
+    width: 100%;
+}
+
+.badge-fade-enter-active {
+    transition: all 0.3s ease-out;
+}
+.badge-fade-leave-active {
+    transition: all 0.3s ease-in;
+    position: absolute; 
+}
+.badge-fade-enter-from,
+.badge-fade-leave-to {
+    opacity: 0;
+    transform: scale(0.8);
+}
+
+
+/* Анимация плавного появления */
+.fade-enter-active,
+.fade-leave-active {
+  transition: opacity 0.4s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  opacity: 0;
+}
+
+/* Анимации пульсации для строк таблицы */
+@keyframes pulse-warning { 
+    0% { background-color: #fff3cd; } 
+    50% { background-color: #ffe69c; } 
+    100% { background-color: #fff3cd; } 
+}
+
+@keyframes pulse-active { 
+    0% { background-color: #cfe2ff; } 
+    50% { background-color: #a9c7fe; } 
+    100% { background-color: #cfe2ff; } 
+}
+
+.row-warning-animated { 
+    animation: pulse-warning 2s infinite; 
+}
+
+.row-active-animated { 
+    animation: pulse-active 2s infinite ease-in-out; 
+}
+
+/* Анимации для спиннеров и полосок */
+@keyframes spin {
+    0% { transform: rotate(0deg); }
+    100% { transform: rotate(360deg); }
+}
+
+@keyframes move-stripes {
+    from { background-position: 0 0; }
+    to { background-position: 50px 0; }
+}
+
+@keyframes fade-in-stripes {
+    from { opacity: 0; }
+    to { opacity: 1; }
+}
+
+@keyframes fadeIn {
+    from { opacity: 0; transform: translateY(10px); }
+    to { opacity: 1; transform: translateY(0); }
+}
+
+.stripes-normal::before {
+    animation: move-stripes 2s linear infinite;
+}
+
+.stripes-slow::before {
+    animation: move-stripes 10s linear infinite;
+}
+
+.stripes-stopped::before {
+    animation: none;
+}
+
+
+/* Оверлей загрузки для таблиц */
+.loading-overlay {
+    position: absolute;
+    top: 0;
+    left: 0;
+    width: 100%;
+    height: 100%;
+    z-index: 5;
+    border-radius: .375rem;
+    
+    background-color: rgba(255, 249, 230, 0.9);
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 193, 7, 0.25) 25%, transparent 25%,
+        transparent 50%, rgba(255, 193, 7, 0.25) 50%,
+        rgba(255, 193, 7, 0.25) 75%, transparent 75%,
+        transparent 100%
+    );
+    background-size: 50px 50px;
+    animation: move-stripes 2s linear infinite;
+}

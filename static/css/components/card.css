@@ -1,0 +1,270 @@
+/* ==================================================================== */
+/* Стили карточек для главной страницы (Новый дизайн)                  */
+/* ==================================================================== */
+.series-card {
+    background: var(--bg-white);
+    border: none;
+    border-radius: var(--card-border-radius);
+    box-shadow: var(--card-shadow);
+    transition: all var(--card-animation-duration) ease;
+    margin-bottom: 16px;
+    overflow: hidden;
+    position: relative;
+    min-height: 120px;
+}
+
+.series-card:hover {
+    box-shadow: 0 8px 32px rgba(0, 0, 0, 0.2);
+    transform: scale(1.02);
+}
+
+.card-header, .card-body {
+    position: relative;
+    z-index: 15; 
+    background: transparent;
+}
+
+.card-header {
+    padding: 16px 20px 12px 20px;
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 12px;
+}
+
+.card-body {
+    padding: 12px 20px 16px 20px;
+    display: grid; 
+    grid-template-columns: 1fr auto auto; 
+    align-items: center;
+    gap: 16px;
+}
+
+.unified-text-bg {
+    background: rgba(248, 249, 250, 0.7);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    padding: 8px 16px;
+    border-radius: 10px;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);
+    color: #2c3e50 !important;
+}
+
+/* --- ИЗМЕНЕНИЕ: Стили для контейнера заголовка и ID --- */
+.series-title-container {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 1;
+    min-width: 0;
+}
+
+.series-id {
+    font-size: 14px;
+    font-weight: 700;
+    flex-shrink: 0;
+    /* --- ИЗМЕНЕНИЕ: Убрана прозрачность, чтобы фон совпадал --- */
+}
+
+.series-title {
+    font-size: 18px;
+    font-weight: 600;
+    margin: 0;
+    line-height: 1.3;
+    flex-shrink: 1;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+/* --- КОНЕЦ ИЗМЕНЕНИЯ --- */
+
+.series-site {
+    font-size: 15px;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0;
+}
+
+.scan-time {
+    font-size: 13px;
+    flex-shrink: 0;
+    white-space: nowrap;
+    justify-self: end;
+    font-weight: 600;
+}
+
+.status-pills-container {
+    display: flex;
+    flex-wrap: nowrap;
+    gap: 6px;
+    align-items: center;
+    min-width: 0;
+    position: relative;
+    height: 34px;
+}
+
+.status-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    font-size: 14px;
+    font-weight: 500;
+    white-space: nowrap;
+    flex-shrink: 0; 
+    background: rgba(248, 249, 250, 0.7);
+    backdrop-filter: blur(4px);
+    -webkit-backdrop-filter: blur(4px);
+    padding: 6px 12px;
+    border-radius: 8px;
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);
+    color: #2c3e50 !important;
+}
+
+.status-pill .bi {
+    font-size: 1em;
+}
+
+.auto-scan-switch {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 15px;
+    font-weight: 500;
+}
+
+.switch {
+    position: relative;
+    display: inline-block;
+    width: 44px;
+    height: 24px;
+}
+
+.switch input {
+    opacity: 0;
+    width: 0;
+    height: 0;
+}
+
+.slider {
+    position: absolute;
+    cursor: pointer;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    background-color: #ccc;
+    transition: .4s;
+    border-radius: 24px;
+}
+
+.slider:before {
+    position: absolute;
+    content: "";
+    height: 18px;
+    width: 18px;
+    left: 3px;
+    bottom: 3px;
+    background-color: white;
+    transition: .4s;
+    border-radius: 50%;
+    box-shadow: 0 2px 4px rgba(0,0,0,0.2);
+}
+
+input:checked + .slider {
+    background-color: var(--border-color-focus);
+}
+
+input:checked + .slider:before {
+    transform: translateX(20px);
+}
+
+.card-actions {
+    display: flex;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.action-btn {
+    padding: 8px 16px;
+    border: none;
+    border-radius: 8px;
+    font-size: 16px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 4px;
+    color: white;
+}
+
+.btn-status { 
+    background: linear-gradient(135deg, #17a2b8 0%, #117a8b 100%);
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
+}
+
+.btn-scan { 
+    background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.3);
+    color: #212529;
+}
+
+.btn-delete { 
+    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+    box-shadow: 0 0 8px rgba(0, 0, 0, 0.4);
+}
+
+.action-btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+}
+
+.color-layer {
+    position: absolute;
+    top: 0;
+    left: 0;
+    right: 0;
+    bottom: 0;
+    width: 0; 
+    overflow: hidden;
+    transition: width 0.8s ease-in-out;
+    border-radius: var(--card-border-radius);
+}
+
+.layer-stripes::before {
+    content: '';
+    --stripe-size: 50px;
+    position: absolute;
+    top: 0; left: 0; right: 0; bottom: 0;
+    background-image: linear-gradient(
+        45deg,
+        rgba(255, 255, 255, var(--stripe-intensity)) 25%, transparent 25%,
+        transparent 50%, rgba(255, 255, 255, var(--stripe-intensity)) 50%,
+        rgba(255, 255, 255, var(--stripe-intensity)) 75%, transparent 75%,
+        transparent 100%
+    );
+    background-size: var(--stripe-size) var(--stripe-size);
+    z-index: 11; 
+}
+
+.layer-waiting    { background: linear-gradient(135deg, #f0f2f5, #e9ecef); z-index: 1; }
+.layer-ready      { background: linear-gradient(135deg, #4CAF50, #409444); z-index: 2; } 
+.layer-downloading{ background: linear-gradient(135deg, #009688, #00796D); z-index: 3; } 
+.layer-activation { background: linear-gradient(135deg, #7EC9D1, #6ab8bf); z-index: 4; }
+.layer-checking   { background: linear-gradient(135deg, #849DD5, #6f88c3); z-index: 5; }
+.layer-renaming   { background: linear-gradient(135deg, #A28ADA, #8b73c2); z-index: 6; }
+.layer-metadata   { background: linear-gradient(135deg, #D2B575, #c0a463); z-index: 7; }
+.layer-scanning   { background: linear-gradient(135deg, #CF9772, #bd8561); z-index: 8; }
+.layer-viewing    { background: linear-gradient(135deg, #6c757d, #5a6268); z-index: 9; }
+.layer-error      { background: linear-gradient(135deg, #dc3545, #c82333); z-index: 10; }
+
+.status-spinner {
+    width: 14px;
+    height: 14px;
+    border: 2px solid currentColor;
+    border-top: 2px solid transparent;
+    border-radius: 50%;
+    animation: spin 1s linear infinite;
+}

@@ -1,0 +1,17 @@
+# Flask and extensions
+Flask
+Flask-Cors
+
+# Database
+SQLAlchemy
+
+# HTTP Requests
+requests
+cloudscraper
+
+# HTML Parsing
+beautifulsoup4
+lxml
+
+# Browser Automation for astar.bz parser
+playwright

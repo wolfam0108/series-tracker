@@ -1,0 +1,76 @@
+/* ==================================================================== */
+/* Базовые стили макета                                                */
+/* ==================================================================== */
+
+/* Заголовок и кнопки управления */
+.page-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-bottom: 24px;
+    flex-wrap: wrap;
+    gap: 16px;
+}
+
+.page-title {
+    font-size: 28px;
+    font-weight: 700;
+    color: #2c3e50;
+    margin: 0;
+}
+
+.header-actions {
+    display: flex;
+    gap: 12px;
+    flex-wrap: wrap;
+}
+
+/* Пустое состояние */
+.empty-state {
+    text-align: center;
+    padding: 60px 20px;
+    color: var(--text-muted);
+}
+
+.empty-state i {
+    font-size: 48px;
+    margin-bottom: 16px;
+    opacity: 0.5;
+}
+
+/* Стилизация скроллбара */
+::-webkit-scrollbar { 
+    width: 8px; 
+}
+
+::-webkit-scrollbar-track { 
+    background: rgba(0, 0, 0, 0); 
+}
+
+::-webkit-scrollbar-thumb { 
+    background-color: rgba(0, 0, 0, 0.3); 
+    border-radius: 4px; 
+}
+
+::-webkit-scrollbar-thumb:hover { 
+    background-color: rgba(0, 0, 0, 0.5); 
+}
+
+/* Прочие утилиты */
+.file-tree-container { 
+    font-family: monospace; 
+    font-size: 0.9em; 
+    width: 100%; 
+}
+
+.file-tree-container .folder { 
+    cursor: pointer; 
+}
+
+.file-tree-container .folder:hover { 
+    color: var(--border-color-focus); 
+}
+
+.btn-group { 
+    white-space: nowrap; 
+}
