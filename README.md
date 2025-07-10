@@ -1,4 +1,4 @@
-# Series Tracker
+<img width="1346" height="892" alt="image" src="https://github.com/user-attachments/assets/22fd6a98-bf84-4d43-9ac1-462ce0143596" /># Series Tracker
 
 > Умный медиа-сервер для автоматического отслеживания, скачивания и управления сериалами с популярных трекеров.
 
@@ -132,7 +132,7 @@ sudo systemctl status series-tracker.service
       * `*` — используется для обозначения любого количества любых символов.
 5.  Паттерны применяются по приоритету сверху вниз. Вы можете менять их порядок с помощью стрелок.
 
-*\<Здесь будет скриншот настроек нейминга\>*
+![Окно добавления сериалов]((https://github.com/wolfam0108/series-tracker/blob/main/docs/images/%D0%A1%D0%BD%D0%B8%D0%BC%D0%BE%D0%BA%20%D1%8D%D0%BA%D1%80%D0%B0%D0%BD%D0%B0%202025-07-10%20161104.png?raw=true)
 
 ### Просмотр логов
 
