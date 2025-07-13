@@ -9,6 +9,7 @@ const SettingsAdvancedNamingTab = {
             <div class="fieldset-content">
                 <p class="text-muted small mb-3">
                     Создайте новое правило или нажмите на существующее в списке ниже, чтобы загрузить его для редактирования.
+                    Используйте <b>X</b> для захвата числа, <b>*</b> для любого текста и <b>Y</b> для любого одиночного символа.
                 </p>
                 
                 <div class="p-3 border rounded bg-light mb-3">
@@ -33,8 +34,11 @@ const SettingsAdvancedNamingTab = {
                             </div>
                         </div>
                         <div class="col-md-6">
-                             <label class="modern-label">3. Заменяемая область (что удаляем)</label>
-                            <input v-model.trim="newPattern.area_to_replace" type="text" class="modern-input" placeholder="S01E155">
+                             <label class="modern-label">3. Заменяемая область (с Y для символа)</label>
+                            <div class="modern-input-group">
+                                <input v-model.trim="newPattern.area_to_replace" type="text" class="modern-input" placeholder="S01E155 или S02SYY" ref="newAreaToReplaceInput">
+                                <button @click="insertSymbol('newAreaToReplaceInput', newPattern, 'Y', 'area_to_replace')" class="modern-symbol-btn" title="Любой одиночный символ">Y</button>
+                            </div>
                         </div>
                         <div class="col-md-6">
                             <label class="modern-label">4. Замена (шаблон с X для вставки)</label>
@@ -199,10 +203,8 @@ const SettingsAdvancedNamingTab = {
 
         try {
             const payload = { ...this.newPattern };
-            // --- ИЗМЕНЕНИЕ: Преобразуем значение в число или null перед отправкой ---
             const op_val = parseInt(payload.arithmetic_op, 10);
             payload.arithmetic_op = isNaN(op_val) ? null : op_val;
-            // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             const response = await fetch(url, { 
                 method: method, 

@@ -41,7 +41,7 @@ class Renamer:
             self.logger.error("renamer", f"Ошибка компиляции простого паттерна '{user_pattern}': {e}")
             return None
     
-    # --- ИЗМЕНЕНИЕ: Добавлена логика для arithmetic_op ---
+    # --- ИЗМЕНЕНИЕ: Добавлена логика для arithmetic_op и метки Y ---
     def _apply_advanced_patterns(self, filename: str) -> str:
         """
         Применяет все активные продвинутые паттерны к имени файла как пре-процессор.
@@ -75,18 +75,24 @@ class Renamer:
                 if p.get('arithmetic_op') is not None:
                     final_num += p['arithmetic_op']
                 
-                # Проверка на наличие области для замены
-                if p['area_to_replace'] not in processed_filename:
+                # Шаг 3: Проверка на наличие области для замены с использованием regex для 'Y'
+                # Экранируем все спецсимволы, кроме Y, который заменяем на '.'
+                area_to_replace_regex_str = re.escape(p['area_to_replace']).replace(re.escape('Y'), '.')
+                area_to_replace_re = re.compile(area_to_replace_regex_str)
+                
+                area_match = area_to_replace_re.search(processed_filename)
+                if not area_match:
                     if app.debug_manager.is_debug_enabled('renamer'):
-                        self.logger.debug("renamer", f"Паттерн '{p['name']}' пропущен: area_to_replace '{p['area_to_replace']}' не найдена в '{processed_filename}'")
+                        self.logger.debug("renamer", f"Паттерн '{p['name']}' пропущен: area_to_replace '{p['area_to_replace']}' (regex: '{area_to_replace_regex_str}') не найдена в '{processed_filename}'")
                     continue
                 
-                # Шаг 3: Формирование новой строки
+                # Шаг 4: Формирование новой строки
                 x_len_in_template = p['replacement_template'].count('X')
                 new_part = p['replacement_template'].replace('X' * x_len_in_template, str(final_num).zfill(x_len_in_template))
                 
-                # Шаг 4: Замена
-                processed_filename = processed_filename.replace(p['area_to_replace'], new_part, 1)
+                # Шаг 5: Замена с использованием regex
+                processed_filename = area_to_replace_re.sub(new_part, processed_filename, 1)
+
                 if app.debug_manager.is_debug_enabled('renamer'):
                     self.logger.debug("renamer", f"Паттерн '{p['name']}' изменил имя файла на: '{processed_filename}'")
 
