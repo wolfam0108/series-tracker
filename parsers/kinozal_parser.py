@@ -1,8 +1,10 @@
 import re
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from bs4 import BeautifulSoup
 import requests
-from datetime import datetime, timedelta
+# --- ИЗМЕНЕНИЕ: Добавлен импорт timezone ---
+from datetime import datetime, timedelta, timezone
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from auth import AuthManager
 from db import Database
 from logger import Logger
@@ -10,6 +12,12 @@ import time
 from requests.exceptions import RequestException, Timeout
 from flask import current_app as app
 from urllib.parse import urlparse
+import hashlib
+
+def generate_kinozal_torrent_id(link, date_time):
+    """Вспомогательная функция для генерации ID, чтобы избежать дублирования."""
+    unique_string = f"{link}{date_time or ''}"
+    return hashlib.md5(unique_string.encode()).hexdigest()[:16]
 
 class KinozalParser:
     MAX_RETRIES = 3 
@@ -20,8 +28,13 @@ class KinozalParser:
         self.db = db
         self.logger = logger
 
+    # --- ИЗМЕНЕНИЕ: Логика получения текущей даты теперь учитывает часовой пояс МСК (UTC+3) ---
     def _normalize_date(self, date_str: str) -> Optional[str]:
-        current_date = datetime.now()
+        # Устанавливаем часовой пояс Москвы (UTC+3)
+        moscow_tz = timezone(timedelta(hours=3))
+        # Получаем текущее время с учетом этого часового пояса
+        current_date = datetime.now(moscow_tz)
+        
         month_map = {
             'января': '01', 'февраля': '02', 'марта': '03', 'апреля': '04',
             'мая': '05', 'июня': '06', 'июля': '07', 'августа': '08',
@@ -47,8 +60,9 @@ class KinozalParser:
         except (IndexError, ValueError) as e:
             self.logger.error("kinozal_parser", f"Ошибка нормализации даты '{date_str}': {str(e)}")
             return None
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-    def parse_series(self, url: str) -> Dict:
+    def parse_series(self, url: str, last_known_torrents: Optional[List[Dict]] = None) -> Dict:
         self.logger.info("kinozal_parser", f"Начало парсинга {url}")
         
         credentials = self.db.get_auth("kinozal")
@@ -106,9 +120,7 @@ class KinozalParser:
                 title_text = title_tag.text.strip() if title_tag else None
                 title_ru = None
                 if title_text:
-                    # --- ИЗМЕНЕНИЕ: Убираем обрезку по '/', оставляем только удаление имени сайта ---
                     title_ru = re.sub(r'\s*::\s*Кинозал\.(ТВ|МЕ)$', '', title_text, flags=re.IGNORECASE).strip()
-                    # -----------------------------------------------------------------------------------
                 
                 if app.debug_manager.is_debug_enabled('kinozal_parser'):
                     self.logger.debug("kinozal_parser", f"Найдено название: ru='{title_ru}'")
@@ -121,8 +133,6 @@ class KinozalParser:
                         if date_span:
                             date_str = date_span.get_text(strip=True)
                             date_text = self._normalize_date(date_str)
-                            if app.debug_manager.is_debug_enabled('kinozal_parser'):
-                                self.logger.debug(f"Дата найдена по ключу '{key_word}': '{date_str}'")
                             break
                 
                 if not date_text:
@@ -133,13 +143,21 @@ class KinozalParser:
                         if match:
                             date_str = match.group(1)
                             date_text = self._normalize_date(date_str)
-                            if app.debug_manager.is_debug_enabled('kinozal_parser'):
-                                self.logger.debug(f"Дата найдена в баннере (фолбэк): '{date_str}'")
 
                 if date_text:
                     self.logger.info(f"Найдена и обработана дата: {date_text}")
                 else:
                     self.logger.warning("kinozal_parser", "Не удалось найти дату ни одним из методов.")
+                    raise ValueError("Дата обновления торрента не найдена на странице")
+
+                last_known_date = last_known_torrents[0].get('date_time') if last_known_torrents else None
+                if last_known_date and last_known_date == date_text:
+                    self.logger.info("kinozal_parser", "Дата на сайте совпадает с известной. Обновление не требуется.")
+                    return {
+                        "source": "kinozal.me",
+                        "title": {"ru": title_ru, "en": None},
+                        "torrents": [{"date_time": date_text, "link": None}] 
+                    }
 
                 torrent_link = None
                 torrent_link_tag = soup.find('a', href=lambda href: href and 'download.php?id=' in href)
@@ -152,15 +170,18 @@ class KinozalParser:
                     torrent_link = f"{parsed_url.scheme}://{download_domain}/{href}"
 
                     if app.debug_manager.is_debug_enabled('kinozal_parser'):
-                        self.logger.debug("kinozal_parser", f"Найдена ссылка: {torrent_link}")
+                        self.logger.debug("kinozal_parser", f"Найдена ссылка на скачивание: {torrent_link}")
                 else:
                     self.logger.error("kinozal_parser", "Ссылка на торрент не найдена")
 
                 torrents = []
                 if torrent_link and date_text:
-                    if app.debug_manager.is_debug_enabled('kinozal_parser'):
-                        self.logger.debug("kinozal_parser", "Добавление торрента в результат")
-                    torrents.append({ "torrent_id": "001", "link": torrent_link, "date_time": date_text, "quality": None, "episodes": None })
+                    torrents.append({
+                        "link": torrent_link, 
+                        "date_time": date_text, 
+                        "quality": None, 
+                        "episodes": None 
+                    })
 
                 return {
                     "source": "kinozal.me",
@@ -168,22 +189,14 @@ class KinozalParser:
                     "torrents": torrents
                 }
 
-            except Timeout:
-                self.logger.warning("kinozal_parser", f"Ошибка таймаута при запросе к {url} (попытка {attempt + 1}/{self.MAX_RETRIES}).")
-                if attempt < self.MAX_RETRIES - 1:
-                    time.sleep(self.RETRY_DELAY)
-            except RequestException as e:
-                self.logger.warning("kinozal_parser", f"Ошибка запроса к {url} (попытка {attempt + 1}/{self.MAX_RETRIES}): {e}")
-                if attempt < self.MAX_RETRIES - 1:
-                    time.sleep(self.RETRY_DELAY)
-            except UnicodeDecodeError as e:
-                self.logger.error("kinozal_parser", f"Ошибка декодирования страницы {url} (попытка {attempt + 1}/{self.MAX_RETRIES}): {str(e)}")
+            except (Timeout, RequestException, UnicodeDecodeError, ValueError) as e:
+                self.logger.warning("kinozal_parser", f"Ошибка при обработке {url} (попытка {attempt + 1}/{self.MAX_RETRIES}): {e}")
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
                 else:
-                    return {"source": "kinozal.me", "title": {"ru": None, "en": None}, "torrents": [], "error": "Ошибка декодирования страницы"}
+                    return {"source": "kinozal.me", "title": {"ru": None, "en": None}, "torrents": [], "error": str(e)}
             except Exception as e:
-                self.logger.error("kinozal_parser", f"Непредвиденная ошибка парсинга {url} (попытка {attempt + 1}/{self.MAX_RETRIES}): {str(e)}", exc_info=True)
+                self.logger.error("kinozal_parser", f"Непредвиденная ошибка парсинга {url} (попытка {attempt + 1}/{self.MAX_RETRIES}): {e}", exc_info=True)
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
         

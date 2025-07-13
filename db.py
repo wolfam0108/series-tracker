@@ -32,10 +32,8 @@ class Series(Base):
     last_scan_time = Column(DateTime)
     auto_scan_enabled = Column(Boolean, default=False, nullable=False)
     active_status = Column(Text, default='{}')
-    # --- ИЗМЕНЕНИЕ: Добавлены новые поля ---
     quality_override = Column(Text, nullable=True)
     resolution_override = Column(Text, nullable=True)
-    # ------------------------------------
 
 class RenamingPattern(Base):
     __tablename__ = 'renaming_patterns'
@@ -53,6 +51,20 @@ class SeasonPattern(Base):
     priority = Column(Integer, default=0, nullable=False)
     is_active = Column(Boolean, default=True, nullable=False)
     
+class AdvancedRenamingPattern(Base):
+    __tablename__ = 'advanced_renaming_patterns'
+    id = Column(Integer, primary_key=True)
+    name = Column(Text, nullable=False, unique=True)
+    file_filter = Column(Text, nullable=False)
+    pattern_search = Column(Text, nullable=False)
+    area_to_replace = Column(Text, nullable=False)
+    replacement_template = Column(Text, nullable=False)
+    # --- ИЗМЕНЕНИЕ: Добавлено необязательное поле для арифметической операции ---
+    arithmetic_op = Column(Integer, nullable=True)
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+    priority = Column(Integer, default=0, nullable=False)
+    is_active = Column(Boolean, default=True, nullable=False)
+
 class Torrent(Base):
     __tablename__ = 'torrents'
     id = Column(Integer, primary_key=True)
@@ -145,37 +157,39 @@ class Database:
         
         with self.Session() as session:
             try:
-                session.execute(text('PRAGMA foreign_keys = OFF;'))
-                session.commit()
+                if self.engine.dialect.name == 'sqlite':
+                    session.execute(text('PRAGMA foreign_keys = OFF;'))
+                    session.commit()
 
                 for table_obj in Base.metadata.sorted_tables:
                     table_name = table_obj.name
-                    self.logger.debug("db", f"Проверка таблицы: {table_name}")
                     
                     if not inspector.has_table(table_name):
                         self.logger.warning("db", f"Таблица '{table_name}' не найдена. Создание...")
                         table_obj.create(self.engine)
                         continue
 
-                    actual_columns_info = inspector.get_columns(table_name)
-                    expected_column_map = {c.name: c for c in table_obj.columns}
-                    actual_column_map = {ac['name']: ac for ac in actual_columns_info}
+                    expected_columns = {c.name for c in table_obj.columns}
+                    actual_columns = {c['name'] for c in inspector.get_columns(table_name)}
                     
-                    missing_columns = set(expected_column_map.keys()) - set(actual_column_map.keys())
-                    if missing_columns:
-                        self.logger.warning("db", f"В таблице '{table_name}' отсутствуют колонки: {missing_columns}. Добавление...")
-                        for col_name in missing_columns:
-                            col_to_add = expected_column_map[col_name]
-                            col_type = col_to_add.type.compile(self.engine.dialect)
-                            session.execute(text(f'ALTER TABLE {table_name} ADD COLUMN {col_name} {col_type}'))
-                        session.commit()
-                        self.logger.info("db", f"Колонки для '{table_name}' добавлены.")
+                    if expected_columns != actual_columns:
+                        self.logger.warning(
+                            "db", 
+                            f"Обнаружено несоответствие схемы для таблицы '{table_name}'. Таблица будет пересоздана."
+                        )
+                        self.logger.debug(f"Ожидаемые колонки: {expected_columns}")
+                        self.logger.debug(f"Фактические колонки: {actual_columns}")
+                        
+                        table_obj.drop(self.engine)
+                        table_obj.create(self.engine)
+                        self.logger.info("db", f"Таблица '{table_name}' успешно пересоздана.")
 
             except Exception as e:
-                self.logger.error("db", f"Ошибка при миграции схемы для '{table_name}': {e}. Может потребоваться ручное вмешательство.", exc_info=True)
+                self.logger.error("db", f"Ошибка при миграции схемы: {e}. Может потребоваться ручное вмешательство.", exc_info=True)
             finally:
-                session.execute(text('PRAGMA foreign_keys = ON;'))
-                session.commit()
+                if self.engine.dialect.name == 'sqlite':
+                    session.execute(text('PRAGMA foreign_keys = ON;'))
+                    session.commit()
                 self.logger.info("db", "DEBUG: Детальный анализ схемы базы данных завершен.")
 
     def create_scan_task(self, series_id: int, task_data: List[Dict]) -> int:
@@ -279,7 +293,6 @@ class Database:
             if series:
                 for key, value in data.items():
                     if hasattr(series, key) and key != 'id':
-                        # Для JSON полей конвертируем в строку
                         if key == 'active_status' and isinstance(value, dict):
                             setattr(series, key, json.dumps(value))
                         else:
@@ -447,6 +460,73 @@ class Database:
                     pattern.priority = index
             session.commit()
 
+    # --- ИЗМЕНЕНИЕ: Обновлены CRUD-методы для поддержки arithmetic_op ---
+    def get_advanced_patterns(self) -> List[Dict[str, Any]]:
+        with self.Session() as session:
+            patterns = session.query(AdvancedRenamingPattern).order_by(AdvancedRenamingPattern.priority).all()
+            return [
+                {
+                    "id": p.id, "name": p.name, "file_filter": p.file_filter,
+                    "pattern_search": p.pattern_search, "area_to_replace": p.area_to_replace,
+                    "replacement_template": p.replacement_template,
+                    "arithmetic_op": p.arithmetic_op, # Добавлено новое поле
+                    "priority": p.priority, "is_active": p.is_active
+                } for p in patterns
+            ]
+
+    def add_advanced_pattern(self, data: Dict[str, Any]) -> int:
+        with self.Session() as session:
+            if session.query(AdvancedRenamingPattern).filter_by(name=data['name']).first():
+                raise ValueError(f"Продвинутый паттерн с именем '{data['name']}' уже существует.")
+            
+            max_priority = session.query(func.max(AdvancedRenamingPattern.priority)).scalar() or 0
+            
+            new_pattern = AdvancedRenamingPattern(
+                name=data['name'],
+                file_filter=data['file_filter'],
+                pattern_search=data['pattern_search'],
+                area_to_replace=data['area_to_replace'],
+                replacement_template=data['replacement_template'],
+                arithmetic_op=data.get('arithmetic_op'), # Добавлено новое поле
+                priority=max_priority + 1
+            )
+            session.add(new_pattern)
+            session.commit()
+            return new_pattern.id
+
+    def update_advanced_pattern(self, pattern_id: int, data: Dict[str, Any]):
+        with self.Session() as session:
+            pattern = session.query(AdvancedRenamingPattern).filter_by(id=pattern_id).first()
+            if pattern:
+                if 'name' in data and data['name'] != pattern.name:
+                    if session.query(AdvancedRenamingPattern).filter_by(name=data['name']).first():
+                        raise ValueError(f"Продвинутый паттерн с именем '{data['name']}' уже существует.")
+                
+                for key, value in data.items():
+                    if hasattr(pattern, key) and key != 'id':
+                        # Обрабатываем пустое значение для arithmetic_op
+                        if key == 'arithmetic_op' and (value == '' or value is None):
+                             setattr(pattern, key, None)
+                        else:
+                             setattr(pattern, key, value)
+                session.commit()
+
+    def delete_advanced_pattern(self, pattern_id: int):
+        with self.Session() as session:
+            pattern = session.query(AdvancedRenamingPattern).filter_by(id=pattern_id).first()
+            if pattern:
+                session.delete(pattern)
+                session.commit()
+
+    def update_advanced_patterns_order(self, ordered_ids: List[int]):
+        with self.Session() as session:
+            for index, pattern_id in enumerate(ordered_ids):
+                pattern = session.query(AdvancedRenamingPattern).filter_by(id=pattern_id).first()
+                if pattern:
+                    pattern.priority = index
+            session.commit()
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
     def set_setting(self, key: str, value: Any):
         with self.Session() as session:
             session.merge(Setting(key=key, value=str(value)))
@@ -458,7 +538,6 @@ class Database:
             return setting.value if setting else default
 
     def get_settings_by_prefix(self, prefix: str) -> Dict[str, str]:
-        """Возвращает словарь настроек, ключи которых начинаются с префикса."""
         with self.Session() as session:
             settings = session.query(Setting).filter(Setting.key.like(f"{prefix}%")).all()
             return {s.key: s.value for s in settings}

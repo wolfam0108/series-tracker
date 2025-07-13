@@ -4,6 +4,7 @@
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
     <title>Трекер сериалов</title>
+    <link rel="icon" href="/static/favicon.ico" type="image/x-icon">
     <link href="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/css/bootstrap.min.css" rel="stylesheet">
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
     
@@ -96,13 +97,13 @@
                         {{ formatScanTime(s.last_scan_time) }}
                     </div>
                     <div class="card-actions">
-                         <button class="action-btn btn-status" @click="openStatusModal(s.id)" :disabled="isStateLoading(s)" title="Статус">
+                         <button class="action-btn btn-status" @click="openStatusModal(s.id)" title="Статус">
                             <i class="bi bi-info-circle"></i>
                         </button>
-                        <button class="action-btn btn-scan" @click="scanSeries(s.id)" :disabled="isStateLoading(s)" title="Сканировать">
+                        <button class="action-btn btn-scan" @click="scanSeries(s.id)" :disabled="isSeriesBusy(s)" title="Сканировать">
                             <i class="bi bi-arrow-clockwise"></i>
                         </button>
-                        <button class="action-btn btn-delete" @click="deleteSeries(s.id)" :disabled="isStateLoading(s)" title="Удалить">
+                        <button class="action-btn btn-delete" @click="deleteSeries(s.id)" :disabled="isSeriesBusy(s)" title="Удалить">
                             <i class="bi bi-trash"></i>
                         </button>
                     </div>
@@ -119,7 +120,8 @@
                 Добавить сериал
             </button>
         </div>
-
+        
+        <confirmation-modal ref="confirmationModal"></confirmation-modal>
         <add-series-modal ref="addModal" @show-toast="showToast"></add-series-modal>
         <status-modal ref="statusModal" @series-updated="loadInitialSeries" @show-toast="showToast"></status-modal>
         <logs-modal ref="logsModal" @reload-series="loadInitialSeries" @show-toast="showToast"></logs-modal>
@@ -137,7 +139,6 @@
         function sortEpisodeKeys(keys) {
             const getFirstNumber = (key) => {
                 const match = key.match(/\d+/);
-                // Помещаем строки без чисел (например, 'one') в конец
                 return match ? parseInt(match[0], 10) : Infinity;
             };
 
@@ -146,7 +147,6 @@
                 const numB = getFirstNumber(b);
                 
                 if (numA === numB) {
-                    // Если числа одинаковые, сортируем по строке, чтобы 'old' был после 'one'
                     return a.localeCompare(b);
                 }
                 return numA - numB;
@@ -154,11 +154,13 @@
         }
     </script>
     
+    <script src="/static/js/components/confirmationModal.js"></script>
     <script src="/static/js/components/FileTree.js"></script>
     <script src="/static/js/components/addSeriesModal.js"></script>
     <script src="/static/js/components/statusModal.js"></script>
     <script src="/static/js/components/logsModal.js"></script>
     <script src="/static/js/components/settingsAuth.js"></script>
+    <script src="/static/js/components/settingsAdvancedNaming.js"></script>
     <script src="/static/js/components/settingsNaming.js"></script>
     <script src="/static/js/components/settingsDebug.js"></script>
     <script src="/static/js/components/settingsAgents.js"></script>

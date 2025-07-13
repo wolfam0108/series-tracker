@@ -12,6 +12,7 @@ from qbittorrent import QBittorrentClient
 from auth import AuthManager
 from renamer import Renamer
 from scanner import perform_series_scan
+from file_cache import delete_from_cache
 
 # Создаем единую функцию для инициализации всех маршрутов
 def init_routes(app):
@@ -167,14 +168,21 @@ def init_routes(app):
     def delete_series(series_id):
         delete_from_qb = request.args.get('delete_from_qb', 'false').lower() == 'true'
         
+        torrents_to_delete = app.db.get_torrents(series_id) 
+
         if delete_from_qb:
             app.logger.warning("routes", f"Удаление записей торрентов для сериала {series_id} из qBittorrent.")
-            torrents_to_delete = app.db.get_torrents(series_id)
             hashes_to_delete = [t['qb_hash'] for t in torrents_to_delete if t.get('qb_hash')]
             if hashes_to_delete:
                 qb_client = QBittorrentClient(AuthManager(app.db, app.logger), app.db, app.logger)
                 qb_client.delete_torrents(hashes_to_delete, delete_files=False)
                 app.logger.info("routes", f"Удалено {len(hashes_to_delete)} записей торрентов из qBittorrent для сериала {series_id}.")
+
+        if torrents_to_delete:
+            app.logger.info("routes", f"Очистка кэша .torrent файлов для сериала {series_id}.")
+            for torrent in torrents_to_delete:
+                if torrent.get('torrent_id'):
+                    delete_from_cache(torrent['torrent_id'])
 
         app.db.delete_series(series_id)
         app.sse_broadcaster.broadcast('series_deleted', {'id': series_id})
@@ -196,7 +204,7 @@ def init_routes(app):
         if result["success"]:
             return jsonify(result)
         else:
-            status_code = 409 if "уже запущен" in result["error"] else 500
+            status_code = 409 if "уже запущен" in result.get("error", "") else 500
             return jsonify(result), status_code
 
     @api_bp.route('/series/<int:series_id>/torrents', methods=['GET'])
@@ -317,7 +325,9 @@ def init_routes(app):
             return jsonify(result), 400
         
         for torrent in result.get("torrents", []):
-            torrent["torrent_id"] = generate_torrent_id(torrent["link"], torrent.get("date_time"))
+            link_for_id = torrent.get('raw_link_for_id_gen', torrent.get('link'))
+            if link_for_id:
+                torrent["torrent_id"] = generate_torrent_id(link_for_id, torrent.get("date_time"))
         
         return jsonify({"success": True, **result})
     
@@ -502,6 +512,61 @@ def init_routes(app):
         renamer = Renamer(app.logger, app.db)
         result = renamer.find_season_with_db_patterns(filename)
         return jsonify({"result": result})
+
+    @api_bp.route('/advanced_patterns', methods=['GET'])
+    def get_advanced_patterns():
+        patterns = app.db.get_advanced_patterns()
+        return jsonify(patterns)
+
+    @api_bp.route('/advanced_patterns', methods=['POST'])
+    def add_advanced_pattern():
+        data = request.get_json()
+        try:
+            pattern_id = app.db.add_advanced_pattern(data)
+            return jsonify({"success": True, "id": pattern_id})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @api_bp.route('/advanced_patterns/<int:pattern_id>', methods=['PUT'])
+    def update_advanced_pattern(pattern_id):
+        data = request.get_json()
+        try:
+            app.db.update_advanced_pattern(pattern_id, data)
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @api_bp.route('/advanced_patterns/<int:pattern_id>', methods=['DELETE'])
+    def delete_advanced_pattern(pattern_id):
+        try:
+            app.db.delete_advanced_pattern(pattern_id)
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @api_bp.route('/advanced_patterns/reorder', methods=['POST'])
+    def reorder_advanced_patterns():
+        ordered_ids = request.get_json()
+        try:
+            app.db.update_advanced_patterns_order(ordered_ids)
+            return jsonify({"success": True})
+        except Exception as e:
+            return jsonify({"success": False, "error": str(e)}), 400
+
+    @api_bp.route('/advanced_patterns/test-all', methods=['POST'])
+    def test_all_advanced_patterns():
+        data = request.get_json()
+        filename = data.get('filename')
+        if not filename:
+            return jsonify({"error": "Отсутствует 'filename'"}), 400
+        
+        renamer = Renamer(app.logger, app.db)
+        processed_filename = renamer._apply_advanced_patterns(filename)
+        
+        if processed_filename != filename:
+            return jsonify({"result": f"Успех! Результат: '{processed_filename}'"})
+        else:
+            return jsonify({"result": "Не найдено совпадений ни одним активным правилом."})
 
     @api_bp.route('/quality_patterns', methods=['GET'])
     def get_quality_patterns():

@@ -37,7 +37,7 @@ const SettingsDebugTab = {
                         </div>
                         <div v-else-if="scannerStatus.scanner_enabled" class="w-100">
                             <i class="bi bi-clock me-2"></i>
-                            Следующий запуск: <strong>{{ nextScanCountdown }}</strong>
+                            Следующий запуск ~ <strong>{{ nextScanCountdown }}</strong>
                         </div>
                         <div v-else class="w-100">
                             <i class="bi bi-pause-circle me-2"></i>
@@ -56,6 +56,14 @@ const SettingsDebugTab = {
                 <h6 class="fieldset-title mb-0">Отладка модулей (DEBUG)</h6>
             </div>
             <div class="fieldset-content">
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="modern-form-check form-switch" title="Сохранять полученный от парсеров HTML-код в папку parser_dumps для анализа.">
+                            <input class="form-check-input" type="checkbox" role="switch" id="saveHtmlSwitch" v-model="debugSaveHtml" @change="saveSaveHtmlSetting">
+                            <label class="modern-form-check-label" for="saveHtmlSwitch">Сохранять HTML от парсеров</label>
+                        </div>
+                    </div>
+                </div>
                 <div v-if="Object.keys(debugFlags).length === 0" class="text-center text-muted p-3">
                     Загрузка флагов отладки...
                 </div>
@@ -130,11 +138,13 @@ const SettingsDebugTab = {
             'astar_parser': false,
       },
       debugForceReplace: false,
+      debugSaveHtml: false, // --- ИЗМЕНЕНИЕ: Новое свойство ---
       countdownTimer: null,
       nextScanCountdown: '...',
       tableDescriptions: {
         'series': 'Удалить все отслеживаемые сериалы.',
         'torrents': 'Удалить все связанные торренты из базы данных (не из qBittorrent).',
+        'advanced_renaming_patterns': 'Сбросить все продвинутые паттерны переименования.',
         'renaming_patterns': 'Сбросить все паттерны переименования эпизодов.',
         'season_patterns': 'Сбросить все паттерны переименования сезонов.',
         'quality_patterns': 'Сбросить все стандарты качества.',
@@ -153,6 +163,7 @@ const SettingsDebugTab = {
     load() {
         this.loadDebugFlags();
         this.loadForceReplaceSetting();
+        this.loadSaveHtmlSetting(); // --- ИЗМЕНЕНИЕ: Загрузка нового флага ---
         this.loadTables();
         this.connectEventSourceForScanner();
         this.startCountdownTimer();
@@ -167,13 +178,37 @@ const SettingsDebugTab = {
             this.countdownTimer = null;
         }
     },
+    // --- ИЗМЕНЕНИЕ: Новые методы для управления флагом сохранения HTML ---
+    async loadSaveHtmlSetting() {
+        try {
+            const response = await fetch('/api/settings/debug_flags');
+            if (!response.ok) throw new Error('Could not fetch debug flags');
+            const flags = await response.json();
+            this.debugSaveHtml = flags.save_parser_html || false;
+        } catch (error) {
+            this.$emit('show-toast', `Ошибка загрузки флага сохранения HTML: ${error.message}`, 'danger');
+        }
+    },
+    async saveSaveHtmlSetting() {
+        try {
+            await fetch('/api/settings/debug_flags', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ module: 'save_parser_html', enabled: this.debugSaveHtml })
+            });
+            this.$emit('show-toast', `Сохранение HTML от парсеров ${this.debugSaveHtml ? 'включено' : 'выключено'}`, 'info');
+        } catch (error) {
+            this.$emit('show-toast', `Ошибка сохранения флага: ${error.message}`, 'danger');
+        }
+    },
+    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
     async loadDebugFlags() {
         try {
             const response = await fetch('/api/settings/debug_flags');
             if (!response.ok) throw new Error('Could not fetch debug flags');
             const flagsFromServer = await response.json();
-            for (const moduleName in flagsFromServer) {
-                if (moduleName in this.debugFlags) {
+            for (const moduleName in this.debugFlags) {
+                if (moduleName in flagsFromServer) {
                     this.debugFlags[moduleName] = flagsFromServer[moduleName];
                 }
             }
@@ -316,17 +351,27 @@ const SettingsDebugTab = {
             const now = new Date();
             const nextScan = new Date(this.scannerStatus.next_scan_time);
             const diff = Math.max(0, nextScan - now);
+            const totalMinutes = Math.floor(diff / 1000 / 60);
 
-            const totalSeconds = Math.floor(diff / 1000);
-            const hours = Math.floor(totalSeconds / 3600);
-            const minutes = Math.floor((totalSeconds % 3600) / 60);
-            const seconds = totalSeconds % 60;
-
-            this.nextScanCountdown = 
-                `${String(hours).padStart(2, '0')}:` +
-                `${String(minutes).padStart(2, '0')}:` +
-                `${String(seconds).padStart(2, '0')}`;
-        }, 1000);
+            let newCountdownStr = '';
+            if (totalMinutes > 1440) {
+                const days = Math.floor(totalMinutes / 1440);
+                const hours = Math.floor((totalMinutes % 1440) / 60);
+                newCountdownStr = `${days} дн. ${hours} ч.`;
+            } else if (totalMinutes > 60) {
+                const hours = Math.floor(totalMinutes / 60);
+                const minutes = totalMinutes % 60;
+                newCountdownStr = `${hours} ч. ${minutes} мин.`;
+            } else if (totalMinutes > 0){
+                newCountdownStr = `${totalMinutes} мин.`;
+            } else {
+                newCountdownStr = `< 1 мин.`;
+            }
+            
+            if (this.nextScanCountdown !== newCountdownStr) {
+                this.nextScanCountdown = newCountdownStr;
+            }
+        }, 5000);
     }
   },
   beforeUnmount() {

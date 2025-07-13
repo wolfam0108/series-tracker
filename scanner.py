@@ -40,9 +40,25 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
             return {"success": False, "error": "Сериал не найден"}
 
         if not recovery_mode:
-            if series['state'].startswith(('scanning', 'rechecking')) or series['state'].startswith('{'):
-                app.logger.warning("scanner", f"Сканирование для series_id {series_id} пропущено: процесс уже запущен (статус: {series['state']}).")
-                return {"success": False, "error": f"Процесс уже запущен: {series['state']}"}
+            state_str = series['state']
+            is_busy = False
+
+            if state_str.startswith(('scanning', 'rechecking')):
+                is_busy = True
+            elif state_str.startswith('{'):
+                try:
+                    state_obj = json.loads(state_str)
+                    blocking_agent_stages = {'metadata', 'renaming', 'checking', 'activating'}
+                    
+                    current_stages = set(state_obj.values())
+                    if not blocking_agent_stages.isdisjoint(current_stages):
+                        is_busy = True
+                except (json.JSONDecodeError, TypeError):
+                    pass
+            
+            if is_busy:
+                app.logger.warning("scanner", f"Сканирование для series_id {series_id} пропущено: процесс уже запущен (статус: {state_str}).")
+                return {"success": False, "error": f"Процесс уже запущен: {state_str}"}
 
         app.db.set_series_state(series_id, 'scanning')
         _broadcast_series_update(series_id)
@@ -77,42 +93,52 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                 }
                 
                 parser = parsers.get(site_key)
-                
                 if not parser:
                     raise Exception(f"Парсер для сайта {series['site']} (ключ: {site_key}) не найден")
 
-                parsed_data = parser.parse_series(series['url'])
+                all_db_torrents = app.db.get_torrents(series_id)
+                db_hashes = [t['qb_hash'] for t in all_db_torrents if t.get('qb_hash')]
+                torrents_in_qb = qb_client.get_torrents_info(db_hashes) if db_hashes else []
+                hashes_in_qb = {t['hash'] for t in torrents_in_qb} if torrents_in_qb else set()
+                active_db_torrents = [t for t in all_db_torrents if t.get('qb_hash') in hashes_in_qb]
+                
+                parsed_data = parser.parse_series(series['url'], last_known_torrents=active_db_torrents)
+
                 if parsed_data.get('error'):
                     raise Exception(f"Ошибка парсера: {parsed_data['error']}")
                 
                 all_site_torrents = []
                 for t in parsed_data.get("torrents", []):
-                    t["torrent_id"] = generate_torrent_id(t["link"], t.get("date_time"))
+                    link_for_id = t.get('raw_link_for_id_gen', t.get('link'))
+                    if link_for_id:
+                        t["torrent_id"] = generate_torrent_id(link_for_id, t.get("date_time"))
                     all_site_torrents.append(t)
                 
+                new_or_updated_torrents = [t for t in all_site_torrents if t.get('link')]
+
+                if not new_or_updated_torrents:
+                    app.logger.info("scanner", "Парсер не вернул новых или обновленных торрентов.")
+                    app.db.set_series_state(series_id, 'waiting')
+                    _broadcast_series_update(series_id)
+                    return {"success": True, "tasks_created": 0}
+
                 site_torrents = []
                 if series.get('quality'):
                     selected_qualities = {q.strip() for q in series['quality'].split(';') if q.strip()}
-                    site_torrents = [t for t in all_site_torrents if t.get('quality') in selected_qualities]
+                    site_torrents = [t for t in new_or_updated_torrents if t.get('quality') in selected_qualities]
                     if app.debug_manager.is_debug_enabled('scanner'):
-                        app.logger.debug("scanner", f"Отфильтровано {len(site_torrents)} из {len(all_site_torrents)} торрентов по качеству: {selected_qualities}")
+                        app.logger.debug("scanner", f"Отфильтровано {len(site_torrents)} из {len(new_or_updated_torrents)} новых торрентов по качеству: {selected_qualities}")
                 else:
-                    site_torrents = all_site_torrents
+                    site_torrents = new_or_updated_torrents
                 
-                all_db_torrents = app.db.get_torrents(series_id)
-                db_hashes = [t['qb_hash'] for t in all_db_torrents if t.get('qb_hash')]
-                torrents_in_qb = qb_client.get_torrents_info(db_hashes) if db_hashes else []
-                hashes_in_qb = {t['hash'] for t in torrents_in_qb} if torrents_in_qb else set()
-                active_qb_torrents = [t for t in all_db_torrents if t.get('qb_hash') in hashes_in_qb]
-
                 if debug_force_replace:
                     app.logger.warning("scanner", "РЕЖИМ ОТЛАДКИ: Все активные торренты будут принудительно заменены.")
-                    hashes_to_delete = [t['qb_hash'] for t in active_qb_torrents]
+                    hashes_to_delete = [t['qb_hash'] for t in active_db_torrents]
                     if hashes_to_delete:
                         qb_client.delete_torrents(hashes_to_delete, delete_files=False)
-                        for t in active_qb_torrents:
+                        for t in active_db_torrents:
                             app.db.update_torrent_by_id(t['id'], {'is_active': False})
-                    active_qb_torrents = []
+                    active_db_torrents = []
 
                 torrents_to_process = []
                 site_type = 'fixed' if series['site'].startswith('astar') else 'rolling'
@@ -120,14 +146,14 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                     app.logger.debug("scanner", f"Стратегия обновления для сайта {series['site']}: {site_type}")
 
                 for site_torrent in site_torrents:
-                    existing_active_entry = next((t for t in active_qb_torrents if t['torrent_id'] == site_torrent['torrent_id']), None)
+                    existing_active_entry = next((t for t in active_db_torrents if t['torrent_id'] == site_torrent['torrent_id']), None)
                     if existing_active_entry: continue
 
                     old_torrent_to_replace = None
                     if site_type == 'fixed':
-                        old_torrent_to_replace = next((t for t in active_qb_torrents if t.get('episodes') == site_torrent.get('episodes')), None)
-                    elif site_type == 'rolling' and len(active_qb_torrents) == 1:
-                        old_torrent_to_replace = active_qb_torrents[0]
+                        old_torrent_to_replace = next((t for t in active_db_torrents if t.get('episodes') == site_torrent.get('episodes')), None)
+                    elif site_type == 'rolling' and len(active_db_torrents) == 1:
+                        old_torrent_to_replace = active_db_torrents[0]
                     
                     torrents_to_process.append({
                         "site_torrent": site_torrent,
@@ -136,7 +162,7 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                 
                 if not torrents_to_process:
                     app.logger.info("scanner", "Новых торрентов для добавления не найдено.")
-                    app.db.set_series_state(series_id, 'waiting', datetime.now(timezone.utc))
+                    app.db.set_series_state(series_id, 'waiting')
                     _broadcast_series_update(series_id)
                     return {"success": True, "tasks_created": 0}
 
@@ -155,24 +181,26 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                 if app.debug_manager.is_debug_enabled('scanner'):
                     app.logger.debug("scanner", f"Обработка торрента {index + 1}/{len(task_data_torrents)}: {site_torrent['torrent_id']}")
                 
-                try:
-                    tag_for_torrent = f"scantask-{task_id}-{index}"
-                    new_hash, link_type = qb_client.add_torrent(site_torrent['link'], series['save_path'], site_torrent['torrent_id'], tag=tag_for_torrent)
+                new_hash, link_type = qb_client.add_torrent(site_torrent['link'], series['save_path'], site_torrent['torrent_id'])
 
-                    if not new_hash:
-                        raise Exception("qBittorrentClient не вернул хеш.")
-
+                if new_hash:
                     results_data[str(index)] = {"hash": new_hash, "link_type": link_type}
                     app.db.update_scan_task_results(task_id, results_data)
                     if app.debug_manager.is_debug_enabled('scanner'):
                         app.logger.debug("scanner", f"Торрент {site_torrent['torrent_id']} добавлен. Hash: {new_hash[:8]}. Результат сохранен.")
-
-                except Exception as e:
-                    app.logger.warning("scanner", f"Не удалось обработать торрент {site_torrent['torrent_id']} в рамках задачи {task_id}: {e}. Пропуск.")
+                else:
+                    app.logger.warning("scanner", f"Не удалось добавить торрент {site_torrent['torrent_id']} в рамках задачи {task_id}. Пропуск.")
                     continue
 
             if not results_data:
-                 raise Exception("Не удалось добавить ни одного торрента из списка.")
+                error_message = "Не удалось добавить ни одного торрента из списка."
+                app.logger.error("scanner", f"Ошибка в процессе сканирования для series_id {series_id}: {error_message}")
+                app.db.set_series_state(series_id, 'error')
+                # --- ИЗМЕНЕНИЕ: Убрано обновление времени при ошибке ---
+                _broadcast_series_update(series_id)
+                if task_id:
+                    app.db.delete_scan_task(task_id)
+                return {"success": False, "error": error_message}
             
             app.logger.info("scanner", f"Всего {len(results_data)} торрентов из ScanTask ID {task_id} успешно добавлены.")
             tasks_created = 0
@@ -212,7 +240,7 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
             if app.debug_manager.is_debug_enabled('scanner'):
                 app.logger.debug("scanner", f"Задача сканирования ID {task_id} успешно завершена и удалена.")
 
-            app.db.update_series(series_id, {'last_scan_time': datetime.now(timezone.utc)})
+            # --- ИЗМЕНЕНИЕ: Убрано обновление времени при успешном завершении ---
             _broadcast_series_update(series_id)
             
             return {"success": True, "tasks_created": tasks_created}
@@ -220,6 +248,5 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
         except Exception as e:
             app.logger.error("scanner", f"Ошибка в процессе сканирования для series_id {series_id}: {e}", exc_info=True)
             app.db.set_series_state(series_id, 'error')
-            app.db.update_series(series_id, {'last_scan_time': datetime.now(timezone.utc)})
             _broadcast_series_update(series_id)
             return {"success": False, "error": str(e)}

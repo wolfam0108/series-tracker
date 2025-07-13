@@ -1,6 +1,6 @@
 import re
 import time
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from bs4 import BeautifulSoup
 import requests
 from datetime import datetime
@@ -9,11 +9,14 @@ from logger import Logger
 from requests.exceptions import RequestException, Timeout
 from flask import current_app as app
 from urllib.parse import urlparse
+import hashlib
+
+def generate_anilibria_tv_torrent_id(link, date_time):
+    """Вспомогательная функция для генерации ID, чтобы избежать дублирования."""
+    unique_string = f"{link}{date_time or ''}"
+    return hashlib.md5(unique_string.encode()).hexdigest()[:16]
 
 def extract_en_title(full_title: str) -> str:
-    """
-    Извлекает наиболее вероятное английское название из комплексной строки.
-    """
     if not full_title:
         return ""
     parts = [part.strip() for part in full_title.split('/')]
@@ -26,9 +29,6 @@ def extract_en_title(full_title: str) -> str:
         return min(latin_candidates, key=len)
 
 class AnilibriaTvParser:
-    """
-    Парсер для новой версии сайта anilibria.tv.
-    """
     MAX_RETRIES = 3
     RETRY_DELAY = 2
 
@@ -37,12 +37,7 @@ class AnilibriaTvParser:
         self.logger = logger
 
     def _normalize_date(self, date_str: str) -> Optional[str]:
-        """
-        Нормализует дату из формата ISO ('2025-07-02T18:38:02+00:00')
-        в стандартный формат проекта 'DD.MM.YYYY HH:MM:SS'.
-        """
         try:
-            # datetime.fromisoformat отлично справляется с форматом, включая таймзону
             dt_obj = datetime.fromisoformat(date_str)
             return dt_obj.strftime('%d.%m.%Y %H:%M:%S')
         except (ValueError, TypeError) as e:
@@ -50,7 +45,6 @@ class AnilibriaTvParser:
             return None
 
     def _fetch_page_source(self, url: str) -> Optional[str]:
-        """Запрашивает HTML-код страницы по URL."""
         headers = {
             'User-Agent': 'Mozilla/5.0 (Windows NT 10.0; Win64; x64) AppleWebKit/537.36 (KHTML, like Gecko) Chrome/126.0.0.0 Safari/537.36'
         }
@@ -65,7 +59,8 @@ class AnilibriaTvParser:
                     time.sleep(self.RETRY_DELAY)
         return None
 
-    def parse_series(self, url: str) -> Dict:
+    # --- ИЗМЕНЕНИЕ: Метод теперь принимает известные торренты для сравнения ---
+    def parse_series(self, url: str, last_known_torrents: Optional[List[Dict]] = None) -> Dict:
         self.logger.info("anilibria_tv_parser", f"Начало парсинга {url}")
         html_content = self._fetch_page_source(url)
         if not html_content:
@@ -75,7 +70,6 @@ class AnilibriaTvParser:
         parsed_url = urlparse(url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
 
-        # 1. Парсинг названий
         title_tag = soup.find('title')
         full_title = title_tag.get_text(strip=True) if title_tag else ""
         title_ru = full_title
@@ -86,39 +80,47 @@ class AnilibriaTvParser:
         if not torrent_table:
             return {"error": "Не найдена таблица с торрентами на странице."}
 
+        known_torrents_dict = {t['torrent_id']: t for t in last_known_torrents} if last_known_torrents else {}
         rows = torrent_table.find_all('tr')
-        for row in rows:
-            if not row.find('td'): continue # Пропускаем заголовок таблицы
 
-            # 2. Парсинг информации о торренте
+        for row in rows:
+            if not row.find('td'): continue
+
+            link_tag = row.find('a', class_='torrent-download-link')
+            if not (link_tag and link_tag.has_attr('href')):
+                continue
+            
+            link = base_url + link_tag['href']
+
+            date_td = row.find('td', class_='torrent-datetime')
+            date_iso = date_td['data-datetime'] if date_td and date_td.has_attr('data-datetime') else None
+            date_time = self._normalize_date(date_iso) if date_iso else None
+
+            # Генерируем ID для проверки
+            temp_torrent_id = generate_anilibria_tv_torrent_id(link, date_time)
+            
+            link_to_add = link
+            # --- ИЗМЕНЕНИЕ: Если торрент уже известен, не возвращаем ссылку ---
+            if temp_torrent_id in known_torrents_dict:
+                link_to_add = None
+
             info_td = row.find('td', class_='torrentcol1')
             info_text = info_td.get_text(strip=True) if info_td else ''
             
-            episodes = quality = None
+            episodes, quality = None, None
             match = re.match(r'(.+?)\s*\[(.+)\]', info_text)
             if match:
                 episodes = match.group(1).strip()
                 quality = match.group(2).strip()
             else:
-                episodes = info_text # Если качество не указано в скобках
-
-            # 3. Парсинг даты
-            date_td = row.find('td', class_='torrent-datetime')
-            date_iso = date_td['data-datetime'] if date_td and date_td.has_attr('data-datetime') else None
-            date_time = self._normalize_date(date_iso) if date_iso else None
-
-            # 4. Парсинг ссылки на скачивание
-            link_tag = row.find('a', class_='torrent-download-link')
-            if link_tag and link_tag.has_attr('href'):
-                link = base_url + link_tag['href']
-            else:
-                continue # Пропускаем строку, если нет ссылки
+                episodes = info_text
 
             torrents.append({
                 "episodes": episodes,
                 "quality": quality,
                 "date_time": date_time,
-                "link": link
+                "link": link_to_add,
+                "raw_link_for_id_gen": link, # Сохраняем для генерации постоянного ID в сканере
             })
             
         self.logger.info("anilibria_tv_parser", f"Найдено и обработано {len(torrents)} торрентов.")

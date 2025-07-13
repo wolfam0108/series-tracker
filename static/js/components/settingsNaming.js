@@ -1,4 +1,9 @@
 const SettingsNamingTab = {
+  // --- ИЗМЕНЕНИЕ: Добавлен блок для регистрации дочернего компонента ---
+  components: {
+    'settings-advanced-naming-tab': SettingsAdvancedNamingTab,
+  },
+  // --- КОНЕЦ ИЗМЕНЕНИЯ ---
   template: `
     <div class="settings-tab-content">
         <div class="sticky-sub-nav-wrapper">
@@ -8,6 +13,9 @@ const SettingsNamingTab = {
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link modern-tab-link" id="pills-season-tab" data-bs-toggle="pill" data-bs-target="#pills-season" type="button" role="tab"><i class="bi bi-collection-play me-2"></i>Паттерны сезона</button>
+                </li>
+                <li class="nav-item" role="presentation">
+                    <button class="nav-link modern-tab-link" id="pills-advanced-tab" data-bs-toggle="pill" data-bs-target="#pills-advanced" type="button" role="tab"><i class="bi bi-magic me-2"></i>Продвинутые паттерны</button>
                 </li>
                 <li class="nav-item" role="presentation">
                     <button class="nav-link modern-tab-link" id="pills-quality-tab" data-bs-toggle="pill" data-bs-target="#pills-quality" type="button" role="tab"><i class="bi bi-badge-hd me-2"></i>Паттерны качества</button>
@@ -150,6 +158,10 @@ const SettingsNamingTab = {
                         </div>
                     </div>
                 </div>
+            </div>
+            
+            <div class="tab-pane fade" id="pills-advanced" role="tabpanel">
+                <settings-advanced-naming-tab ref="advancedNamingTab" @show-toast="emitToast"></settings-advanced-naming-tab>
             </div>
             
             <div class="tab-pane fade" id="pills-quality" role="tabpanel">
@@ -316,6 +328,9 @@ const SettingsNamingTab = {
   },
   emits: ['show-toast'],
   methods: {
+    emitToast(message, type) {
+        this.$emit('show-toast', message, type);
+    },
     load() {
       this.loadSeriesPatterns();
       this.loadSeasonPatterns();

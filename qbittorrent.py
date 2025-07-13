@@ -8,6 +8,7 @@ from requests.exceptions import Timeout
 from db import Database
 from logger import Logger
 from auth import AuthManager
+from file_cache import read_from_cache, save_to_cache # --- ИЗМЕНЕНИЕ: Импортируем функции кэша
 
 class QBittorrentClient:
     def __init__(self, auth_manager: AuthManager, db: Database, logger: Logger):
@@ -37,7 +38,6 @@ class QBittorrentClient:
         url = f"{self.base_url}/{endpoint}"
         for attempt in range(self.MAX_RETRIES):
             try:
-                # --- ИЗМЕНЕНИЕ: Добавляем фильтрацию для "шумных" эндпоинтов ---
                 is_polling_endpoint = 'sync/maindata' in endpoint or 'torrents/info' in endpoint
                 if app.debug_manager.is_debug_enabled('qbittorrent') and not is_polling_endpoint:
                     self.logger.debug("qbittorrent", f"Запрос {method.upper()} к {url} (попытка {attempt + 1})")
@@ -65,10 +65,10 @@ class QBittorrentClient:
         self.logger.error("qbittorrent", f"Не удалось выполнить запрос к {url} после {self.MAX_RETRIES} попыток.")
         return None
 
-    def add_torrent(self, link: str, save_path: str, torrent_id: str, tag: Optional[str] = None) -> Tuple[Optional[str], Optional[str]]:
+    def add_torrent(self, link: str, save_path: str, torrent_id: str) -> Tuple[Optional[str], Optional[str]]:
         self.logger.info("qbittorrent", f"Добавление торрента ID: {torrent_id} в qBittorrent.")
         
-        final_tag = tag if tag else str(uuid.uuid4())
+        final_tag = torrent_id
         
         payload = {'savepath': save_path, 'tags': final_tag, 'paused': 'true'}
         add_params = {'data': payload}
@@ -81,30 +81,43 @@ class QBittorrentClient:
             payload['urls'] = link
             link_type = 'magnet'
         else:
-            if app.debug_manager.is_debug_enabled('qbittorrent'):
-                self.logger.debug("qbittorrent", f"Скачивание .torrent файла для {torrent_id}.")
             link_type = 'file'
-            try:
-                # --- ИЗМЕНЕНИЕ: Передаем URL в get_kinozal_session для правильной авторизации ---
-                if 'kinozal' in link:
-                    session = self.auth_manager.get_kinozal_session(link)
-                # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-                elif 'astar' in link:
-                    session = self.auth_manager.get_scraper()
-                else:
-                    session = requests.Session()
-                
-                if not session:
-                    raise Exception("Не удалось получить сессию для скачивания .torrent файла.")
-
-                response = session.get(link, timeout=20)
-                response.raise_for_status()
-                files_payload = {'torrents': ('file.torrent', response.content)}
+            # --- ИЗМЕНЕНИЕ: Внедрена логика кэширования ---
+            file_content = read_from_cache(torrent_id)
+            if not file_content:
                 if app.debug_manager.is_debug_enabled('qbittorrent'):
-                    self.logger.debug("qbittorrent", f"Файл для {torrent_id} успешно скачан.")
-            except Exception as e:
-                self.logger.error("qbittorrent", f"Не удалось скачать .torrent файл {link}: {e}", exc_info=True)
-                return None, None
+                    self.logger.debug("qbittorrent", f"Файл для торрента {torrent_id} не найден в кэше. Скачивание...")
+                try:
+                    if 'kinozal' in link:
+                        session = self.auth_manager.get_kinozal_session(link)
+                    elif 'astar' in link:
+                        session = self.auth_manager.get_scraper()
+                    else:
+                        session = requests.Session()
+                    
+                    if not session:
+                        raise Exception("Не удалось получить сессию для скачивания .torrent файла.")
+
+                    response = session.get(link, timeout=20)
+                    response.raise_for_status()
+                    
+                    content_type = response.headers.get('Content-Type', '')
+                    if 'text/html' in content_type:
+                        error_reason = "Неизвестная ошибка: трекер вернул HTML страницу."
+                        if "Вы использовали доступное Вам количество торрент-файлов в сутки" in response.text:
+                            error_reason = "Достигнут суточный лимит скачиваний на трекере."
+                        self.logger.error("qbittorrent", f"Ошибка скачивания файла {link}. Причина: {error_reason}")
+                        return None, None
+
+                    file_content = response.content
+                    save_to_cache(torrent_id, file_content) # Сохраняем в кэш
+
+                except Exception as e:
+                    self.logger.error("qbittorrent", f"Не удалось скачать .torrent файл {link}: {e}", exc_info=True)
+                    return None, None
+            
+            files_payload = {'torrents': ('file.torrent', file_content, 'application/x-bittorrent')}
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         
         if files_payload:
             add_params['files'] = files_payload
@@ -118,7 +131,9 @@ class QBittorrentClient:
                 self._remove_tag(final_tag, qb_hash)
                 return qb_hash, link_type
         
-        self.logger.error("qbittorrent", f"Не удалось добавить торрент {torrent_id} в qBittorrent. Ответ: {response.text if response else 'No response'}")
+        error_text = response.text if response else 'No response'
+        status_code = response.status_code if response else 'N/A'
+        self.logger.error("qbittorrent", f"Не удалось добавить торрент {torrent_id} в qBittorrent. Статус: {status_code}, Ответ: {error_text}")
         return None, None
 
 

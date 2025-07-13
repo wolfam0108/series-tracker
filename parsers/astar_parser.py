@@ -1,4 +1,4 @@
-from typing import Dict, Optional
+from typing import Dict, Optional, List
 from bs4 import BeautifulSoup
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 from datetime import datetime
@@ -8,6 +8,12 @@ from logger import Logger
 import time
 from flask import current_app as app
 from urllib.parse import urlparse
+import hashlib
+
+def generate_astar_torrent_id(link, date_time):
+    """Вспомогательная функция для генерации ID, чтобы избежать дублирования."""
+    unique_string = f"{link}{date_time or ''}"
+    return hashlib.md5(unique_string.encode()).hexdigest()[:16]
 
 class AstarParser:
     TIMEOUT = 10000 
@@ -27,7 +33,6 @@ class AstarParser:
             return None
 
     def _fetch_page_source(self, url: str) -> Optional[str]:
-        """Запрашивает HTML с использованием Playwright с повторными попытками."""
         if app.debug_manager.is_debug_enabled('astar_parser'):
             self.logger.debug("astar_parser", f"Запрос страницы: {url}")
         
@@ -63,21 +68,17 @@ class AstarParser:
                     
                     self.logger.info("astar_parser", f"Страница {url} успешно загружена (попытка {attempt + 1}).")
                     return html_content
-            except PlaywrightTimeoutError as e:
-                self.logger.warning("astar_parser", f"Ошибка таймаута при загрузке страницы {url} (попытка {attempt + 1}/{self.MAX_RETRIES}): {e.message.splitlines()[0]}")
-                if attempt < self.MAX_RETRIES - 1:
-                    time.sleep(self.RETRY_DELAY)
-            except Exception as e:
-                self.logger.warning("astar_parser", f"Ошибка получения страницы {url} (попытка {attempt + 1}/{self.MAX_RETRIES}): {e}", exc_info=True)
+            except (PlaywrightTimeoutError, Exception) as e:
+                error_message = str(e).splitlines()[0] if isinstance(e, PlaywrightTimeoutError) else str(e)
+                self.logger.warning("astar_parser", f"Ошибка получения страницы {url} (попытка {attempt + 1}/{self.MAX_RETRIES}): {error_message}")
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
         
         self.logger.error("astar_parser", f"Не удалось получить страницу {url} после {self.MAX_RETRIES} попыток.")
         return None
-    
-    # --- ИЗМЕНЕНИЕ: Метод _clean_filename больше не нужен и удален ---
 
-    def parse_series(self, url: str) -> Dict:
+    # --- ИЗМЕНЕНИЕ: Метод теперь принимает известные торренты для сравнения ---
+    def parse_series(self, url: str, last_known_torrents: Optional[List[Dict]] = None) -> Dict:
         self.logger.info("astar_parser", f"Начало парсинга {url}")
         html_content = self._fetch_page_source(url)
         if not html_content:
@@ -86,28 +87,48 @@ class AstarParser:
                 "torrents": [], "error": "Не удалось загрузить страницу"
             }
 
-        if app.debug_manager.is_debug_enabled('astar_parser'):
-            self.logger.debug("astar_parser", "Начало парсинга HTML")
         soup = BeautifulSoup(html_content, 'html.parser')
-
         parsed_url = urlparse(url)
         base_url = f"{parsed_url.scheme}://{parsed_url.netloc}"
 
         title_tag = soup.find('h1')
-        # --- ИЗМЕНЕНИЕ: Убираем вызов _clean_filename, получаем "сырое" название ---
         title_ru = title_tag.text.strip() if title_tag else None
-        # ----------------------------------------------------------------------
         
         torrents = []
-        episode_versions = {}
         torrent_items = soup.find_all('div', class_='torrent')
         
+        # Создаем словарь известных торрентов для быстрого доступа
+        known_torrents_dict = {t['torrent_id']: t for t in last_known_torrents} if last_known_torrents else {}
+
         for item in torrent_items:
+            # Сначала извлекаем всю информацию, включая ссылку
+            torrent_link_tag = item.find('a', href=re.compile(r'/engine/gettorrent\.php\?id=\d+'))
+            link = f"{base_url}{torrent_link_tag['href']}" if torrent_link_tag else None
+            if not link: continue
+
+            date_time = None
+            date_divs = item.find_all('div', class_='bord_a1')
+            for div in date_divs:
+                date_text = re.sub(r'\s+', ' ', div.text.strip())
+                date_match = re.search(r'Дата: (\d{2}-\d{2}-\d{4})', date_text)
+                if date_match:
+                    date_time = self._normalize_date(date_match.group(1))
+                    break
+            
+            # Генерируем временный ID, чтобы проверить, известен ли нам этот торрент
+            temp_torrent_id = generate_astar_torrent_id(link, date_time)
+
+            # --- ИЗМЕНЕНИЕ: Если торрент с таким ID уже есть, не добавляем ссылку ---
+            if temp_torrent_id in known_torrents_dict:
+                link_to_add = None # Не добавляем ссылку, так как торрент не изменился
+            else:
+                link_to_add = link # Добавляем ссылку, так как это новый/обновленный торрент
+            
             episode_div = item.find('div', class_='info_d1')
             episode_text = episode_div.text.strip() if episode_div else None
-            episodes = None
-            quality = None
+            episodes, quality = None, None
             if episode_text:
+                # ... (логика парсинга episodes и quality остается прежней)
                 episode_text = re.sub(r'\s*END\s*', '', episode_text).strip()
                 episode_text = re.sub(r'\s*\(\d+\.\d+\s*(Mb|Gb)\)', '', episode_text).strip()
                 series_range_match = re.match(r'^Серии\s+(\d+-\d+)(?:\s+(.+))?$', episode_text)
@@ -126,28 +147,21 @@ class AstarParser:
                 else:
                     continue
 
-                if episodes in episode_versions:
-                    episode_versions[episodes].append(quality)
-                else:
-                    episode_versions[episodes] = [quality]
-
-            torrent_link_tag = item.find('a', href=re.compile(r'/engine/gettorrent\.php\?id=\d+'))
-            link = f"{base_url}{torrent_link_tag['href']}" if torrent_link_tag else None
-
-            date_time = None
-            date_divs = item.find_all('div', class_='bord_a1')
-            for div in date_divs:
-                date_text = re.sub(r'\s+', ' ', div.text.strip())
-                date_match = re.search(r'Дата: (\d{2}-\d{2}-\d{4})', date_text)
-                if date_match:
-                    date_time = self._normalize_date(date_match.group(1))
-                    break
-
-            if link and episodes:
+            if episodes:
                 torrents.append({
-                    "torrent_id": f"temp_{len(torrents) + 1:03d}", "link": link,
-                    "date_time": date_time, "quality": quality, "episodes": episodes
+                    "link": link_to_add,
+                    "raw_link_for_id_gen": link, # Сохраняем для генерации постоянного ID в сканере
+                    "date_time": date_time, 
+                    "quality": quality, 
+                    "episodes": episodes
                 })
+        
+        # Логика для обработки 'old' версий остается
+        episode_versions = {}
+        for t in torrents:
+            if t['episodes'] not in episode_versions:
+                episode_versions[t['episodes']] = []
+            episode_versions[t['episodes']].append(t['quality'])
 
         for episodes, qualities in episode_versions.items():
             if len(qualities) > 1 and "one" in qualities:

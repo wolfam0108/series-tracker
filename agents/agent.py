@@ -9,6 +9,9 @@ from renamer import Renamer
 from auth import AuthManager
 from sse import ServerSentEvent
 from scanner import perform_series_scan
+# --- ИЗМЕНЕНИЕ: Добавлены импорты для работы со временем ---
+from datetime import datetime, timezone
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 class Agent(threading.Thread):
     def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent):
@@ -221,6 +224,10 @@ class Agent(threading.Thread):
                         self.db.add_or_update_agent_task(db_task_data)
                         self._broadcast_queue_update()
                     if task_completed:
+                        # --- ИЗМЕНЕНИЕ: Обновляем время сканирования при завершении задачи ---
+                        self.db.update_series(task['series_id'], {'last_scan_time': datetime.now(timezone.utc)})
+                        self.logger.info("agent", f"Обновлено время сканирования для series_id: {task['series_id']}")
+                        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
                         del self.processing_torrents[torrent_hash]
                         self.db.remove_agent_task(torrent_hash)
                         self._broadcast_queue_update()
@@ -320,10 +327,8 @@ class Agent(threading.Thread):
 
         self.logger.info("agent", "Переход в штатный режим Long-Polling.")
         while not self.shutdown_flag.is_set():
-            # --- ИЗМЕНЕНИЕ: Оборачиваем логику цикла в app_context ---
             with self.app.app_context():
                 if not self.processing_torrents:
-                    # Выходим из контекста и ждем, если нет работы
                     pass
                 else:
                     updates = qb_client.sync_main_data(rid)
@@ -353,7 +358,6 @@ class Agent(threading.Thread):
                                 if self.processing_torrents.get(h): self.processing_torrents[h]['last_info'].update(updated_torrents[h])
                             self._process_task_update(h, qb_client, renamer)
             
-            # Ожидание вне контекста
             self.shutdown_flag.wait(1)
 
         self.logger.info("agent", f"{self.name} был остановлен.")

@@ -6,6 +6,7 @@ const app = createApp({
     'status-modal': StatusModal,
     'logs-modal': LogsModal,
     'settings-modal': SettingsModal,
+    'confirmation-modal': ConfirmationModal
   },
   data() {
     return {
@@ -131,10 +132,11 @@ const app = createApp({
         if (this.eventSource) this.eventSource.close();
         this.eventSource = new EventSource('/api/stream');
         this.eventSource.onopen = () => console.log("SSE соединение установлено.");
+        
         this.eventSource.onerror = (err) => {
-            console.error("Ошибка SSE соединения:", err);
-            this.showToast("Потеряна связь с сервером, пытаемся переподключиться...", "danger");
+            console.warn("SSE connection lost. Browser will attempt to reconnect.");
         };
+
         this.eventSource.addEventListener('agent_queue_update', (event) => {
             this.agentQueue = JSON.parse(event.data);
         });
@@ -147,11 +149,7 @@ const app = createApp({
             const updatedSeries = JSON.parse(event.data);
             const index = this.series.findIndex(s => s.id === updatedSeries.id);
             if (index !== -1) {
-                const currentAutoScan = this.series[index].auto_scan_enabled;
-                this.series[index] = updatedSeries;
-                if (typeof this.series[index].auto_scan_enabled === 'undefined') {
-                    this.series[index].auto_scan_enabled = currentAutoScan;
-                }
+                Object.assign(this.series[index], updatedSeries);
             }
         });
         this.eventSource.addEventListener('series_deleted', (event) => {
@@ -164,8 +162,10 @@ const app = createApp({
             }
         });
     },
-    isStateLoading(series) {
-      return series.displayStates.includes('scanning');
+    isSeriesBusy(series) {
+        const busyStates = ['scanning', 'metadata', 'renaming', 'checking', 'activation'];
+        if (!series || !series.displayStates) return false;
+        return series.displayStates.some(state => busyStates.includes(state));
     },
     getLayerStyle(series, layerName) {
         const activeLayers = this.layerHierarchy.filter(l => series.displayStates.includes(l));
@@ -191,27 +191,34 @@ const app = createApp({
     async openStatusModal(id) {
         this.activeSeriesId = id;
         try {
-            await this.setSeriesState(id, 'viewing');
-            const stateWasChangedByModal = true;
+            const seriesToUpdate = this.seriesWithPills.find(s => s.id === id);
+            if (!seriesToUpdate) return;
+
+            let originalStates = new Set(seriesToUpdate.displayStates);
+            let stateWasChangedByModal = false;
+            
+            if (!originalStates.has('viewing')) {
+                await this.setSeriesState(id, [...originalStates, 'viewing']);
+                stateWasChangedByModal = true;
+            }
 
             const modalComponent = this.$refs.statusModal;
-            
             if (modalComponent) {
                 modalComponent.open(id);
                 const modalEl = modalComponent.$refs.statusModal;
                 modalEl.addEventListener('hidden.bs.modal', async () => {
                     if (stateWasChangedByModal) {
                         const currentSeries = this.seriesWithPills.find(s => s.id === id);
-                        if (currentSeries && currentSeries.displayStates.includes('viewing')) {
-                            await this.setSeriesState(id, 'waiting');
+                        if (currentSeries) {
+                            const finalStates = currentSeries.displayStates.filter(st => st !== 'viewing');
+                            await this.setSeriesState(id, finalStates.length > 0 ? finalStates : 'waiting');
                         }
                     }
                     this.activeSeriesId = null;
                 }, { once: true });
             } else {
-                 const seriesToShow = this.seriesWithPills.find(s => s.id === id);
                  this.showToast(`Универсальный компонент модального окна не найден.`, 'danger');
-                 if (stateWasChangedByModal) await this.setSeriesState(id, 'waiting');
+                 if (stateWasChangedByModal) await this.setSeriesState(id, [...originalStates]);
                  this.activeSeriesId = null;
             }
         } catch (error) {
@@ -231,10 +238,19 @@ const app = createApp({
     },
     async setSeriesState(id, state) {
         try {
+            let finalState;
+            if (Array.isArray(state)) {
+                const stateObject = {};
+                state.forEach((s, i) => stateObject[i] = s);
+                finalState = stateObject;
+            } else {
+                finalState = state;
+            }
+
             const response = await fetch(`/api/series/${id}/state`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ state: state })
+                body: JSON.stringify({ state: finalState })
             });
             if (!response.ok) throw new Error('Ошибка обновления статуса');
         } catch (error) { this.showToast(error.message, 'danger'); }
@@ -245,7 +261,7 @@ const app = createApp({
             const scanResponse = await fetch(`/api/series/${id}/scan`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({}) // Тело может быть пустым
+                body: JSON.stringify({})
             });
             const scanData = await scanResponse.json();
             if (!scanResponse.ok) {
@@ -260,17 +276,40 @@ const app = createApp({
             this.showToast(error.message, 'danger');
         } finally { this.activeSeriesId = null; }
     },
+    // --- ИЗМЕНЕНИЕ: Логика удаления теперь использует одно окно с чекбоксом ---
     async deleteSeries(id) {
-        if (!confirm('Вы уверены, что хотите удалить этот сериал?')) return;
-        const deleteFromQb = confirm('Удалить также записи из qBittorrent (файлы останутся на диске)?');
+        const seriesToDelete = this.series.find(s => s.id === id);
+        if (!seriesToDelete) return;
+        
         try {
-            const response = await fetch(`/api/series/${id}?delete_from_qb=${deleteFromQb}`, { method: 'DELETE' });
-            if (!response.ok) {
-                const data = await response.json().catch(() => ({error: 'Не удалось прочитать ответ сервера'}));
-                throw new Error(data.error || 'Ошибка удаления сериала');
+            const result = await this.$refs.confirmationModal.open(
+                'Удаление сериала', 
+                `Вы уверены, что хотите удалить сериал <strong>${seriesToDelete.name}</strong>?`,
+                {
+                    text: 'Удалить также записи из qBittorrent (файлы на диске останутся)',
+                    checked: true // Чекбокс включен по умолчанию
+                }
+            );
+
+            // Если promise разрешился, значит, пользователь нажал "Подтвердить"
+            if (result.confirmed) {
+                const deleteFromQb = result.checkboxState;
+                const response = await fetch(`/api/series/${id}?delete_from_qb=${deleteFromQb}`, { method: 'DELETE' });
+                if (!response.ok) {
+                    const data = await response.json().catch(() => ({error: 'Не удалось прочитать ответ сервера'}));
+                    throw new Error(data.error || 'Ошибка удаления сериала');
+                }
             }
-        } catch (error) { this.showToast(error.message, 'danger'); }
+        } catch (isCancelled) {
+            // Этот блок сработает, если пользователь нажал "Отмена" или закрыл окно
+            if (isCancelled === false) {
+                this.showToast('Удаление отменено.', 'info');
+            } else {
+                this.showToast(`Ошибка: ${isCancelled.message || 'Неизвестная ошибка'}`, 'danger');
+            }
+        }
     },
+    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
     async toggleAutoScan(id, enabled) {
         try {
             const response = await fetch(`/api/series/${id}/toggle_auto_scan`, {
@@ -288,7 +327,7 @@ const app = createApp({
     },
     formatScanTime(isoString) {
         if (!isoString) return 'Никогда';
-        const date = new Date(isoString);
+        const date = new Date(isoString.endsWith('Z') ? isoString : isoString + 'Z');
         return date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     },
     showToast(message, type = 'success') {

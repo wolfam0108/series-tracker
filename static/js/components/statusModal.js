@@ -34,6 +34,10 @@ const StatusModal = {
                                 <div class="modern-fieldset mb-4">
                                     <div class="fieldset-header"><h6 class="fieldset-title mb-0">Информация о сериале ({{ selectedSeries.name }})</h6></div>
                                     <div class="fieldset-content">
+                                        <div class="modern-form-group">
+                                            <label class="modern-label">URL-адрес сериала</label>
+                                            <input :value="selectedSeries.url" type="text" class="modern-input" readonly>
+                                        </div>
                                         <div class="row">
                                             <div class="col-md-6">
                                                 <div class="modern-form-group"><label class="modern-label">Название (RU)</label><input v-model="selectedSeries.name" type="text" class="modern-input"></div>
@@ -181,7 +185,9 @@ const StatusModal = {
                     </div>
                 </div>
                 <div class="modal-footer modern-footer">
-                    <button v-if="activeTab === 'status'" class="modern-btn btn-primary" @click="updateSeries" :disabled="!selectedSeries.id"><i class="bi bi-check-lg me-2"></i>Сохранить</button>
+                    <button v-if="activeTab === 'status'" class="modern-btn btn-primary" @click="updateSeries" :disabled="!selectedSeries.id || isBusy" :title="isBusy ? 'Нельзя сохранять во время активных операций' : 'Сохранить изменения'">
+                        <i class="bi bi-check-lg me-2"></i>Сохранить
+                    </button>
                     <button v-if="activeTab === 'naming'" class="modern-btn btn-success" @click="executeRename" :disabled="isRenaming || qbTorrents.length === 0">
                         <span v-if="isRenaming" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
                         <i v-else class="bi bi-pencil-square me-2"></i>
@@ -207,6 +213,31 @@ const StatusModal = {
   },
   emits: ['series-updated', 'show-toast'],
   computed: {
+    // --- ИЗМЕНЕНИЕ: Новое вычисляемое свойство для блокировки кнопки сохранения ---
+    isBusy() {
+        const busyStates = ['scanning', 'metadata', 'renaming', 'checking', 'activation'];
+        if (!this.selectedSeries || !this.selectedSeries.state) {
+            return false;
+        }
+        // Проверяем, является ли статус JSON-объектом (несколько активных задач)
+        try {
+            const stateObj = JSON.parse(this.selectedSeries.state);
+            if (typeof stateObj === 'object' && Object.keys(stateObj).length > 0) {
+                const agentStates = Object.values(stateObj);
+                const mappedStates = agentStates.map(stage => {
+                    if (['awaiting_metadata', 'polling_for_size', 'awaiting_pause_before_rename'].includes(stage)) return 'metadata';
+                    if (stage === 'rechecking') return 'checking';
+                    return stage;
+                });
+                return mappedStates.some(state => busyStates.includes(state));
+            }
+        } catch(e) {
+            // Если не JSON, это простая строка статуса
+            return busyStates.includes(this.selectedSeries.state);
+        }
+        return false;
+    },
+    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
     sortedQualityOptionsKeys() {
         if (!this.selectedSeries.site || !this.selectedSeries.site.includes('astar')) return [];
         return sortEpisodeKeys(Object.keys(this.episodeQualityOptions));
