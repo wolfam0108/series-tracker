@@ -71,7 +71,7 @@ const SettingsDebugTab = {
                     <div v-for="(enabled, module) in debugFlags" :key="module" class="col-md-4">
                         <div class="modern-form-check form-switch mb-2">
                             <input class="form-check-input" type="checkbox" role="switch" :id="'debugSwitch_' + module" v-model="debugFlags[module]" @change="saveDebugFlag(module)">
-                            <label class="modern-form-check-label" :for="'debugSwitch_' + module">{{ module.charAt(0).toUpperCase() + module.slice(1).replace('_', ' ') }}</label>
+                            <label class="modern-form-check-label" :for="'debugSwitch_' + module">{{ module.charAt(0).toUpperCase() + module.slice(1).replace(/_/g, ' ') }}</label>
                         </div>
                     </div>
                 </div>
@@ -126,19 +126,22 @@ const SettingsDebugTab = {
           is_awaiting_tasks: false,
           next_scan_time: null,
       },
+      // --- ИЗМЕНЕНИЕ: Добавлены флаги для parser_api и db ---
       debugFlags: {
-            'scanner': false,
             'agent': false,
-            'monitoring_agent': false,
-            'renamer': false,
-            'qbittorrent': false,
-            'auth': false,
-            'kinozal_parser': false,
             'anilibria_parser': false,
             'astar_parser': false,
+            'auth': false,
+            'db': false,
+            'kinozal_parser': false,
+            'monitoring_agent': false,
+            'parser_api': false,
+            'qbittorrent': false,
+            'renamer': false,
+            'scanner': false,
       },
       debugForceReplace: false,
-      debugSaveHtml: false, // --- ИЗМЕНЕНИЕ: Новое свойство ---
+      debugSaveHtml: false,
       countdownTimer: null,
       nextScanCountdown: '...',
       tableDescriptions: {
@@ -163,7 +166,7 @@ const SettingsDebugTab = {
     load() {
         this.loadDebugFlags();
         this.loadForceReplaceSetting();
-        this.loadSaveHtmlSetting(); // --- ИЗМЕНЕНИЕ: Загрузка нового флага ---
+        this.loadSaveHtmlSetting();
         this.loadTables();
         this.connectEventSourceForScanner();
         this.startCountdownTimer();
@@ -178,7 +181,6 @@ const SettingsDebugTab = {
             this.countdownTimer = null;
         }
     },
-    // --- ИЗМЕНЕНИЕ: Новые методы для управления флагом сохранения HTML ---
     async loadSaveHtmlSetting() {
         try {
             const response = await fetch('/api/settings/debug_flags');
@@ -201,17 +203,19 @@ const SettingsDebugTab = {
             this.$emit('show-toast', `Ошибка сохранения флага: ${error.message}`, 'danger');
         }
     },
-    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
     async loadDebugFlags() {
         try {
             const response = await fetch('/api/settings/debug_flags');
             if (!response.ok) throw new Error('Could not fetch debug flags');
             const flagsFromServer = await response.json();
-            for (const moduleName in this.debugFlags) {
-                if (moduleName in flagsFromServer) {
-                    this.debugFlags[moduleName] = flagsFromServer[moduleName];
-                }
-            }
+            
+            const allFlags = { ...this.debugFlags, ...flagsFromServer };
+            const sortedFlags = {};
+            Object.keys(allFlags).sort().forEach(key => {
+                sortedFlags[key] = allFlags[key];
+            });
+            this.debugFlags = sortedFlags;
+
         } catch (error) {
             this.$emit('show-toast', `Ошибка загрузки флагов отладки: ${error.message}`, 'danger');
         }

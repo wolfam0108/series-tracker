@@ -3,18 +3,17 @@ import random
 import logging
 import json
 from sqlalchemy import create_engine, func, inspect, text
-from sqlalchemy.orm import sessionmaker
+from sqlalchemy.orm import sessionmaker, joinedload
 from sqlalchemy.exc import OperationalError, ProgrammingError, IntegrityError
 from datetime import datetime, timezone
 from typing import List, Dict, Optional, Any
 
-# --- ИЗМЕНЕНИЕ: Импортируем модели из нового файла ---
 from models import (
     Base, Auth, Series, RenamingPattern, SeasonPattern, AdvancedRenamingPattern,
     Torrent, Setting, Log, QualityPattern, QualitySearchPattern, ResolutionPattern,
-    ResolutionSearchPattern, AgentTask, ScanTask
+    ResolutionSearchPattern, AgentTask, ScanTask,
+    ParserProfile, ParserRule, ParserRuleCondition
 )
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 class Database:
     ENABLE_DEBUG_SCHEMA_CHECK = True
@@ -58,6 +57,13 @@ class Database:
                         self.logger.debug(f"Ожидаемые колонки: {expected_columns}")
                         self.logger.debug(f"Фактические колонки: {actual_columns}")
                         
+                        missing_in_db = expected_columns - actual_columns
+                        extra_in_db = actual_columns - expected_columns
+                        if missing_in_db:
+                            self.logger.debug(f"Колонки, отсутствующие в БД: {missing_in_db}")
+                        if extra_in_db:
+                            self.logger.debug(f"Лишние колонки в БД: {extra_in_db}")
+
                         table_obj.drop(self.engine)
                         table_obj.create(self.engine)
                         self.logger.info("db", f"Таблица '{table_name}' успешно пересоздана.")
@@ -573,4 +579,128 @@ class Database:
             pattern = session.query(ResolutionSearchPattern).filter_by(id=search_pattern_id).first()
             if pattern:
                 session.delete(pattern)
+                session.commit()
+    
+    def get_parser_profiles(self) -> List[Dict[str, Any]]:
+        with self.Session() as session:
+            profiles = session.query(ParserProfile).all()
+            return [{"id": p.id, "name": p.name} for p in profiles]
+
+    def create_parser_profile(self, name: str) -> int:
+        with self.Session() as session:
+            if session.query(ParserProfile).filter_by(name=name).first():
+                raise ValueError(f"Профиль парсера с именем '{name}' уже существует.")
+            new_profile = ParserProfile(name=name)
+            session.add(new_profile)
+            session.commit()
+            return new_profile.id
+
+    def delete_parser_profile(self, profile_id: int):
+        with self.Session() as session:
+            profile = session.query(ParserProfile).filter_by(id=profile_id).first()
+            if profile:
+                series_using_profile = session.query(Series).filter_by(parser_profile_id=profile_id).count()
+                if series_using_profile > 0:
+                    raise ValueError(f"Невозможно удалить профиль, так как он используется в {series_using_profile} сериалах.")
+                session.delete(profile)
+                session.commit()
+
+    def get_rules_for_profile(self, profile_id: int) -> List[Dict[str, Any]]:
+        with self.Session() as session:
+            rules = session.query(ParserRule).filter_by(profile_id=profile_id).options(joinedload(ParserRule.conditions)).order_by(ParserRule.priority).all()
+            result = []
+            for rule in rules:
+                conditions = [
+                    {"id": c.id, "condition_type": c.condition_type, "pattern": c.pattern, "logical_operator": c.logical_operator}
+                    for c in rule.conditions
+                ]
+                result.append({
+                    "id": rule.id,
+                    "profile_id": rule.profile_id,
+                    "name": rule.name,
+                    "priority": rule.priority,
+                    "action_type": rule.action_type,
+                    "action_pattern": rule.action_pattern,
+                    "conditions": conditions
+                })
+            return result
+
+    def add_rule_to_profile(self, profile_id: int, rule_data: Dict[str, Any]) -> int:
+        with self.Session() as session:
+            max_priority_obj = session.query(func.max(ParserRule.priority)).filter_by(profile_id=profile_id).one_or_none()
+            max_priority = max_priority_obj[0] if max_priority_obj and max_priority_obj[0] is not None else 0
+            
+            new_rule = ParserRule(
+                profile_id=profile_id,
+                name=rule_data.get('name', 'Новое правило'),
+                action_type=rule_data.get('action_type', 'exclude'),
+                action_pattern=rule_data.get('action_pattern', '[]'),
+                priority=max_priority + 1
+            )
+            
+            session.add(new_rule)
+            session.flush() # Получаем ID для new_rule
+
+            if conditions_data := rule_data.get('conditions'):
+                for cond_data in conditions_data:
+                    new_condition = ParserRuleCondition(
+                        rule_id=new_rule.id,
+                        condition_type=cond_data.get('condition_type'),
+                        pattern=cond_data.get('pattern'),
+                        logical_operator=cond_data.get('logical_operator', 'AND')
+                    )
+                    session.add(new_condition)
+
+            session.commit()
+            return new_rule.id
+
+    def update_rule(self, rule_id: int, rule_data: Dict[str, Any]):
+        with self.Session() as session:
+            try:
+                # Начинаем транзакцию
+                with session.begin_nested():
+                    rule = session.query(ParserRule).filter_by(id=rule_id).with_for_update().first()
+                    if not rule:
+                        self.logger.error("db", f"Попытка обновить несуществующее правило с ID: {rule_id}")
+                        return
+
+                    # 1. Удаляем все старые условия, связанные с этим правилом
+                    session.query(ParserRuleCondition).filter_by(rule_id=rule_id).delete(synchronize_session=False)
+
+                    # 2. Обновляем основные поля самого правила
+                    rule.name = rule_data.get('name', rule.name)
+                    rule.action_type = rule_data.get('action_type', rule.action_type)
+                    rule.action_pattern = rule_data.get('action_pattern', rule.action_pattern)
+
+                    # 3. Добавляем новые условия
+                    if conditions_data := rule_data.get('conditions'):
+                        for cond_data in conditions_data:
+                            new_condition = ParserRuleCondition(
+                                rule_id=rule.id,
+                                condition_type=cond_data.get('condition_type'),
+                                pattern=cond_data.get('pattern'),
+                                logical_operator=cond_data.get('logical_operator', 'AND')
+                            )
+                            session.add(new_condition)
+                
+                # Коммитим внешнюю транзакцию
+                session.commit()
+            except Exception as e:
+                self.logger.error("db.update_rule", f"Ошибка при обновлении правила ID {rule_id}: {e}", exc_info=True)
+                session.rollback()
+                raise
+
+    def update_rules_order(self, ordered_rule_ids: List[int]):
+         with self.Session() as session:
+            for index, rule_id in enumerate(ordered_rule_ids):
+                rule = session.query(ParserRule).filter_by(id=rule_id).first()
+                if rule:
+                    rule.priority = index
+            session.commit()
+
+    def delete_rule(self, rule_id: int):
+        with self.Session() as session:
+            rule = session.query(ParserRule).filter_by(id=rule_id).first()
+            if rule:
+                session.delete(rule)
                 session.commit()

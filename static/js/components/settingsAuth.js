@@ -85,6 +85,35 @@ const SettingsAuthTab = {
                 </div>
             </div>
         </div>
+
+        <div class="modern-fieldset">
+            <div class="fieldset-header">
+                <i class="bi bi-youtube me-2"></i> <span class="fieldset-title">VK Video</span>
+            </div>
+            <div class="fieldset-content">
+                <div class="modern-form-group">
+                    <label for="vkToken" class="modern-label">Access Token</label>
+                     <div class="modern-input-group">
+                        <span class="input-group-text"><i class="bi bi-key"></i></span>
+                        <input v-model="credentials.vk.token" 
+                               :type="vkTokenVisible ? 'text' : 'password'" 
+                               class="modern-input" 
+                               id="vkToken" 
+                               placeholder="vk1.a.******************"
+                               autocomplete="off">
+                        <button class="btn bg-transparent border-0 text-secondary" 
+                                style="margin-left: -40px; z-index: 100;"
+                                type="button" 
+                                @click="togglePasswordVisibility('vk')"
+                                :title="vkTokenVisible ? 'Скрыть токен' : 'Показать токен'">
+                            <i class="bi" :class="vkTokenVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
+                        </button>
+                    </div>
+                    <small class="form-text text-muted">Необходим для поиска видео через официальный API VK. Получить токен можно <a href="https://dev.vk.com/ru/api/access-token/getting-started" target="_blank">здесь</a>.</small>
+                </div>
+            </div>
+        </div>
+
       </form>
     </div>
   `,
@@ -93,10 +122,12 @@ const SettingsAuthTab = {
       isSaving: false,
       credentials: { 
         qbittorrent: { url: '', username: '', password: '' }, 
-        kinozal: { username: '', password: '' } 
+        kinozal: { username: '', password: '' },
+        vk: { token: '' } // Добавлено
       },
       qbPasswordVisible: false, 
       kinozalPasswordVisible: false,
+      vkTokenVisible: false, // Добавлено
     };
   },
   emits: ['show-toast', 'saving-state'],
@@ -104,6 +135,7 @@ const SettingsAuthTab = {
     togglePasswordVisibility(type) {
         if (type === 'qb') this.qbPasswordVisible = !this.qbPasswordVisible;
         else if (type === 'kinozal') this.kinozalPasswordVisible = !this.kinozalPasswordVisible;
+        else if (type === 'vk') this.vkTokenVisible = !this.vkTokenVisible; // Добавлено
     },
     async load() {
       try {
@@ -112,6 +144,7 @@ const SettingsAuthTab = {
         const data = await response.json();
         if (data.qbittorrent) this.credentials.qbittorrent = { ...this.credentials.qbittorrent, ...data.qbittorrent };
         if (data.kinozal) this.credentials.kinozal = { ...this.credentials.kinozal, ...data.kinozal };
+        if (data.vk) this.credentials.vk.token = data.vk.password || ''; // API отдает токен в поле password
       } catch (error) { 
         this.$emit('show-toast', error.message, 'danger'); 
       }

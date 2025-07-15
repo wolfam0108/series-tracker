@@ -7,9 +7,7 @@ from logger import Logger, set_db_for_logging
 from sse import sse_broadcaster
 from agents.agent import Agent
 from agents.monitoring_agent import MonitoringAgent
-# --- ИЗМЕНЕНИЕ: Импортируем новую единую функцию инициализации ---
 from routes import init_all_routes
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from debug_manager import DebugManager
 
 app = Flask(__name__, static_folder='static', template_folder='templates')
@@ -17,16 +15,16 @@ CORS(app)
 
 db_url = "sqlite:///app.db"
 app.logger = Logger(__name__)
+# --- ИЗМЕНЕНИЕ: Включаем каскадное удаление ---
 app.db = Database(db_url, logger=app.logger)
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 set_db_for_logging(app.db)
 
 app.debug_manager = DebugManager(app.db)
 
 app.sse_broadcaster = sse_broadcaster
 
-# --- ИЗМЕНЕНИЕ: Вызываем новую функцию ---
 init_all_routes(app)
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
 agent = Agent(app, app.logger, app.db, app.sse_broadcaster)
 monitoring_agent = MonitoringAgent(app, app.logger, app.db, app.sse_broadcaster)

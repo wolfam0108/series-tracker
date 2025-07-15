@@ -2,8 +2,10 @@ const SettingsModal = {
   components: {
     'settings-auth-tab': SettingsAuthTab,
     'settings-naming-tab': SettingsNamingTab,
-    'settings-debug-tab': SettingsDebugTab,
     'settings-agents-tab': SettingsAgentsTab,
+    'settings-debug-tab': SettingsDebugTab,
+    // --- ИЗМЕНЕНИЕ: Добавляем новый компонент ---
+    'settings-parser-tab': SettingsParserTab,
   },
   props: {
     series: { type: Array, required: true },
@@ -36,6 +38,13 @@ const SettingsModal = {
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link" 
+                                    id="parser-tab" data-bs-toggle="tab" data-bs-target="#parser-tab-pane" 
+                                    type="button" role="tab" @click="setActiveTab('parser')">
+                                <i class="bi bi-funnel me-2"></i>Парсеры
+                            </button>
+                        </li>
+                        <li class="nav-item" role="presentation">
+                            <button class="nav-link modern-tab-link" 
                                     id="agents-tab" data-bs-toggle="tab" data-bs-target="#agents-tab-pane" 
                                     type="button" role="tab" @click="setActiveTab('agents')">
                                 <i class="bi bi-motherboard me-2"></i>Агенты
@@ -59,6 +68,9 @@ const SettingsModal = {
                         </div>
                         <div class="tab-pane fade" id="naming-tab-pane" role="tabpanel">
                            <settings-naming-tab ref="namingTab" @show-toast="emitToast"></settings-naming-tab>
+                        </div>
+                        <div class="tab-pane fade" id="parser-tab-pane" role="tabpanel">
+                           <settings-parser-tab ref="parserTab" @show-toast="emitToast"></settings-parser-tab>
                         </div>
                         <div class="tab-pane fade" id="agents-tab-pane" role="tabpanel">
                            <settings-agents-tab ref="agentsTab" :series="series" :agentQueue="agentQueue"></settings-agents-tab>
@@ -105,31 +117,26 @@ const SettingsModal = {
     },
     close() { 
       if (this.$refs.debugTab) {
-        // --- ИЗМЕНЕНИЕ: Исправлена опечатка this.refs на this.$refs ---
         this.$refs.debugTab.unload();
       }
       this.modal.hide(); 
     },
     setActiveTab(tabName) {
         this.activeTab = tabName;
-        if(tabName === 'debug') {
-            this.$refs.debugTab.load();
-        } else {
-            if (this.$refs.debugTab) {
-                this.$refs.debugTab.unload();
-            }
+        // Загружаем данные для активной вкладки
+        if (this.$refs[`${tabName}Tab`]) {
+            this.$refs[`${tabName}Tab`].load();
         }
-        if(tabName === 'auth') {
-            this.$refs.authTab.load();
-        }
-        if(tabName === 'naming') {
-            this.$refs.namingTab.load();
+        // Выгружаем данные для неактивной вкладки отладки
+        if(tabName !== 'debug' && this.$refs.debugTab) {
+            this.$refs.debugTab.unload();
         }
     },
     saveCurrentTab() {
       if (this.activeTab === 'auth') {
         this.$refs.authTab.save();
       }
+      // В будущем здесь будет сохранение и для других вкладок
     },
     emitToast(message, type) {
       this.$emit('show-toast', message, type);

@@ -1,6 +1,4 @@
-# --- ИЗМЕНЕНИЕ: Добавлен недостающий импорт ---
 from datetime import datetime, timezone
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from sqlalchemy import Column, Integer, Text, Boolean, ForeignKey, DateTime, func
 from sqlalchemy.orm import declarative_base, relationship
 
@@ -29,6 +27,9 @@ class Series(Base):
     active_status = Column(Text, default='{}')
     quality_override = Column(Text, nullable=True)
     resolution_override = Column(Text, nullable=True)
+    # --- ИЗМЕНЕНИЕ: Добавлены новые поля для поддержки парсера VK ---
+    source_type = Column(Text, default='torrent', nullable=False) # 'torrent' или 'vk_video'
+    parser_profile_id = Column(Integer, ForeignKey('parser_profiles.id'), nullable=True)
 
 class RenamingPattern(Base):
     __tablename__ = 'renaming_patterns'
@@ -130,3 +131,31 @@ class ScanTask(Base):
     status = Column(Text, default='processing')
     task_data = Column(Text)
     results_data = Column(Text, default='{}')
+
+# --- ИЗМЕНЕНИЕ: Новые модели для правил парсера VK ---
+class ParserProfile(Base):
+    __tablename__ = 'parser_profiles'
+    id = Column(Integer, primary_key=True)
+    name = Column(Text, nullable=False, unique=True)
+    rules = relationship("ParserRule", back_populates="profile", cascade="all, delete-orphan", order_by="ParserRule.priority")
+
+class ParserRule(Base):
+    __tablename__ = 'parser_rules'
+    id = Column(Integer, primary_key=True)
+    profile_id = Column(Integer, ForeignKey('parser_profiles.id'), nullable=False)
+    name = Column(Text, nullable=False)
+    priority = Column(Integer, default=0, nullable=False)
+    action_type = Column(Text, nullable=False) # 'exclude', 'extract_single', 'extract_range', 'extract_season'
+    action_pattern = Column(Text) # JSON string
+    profile = relationship("ParserProfile", back_populates="rules")
+    conditions = relationship("ParserRuleCondition", back_populates="rule", cascade="all, delete-orphan", order_by="ParserRuleCondition.id")
+
+class ParserRuleCondition(Base):
+    __tablename__ = 'parser_rule_conditions'
+    id = Column(Integer, primary_key=True)
+    rule_id = Column(Integer, ForeignKey('parser_rules.id'), nullable=False)
+    condition_type = Column(Text, nullable=False) # 'contains', 'not_contains'
+    pattern = Column(Text, nullable=False) # JSON string
+    logical_operator = Column(Text, default='AND', nullable=False) # 'AND' / 'OR'
+    rule = relationship("ParserRule", back_populates="conditions")
+# --- КОНЕЦ ИЗМЕНЕНИЯ ---

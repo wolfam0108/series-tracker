@@ -19,7 +19,8 @@ def generate_torrent_id(link, date_time):
 def get_all_auth():
     return jsonify({
         "qbittorrent": app.db.get_auth("qbittorrent"),
-        "kinozal": app.db.get_auth("kinozal")
+        "kinozal": app.db.get_auth("kinozal"),
+        "vk": app.db.get_auth("vk")
     })
 
 @settings_bp.route('/auth', methods=['POST'])
@@ -30,6 +31,8 @@ def save_all_auth():
             app.db.add_auth('qbittorrent', qb_data.get('username'), qb_data.get('password'), qb_data.get('url'))
         if kinozal_data := data.get('kinozal'):
             app.db.add_auth('kinozal', kinozal_data.get('username'), kinozal_data.get('password'))
+        if vk_data := data.get('vk'):
+            app.db.add_auth('vk', username='vk_token', password=vk_data.get('token'))
         return jsonify({"success": True})
     except Exception as e:
         app.logger.error("auth_api", "Ошибка сохранения данных авторизации", exc_info=True)
@@ -122,7 +125,6 @@ def handle_force_replace_setting():
     enabled = app.db.get_setting('debug_force_replace', 'false') == 'true'
     return jsonify({"enabled": enabled})
 
-# PATTERNS (Naming)
 @settings_bp.route('/patterns', methods=['GET', 'POST'])
 def handle_patterns():
     if request.method == 'GET':
@@ -171,7 +173,6 @@ def test_all_patterns():
     result = renamer.find_episode_with_db_patterns(filename)
     return jsonify({"result": result})
 
-# SEASON_PATTERNS
 @settings_bp.route('/season_patterns', methods=['GET', 'POST'])
 def handle_season_patterns():
     if request.method == 'GET':
@@ -220,7 +221,6 @@ def test_all_season_patterns():
     result = renamer.find_season_with_db_patterns(filename)
     return jsonify({"result": result})
 
-# ADVANCED_PATTERNS
 @settings_bp.route('/advanced_patterns', methods=['GET', 'POST'])
 def handle_advanced_patterns():
     if request.method == 'GET':
@@ -273,7 +273,6 @@ def test_all_advanced_patterns():
     else:
         return jsonify({"result": "Не найдено совпадений ни одним активным правилом."})
 
-# QUALITY_PATTERNS
 @settings_bp.route('/quality_patterns', methods=['GET', 'POST'])
 def get_quality_patterns():
     if request.method == 'GET':
@@ -335,7 +334,6 @@ def test_quality_patterns():
     result = renamer._extract_quality(data.get('filename'))
     return jsonify({"result": result if result else "Не найдено"})
 
-# RESOLUTION_PATTERNS
 @settings_bp.route('/resolution_patterns', methods=['GET', 'POST'])
 def get_resolution_patterns():
     if request.method == 'GET':
