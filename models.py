@@ -27,8 +27,7 @@ class Series(Base):
     active_status = Column(Text, default='{}')
     quality_override = Column(Text, nullable=True)
     resolution_override = Column(Text, nullable=True)
-    # --- ИЗМЕНЕНИЕ: Добавлены новые поля для поддержки парсера VK ---
-    source_type = Column(Text, default='torrent', nullable=False) # 'torrent' или 'vk_video'
+    source_type = Column(Text, default='torrent', nullable=False)
     parser_profile_id = Column(Integer, ForeignKey('parser_profiles.id'), nullable=True)
 
 class RenamingPattern(Base):
@@ -132,11 +131,12 @@ class ScanTask(Base):
     task_data = Column(Text)
     results_data = Column(Text, default='{}')
 
-# --- ИЗМЕНЕНИЕ: Новые модели для правил парсера VK ---
 class ParserProfile(Base):
     __tablename__ = 'parser_profiles'
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False, unique=True)
+    # --- ИЗМЕНЕНИЕ: Добавлено поле для предпочитаемых озвучек ---
+    preferred_voiceovers = Column(Text)
     rules = relationship("ParserRule", back_populates="profile", cascade="all, delete-orphan", order_by="ParserRule.priority")
 
 class ParserRule(Base):
@@ -145,8 +145,8 @@ class ParserRule(Base):
     profile_id = Column(Integer, ForeignKey('parser_profiles.id'), nullable=False)
     name = Column(Text, nullable=False)
     priority = Column(Integer, default=0, nullable=False)
-    action_type = Column(Text, nullable=False) # 'exclude', 'extract_single', 'extract_range', 'extract_season'
-    action_pattern = Column(Text) # JSON string
+    action_type = Column(Text, nullable=False)
+    action_pattern = Column(Text)
     profile = relationship("ParserProfile", back_populates="rules")
     conditions = relationship("ParserRuleCondition", back_populates="rule", cascade="all, delete-orphan", order_by="ParserRuleCondition.id")
 
@@ -154,8 +154,27 @@ class ParserRuleCondition(Base):
     __tablename__ = 'parser_rule_conditions'
     id = Column(Integer, primary_key=True)
     rule_id = Column(Integer, ForeignKey('parser_rules.id'), nullable=False)
-    condition_type = Column(Text, nullable=False) # 'contains', 'not_contains'
-    pattern = Column(Text, nullable=False) # JSON string
-    logical_operator = Column(Text, default='AND', nullable=False) # 'AND' / 'OR'
+    condition_type = Column(Text, nullable=False)
+    pattern = Column(Text, nullable=False)
+    logical_operator = Column(Text, default='AND', nullable=False)
     rule = relationship("ParserRule", back_populates="conditions")
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+# --- ИЗМЕНЕНИЕ: Новая модель для хранения медиа-элементов (VK видео и т.д.) ---
+class MediaItem(Base):
+    __tablename__ = 'media_items'
+    id = Column(Integer, primary_key=True)
+    series_id = Column(Integer, ForeignKey('series.id'), nullable=False)
+    unique_id = Column(Text, nullable=False, unique=True) # Генерируется из URL+Date
+    
+    episode_start = Column(Integer, nullable=False)
+    episode_end = Column(Integer, nullable=True) # Для компиляций
+    
+    status = Column(Text, default='pending', nullable=False) # pending, downloading, completed, ignored, discarded
+    is_ignored_by_user = Column(Boolean, default=False, nullable=False)
+
+    source_url = Column(Text, nullable=False)
+    publication_date = Column(DateTime, nullable=False)
+    voiceover_tag = Column(Text)
+    file_path = Column(Text)
+
+    series = relationship("Series")

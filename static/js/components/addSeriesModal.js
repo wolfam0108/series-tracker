@@ -9,21 +9,45 @@ const AddSeriesModal = {
                 </div>
                 <div class="modal-body modern-body" style="overflow-y: auto; flex-grow: 1;">
                     <div class="modern-form-group">
-                        <label for="seriesUrl" class="modern-label">URL</label>
+                        <label for="seriesUrl" class="modern-label">URL для парсинга</label>
                         <input v-model.trim="newSeries.url" @input="debounceParseUrl" type="text" 
                                class="modern-input" 
-                               :class="{'is-invalid': urlError, 'is-valid': parsed && !urlError}" 
-                               id="seriesUrl" placeholder="Введите URL сериала"
-                               aria-describedby="seriesUrlFeedback">
-                        <div v-if="urlError" class="invalid-feedback" id="seriesUrlFeedback">{{ urlError }}</div>
+                               :class="{'is-invalid': urlError, 'is-valid': sourceType !== 'torrent' || parsed}" 
+                               id="seriesUrl" placeholder="Вставьте URL с трекера или VK Video">
+                        <div v-if="urlError" class="invalid-feedback">{{ urlError }}</div>
                     </div>
-
+                    
                     <div v-if="parsing" class="text-center my-4">
                         <div class="spinner-border" role="status"><span class="visually-hidden">Получение информации...</span></div>
                         <p class="mt-2">Получение информации...</p>
                     </div>
 
-                    <div v-if="parsed">
+                    <div v-if="parsed || sourceType === 'vk_video'">
+                        <div v-if="sourceType === 'vk_video'">
+                            <div class="modern-fieldset mt-4">
+                                <div class="fieldset-header"><h6 class="fieldset-title mb-0">Настройки для VK Video</h6></div>
+                                <div class="fieldset-content">
+                                    <div class="row">
+                                        <div class="col-md-6">
+                                            <label class="modern-label">Ссылка на канал</label>
+                                            <input v-model.trim="vkChannelUrl" type="text" class="modern-input" placeholder="https://vkvideo.ru/@канал">
+                                        </div>
+                                        <div class="col-md-6">
+                                            <label class="modern-label">Поисковый запрос</label>
+                                            <input v-model.trim="vkQuery" type="text" class="modern-input" placeholder="Название сериала">
+                                        </div>
+                                    </div>
+                                    <div class="modern-form-group mt-3">
+                                        <label class="modern-label">Профиль правил парсера</label>
+                                        <select v-model="newSeries.parser_profile_id" class="modern-select">
+                                            <option :value="null">-- Не выбрано --</option>
+                                            <option v-for="profile in parserProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
+                                        </select>
+                                    </div>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="modern-fieldset mt-4">
                             <div class="fieldset-header"><h6 class="fieldset-title mb-0">Информация о сериале</h6></div>
                             <div class="fieldset-content">
@@ -71,17 +95,17 @@ const AddSeriesModal = {
                                 </div>
                             </div>
                         </div>
-
-                        <div v-if="site.includes('kinozal')" class="modern-fieldset mt-4">
+                        
+                        <div v-if="sourceType === 'vk_video' || (site && site.includes('kinozal'))" class="modern-fieldset mt-4">
                              <div class="fieldset-content py-3">
                                 <div class="modern-form-check form-switch d-flex justify-content-center m-0">
                                     <input class="form-check-input" type="checkbox" role="switch" id="seasonlessSwitch" v-model="isSeasonless">
-                                    <label class="modern-form-check-label" for="seasonlessSwitch">Раздача содержит несколько сезонов</label>
+                                    <label class="modern-form-check-label" for="seasonlessSwitch">Раздача содержит несколько сезонов (или сезон не важен)</label>
                                 </div>
                             </div>
                         </div>
                         
-                        <div class="modern-fieldset mt-4" v-if="site.includes('anilibria') || site.includes('aniliberty') || site.includes('astar')">
+                        <div class="modern-fieldset mt-4" v-if="sourceType === 'torrent' && (site.includes('anilibria') || site.includes('aniliberty') || site.includes('astar'))">
                             <div class="fieldset-header"><h6 class="fieldset-title mb-0">Выбор качества</h6></div>
                             <div class="fieldset-content">
                                 <div v-if="site.includes('anilibria') || site.includes('aniliberty')">
@@ -111,7 +135,7 @@ const AddSeriesModal = {
                             </div>
                         </div>
 
-                        <div class="mt-4">
+                        <div class="mt-4" v-if="sourceType === 'torrent' && parserData && parserData.torrents.length > 0">
                             <h6>Доступные торренты ({{ parserData.torrents.length }})</h6>
                             <div class="div-table table-site-torrents">
                                 <div class="div-table-header">
@@ -151,7 +175,7 @@ const AddSeriesModal = {
   data() {
     return { 
         modal: null, 
-        newSeries: { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {} }, 
+        newSeries: { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null }, 
         isSeasonless: false,
         urlError: '', 
         parsing: false, 
@@ -162,6 +186,10 @@ const AddSeriesModal = {
         isQualityOptionsReady: false, 
         debounceTimeout: null,
         showValidation: false,
+        sourceType: 'torrent',
+        vkChannelUrl: '',
+        vkQuery: '',
+        parserProfiles: [],
     };
   },
   computed: {
@@ -173,6 +201,9 @@ const AddSeriesModal = {
         return /^s\d{2}$/.test(this.newSeries.season.trim()); 
     },
     canAddSeries() { 
+        if (this.sourceType === 'vk_video') {
+            return this.vkChannelUrl && this.vkQuery && this.newSeries.parser_profile_id && this.isNameValid && this.isNameEnValid && this.isSavePathValid;
+        }
         return this.parsed && this.isSavePathValid && this.isNameValid && this.isNameEnValid && this.isSeasonValid; 
     },
     sortedQualityOptionsKeys() {
@@ -182,8 +213,8 @@ const AddSeriesModal = {
   },
   emits: ['series-added', 'show-toast'],
   methods: {
-    open() {
-      this.newSeries = { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {} };
+    async open() {
+      this.newSeries = { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null };
       this.isSeasonless = false;
       this.urlError = ''; 
       this.parsing = false; 
@@ -193,22 +224,55 @@ const AddSeriesModal = {
       this.episodeQualityOptions = {}; 
       this.isQualityOptionsReady = false;
       this.showValidation = false;
+      this.sourceType = 'torrent';
+      this.vkChannelUrl = '';
+      this.vkQuery = '';
+      this.parserProfiles = [];
+      
       if (!this.modal) { this.modal = new bootstrap.Modal(this.$refs.addModal); }
       this.modal.show();
+      await this.loadParserProfiles();
     },
     close() { this.modal.hide(); },
+    async loadParserProfiles() {
+        try {
+            const response = await fetch('/api/parser-profiles');
+            if (!response.ok) throw new Error('Ошибка загрузки профилей парсера');
+            this.parserProfiles = await response.json();
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        }
+    },
     debounceParseUrl() {
         clearTimeout(this.debounceTimeout);
-        this.debounceTimeout = setTimeout(() => { this.parseUrl(); }, 500);
+        this.debounceTimeout = setTimeout(() => { this.handleUrlInput(); }, 500);
     },
-    async parseUrl() {
+    handleUrlInput() {
         this.urlError = '';
         this.parsed = false;
-        
         if (!this.newSeries.url) {
+            this.sourceType = 'torrent'; // Сбрасываем тип, если поле очищено
             return;
-        }
+        };
 
+        if (this.newSeries.url.includes('vkvideo.ru')) {
+            this.sourceType = 'vk_video';
+            this.parsed = false; // Для VK парсинг не запускаем, только разбираем URL
+            try {
+                const url = new URL(this.newSeries.url);
+                this.vkChannelUrl = `${url.protocol}//${url.hostname}${url.pathname}`;
+                this.vkQuery = url.searchParams.get('q') || '';
+            } catch(e) {
+                this.urlError = 'Некорректный URL для VK Video';
+                this.vkChannelUrl = '';
+                this.vkQuery = '';
+            }
+        } else {
+            this.sourceType = 'torrent';
+            this.parseTorrentUrl();
+        }
+    },
+    async parseTorrentUrl() {
         this.parsing = true;
         try {
             const urlObject = new URL(this.newSeries.url);
@@ -256,7 +320,6 @@ const AddSeriesModal = {
     },
     async addSeries() {
         this.showValidation = true;
-        
         if (!this.canAddSeries) {
             this.$emit('show-toast', 'Пожалуйста, заполните все обязательные поля корректно.', 'danger');
             return;
@@ -264,28 +327,35 @@ const AddSeriesModal = {
 
         try {
             let qualityString = '';
-            if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
-                qualityString = this.newSeries.qualityByEpisodes.all;
-            } else if (this.site.includes('astar')) {
-                const qualitiesToSave = this.sortedQualityOptionsKeys
-                    .filter(episodes => this.episodeQualityOptions[episodes].length > 1)
-                    .map(episodes => this.newSeries.qualityByEpisodes[episodes]);
-                
-                const singleVersionQualities = new Set(
-                    this.sortedQualityOptionsKeys
-                        .filter(episodes => this.episodeQualityOptions[episodes].length === 1)
-                        .map(episodes => this.episodeQualityOptions[episodes][0])
-                );
-                qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
-            }
-            
-            const payload = {
+            let payload = {
                 ...this.newSeries,
                 site: this.site,
                 season: this.isSeasonless ? '' : this.newSeries.season,
-                quality: qualityString,
-                torrents: this.parserData ? this.parserData.torrents : []
             };
+
+            if (this.sourceType === 'vk_video') {
+                payload.source_type = 'vk_video';
+                payload.url = `${this.vkChannelUrl}|${this.vkQuery}`;
+                payload.site = 'vkvideo.ru';
+            } else {
+                payload.source_type = 'torrent';
+                if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
+                    qualityString = this.newSeries.qualityByEpisodes.all;
+                } else if (this.site.includes('astar')) {
+                    const qualitiesToSave = this.sortedQualityOptionsKeys
+                        .filter(episodes => this.episodeQualityOptions[episodes].length > 1)
+                        .map(episodes => this.newSeries.qualityByEpisodes[episodes]);
+                    
+                    const singleVersionQualities = new Set(
+                        this.sortedQualityOptionsKeys
+                            .filter(episodes => this.episodeQualityOptions[episodes].length === 1)
+                            .map(episodes => this.episodeQualityOptions[episodes][0])
+                    );
+                    qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
+                }
+                payload.quality = qualityString;
+                payload.torrents = this.parserData ? this.parserData.torrents : [];
+            }
             
             const response = await fetch('/api/series', { 
                 method: 'POST', 

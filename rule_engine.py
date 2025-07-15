@@ -8,7 +8,6 @@ class RuleEngine:
         self.logger = logger
 
     def _build_regex_from_blocks(self, blocks_json: str, for_extraction: bool = False) -> str:
-        """Преобразует JSON с блоками в строку regex."""
         try:
             blocks = json.loads(blocks_json)
         except (json.JSONDecodeError, TypeError):
@@ -22,7 +21,6 @@ class RuleEngine:
             if b_type == 'text':
                 regex_parts.append(re.escape(block.get('value', '')))
             elif b_type == 'number':
-                # Если этот regex используется для извлечения, оборачиваем в группу
                 if for_extraction:
                     regex_parts.append(r'(\d+)')
                 else:
@@ -63,10 +61,24 @@ class RuleEngine:
         return any(or_group_results)
 
     def _execute_action(self, title: str, action_type: str, action_pattern: str) -> Dict[str, Any]:
-        result = {'original_title': title, 'action': action_type, 'extracted': None}
+        result = {'action': action_type, 'extracted': {}}
 
         if action_type == 'exclude':
             return result
+
+        if action_type == 'assign_voiceover':
+            result['extracted']['voiceover'] = action_pattern
+            return result
+        
+        if action_type == 'assign_episode_number':
+            try:
+                assigned_data = json.loads(action_pattern)
+                result['extracted']['season'] = int(assigned_data['season'])
+                result['extracted']['episode'] = int(assigned_data['episode'])
+                return result
+            except (json.JSONDecodeError, KeyError, ValueError) as e:
+                result['error'] = f"Ошибка данных для назначения номера: {e}"
+                return result
 
         regex_str = self._build_regex_from_blocks(action_pattern, for_extraction=True)
         if not regex_str:
@@ -74,51 +86,46 @@ class RuleEngine:
             return result
 
         match = re.search(regex_str, title, re.IGNORECASE)
-        # Если паттерн действия не нашел совпадения, действие считается проваленным
         if not match:
             return None 
 
         try:
             if action_type == 'extract_single':
-                result['extracted'] = {'episode': int(match.group(1))}
+                result['extracted']['episode'] = int(match.group(1))
             elif action_type == 'extract_range':
-                result['extracted'] = {'start': int(match.group(1)), 'end': int(match.group(2))}
+                result['extracted']['start'] = int(match.group(1))
+                result['extracted']['end'] = int(match.group(2))
             elif action_type == 'extract_season':
-                result['extracted'] = {'season': int(match.group(1))}
+                result['extracted']['season'] = int(match.group(1))
         except (IndexError, ValueError) as e:
             result['error'] = f"Ошибка извлечения данных: {e}. Проверьте группы захвата ( ) в блоках [Число]."
         
         return result
 
-    def test_rules_on_titles(self, profile_id: int, titles: List[str]) -> List[Dict[str, Any]]:
-        # --- ИЗМЕНЕНИЕ: Логика полностью переписана ---
+    # --- ИЗМЕНЕНИЕ: Метод теперь принимает полные данные о видео, а не только названия ---
+    def process_videos(self, profile_id: int, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         rules = self.db.get_rules_for_profile(profile_id)
         final_results = []
 
-        for title in titles:
+        for video_data in videos:
+            title = video_data['title']
             action_result = None
             matched_rule = None
 
             for rule in rules:
-                # 1. Проверяем, выполняются ли условия "ЕСЛИ"
                 if self._evaluate_conditions(title, rule['conditions']):
-                    # 2. Если да, пытаемся выполнить действие "ТО"
                     temp_result = self._execute_action(title, rule['action_type'], rule['action_pattern'])
                     
-                    # 3. Правило считается сработавшим, только если действие было успешным.
-                    #    _execute_action возвращает None, если его паттерн не сработал.
                     if temp_result is not None:
                         action_result = temp_result
                         matched_rule = rule
-                        # 4. Успех! Прерываем цикл и переходим к следующему названию.
                         break
             
+            # Сохраняем исходные данные видео и добавляем результат обработки
             final_results.append({
-                "title": title,
-                "matched_rule_id": matched_rule['id'] if matched_rule else None,
+                "source_data": video_data,
                 "matched_rule_name": matched_rule['name'] if matched_rule else "Нет совпадений",
                 "result": action_result
             })
             
         return final_results
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---

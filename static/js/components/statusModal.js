@@ -1,6 +1,7 @@
 const StatusModal = {
   components: {
-      'file-tree': FileTree
+      'file-tree': FileTree,
+      'series-composition-manager': SeriesCompositionManager,
   },
   template: `
     <div class="modal fade" ref="statusModal" tabindex="-1" aria-labelledby="statusModalLabel" aria-hidden="true">
@@ -13,10 +14,13 @@ const StatusModal = {
                         <li class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link active" id="status-tab-generic" data-bs-toggle="tab" data-bs-target="#status-tab-pane-generic" type="button" role="tab" @click="activeTab = 'status'"><i class="bi bi-info-circle me-2"></i>Свойства</button>
                         </li>
-                        <li class="nav-item" role="presentation">
+                        <li v-if="selectedSeries.source_type === 'vk_video'" class="nav-item" role="presentation">
+                            <button class="nav-link modern-tab-link" id="composition-tab-generic" data-bs-toggle="tab" data-bs-target="#composition-tab-pane-generic" type="button" role="tab" @click="activeTab = 'composition'"><i class="bi bi-diagram-3 me-2"></i>Композиция</button>
+                        </li>
+                        <li v-if="selectedSeries.source_type !== 'vk_video'" class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link" id="qb-torrents-tab-generic" data-bs-toggle="tab" data-bs-target="#qb-torrents-tab-pane-generic" type="button" role="tab" @click="activeTab = 'qb-torrents'"><i class="bi bi-download me-2"></i>Торренты qBit</button>
                         </li>
-                        <li class="nav-item" role="presentation">
+                        <li v-if="selectedSeries.source_type !== 'vk_video'" class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link" id="naming-tab-generic" data-bs-toggle="tab" data-bs-target="#naming-tab-pane-generic" type="button" role="tab" @click="onNamingTabClick"><i class="bi bi-tag me-2"></i>Нейминг</button>
                         </li>
                         <li class="nav-item" role="presentation">
@@ -97,27 +101,33 @@ const StatusModal = {
                                      </div>
                                 </div>
                                 
-                                <h6>Торренты с сайта (согласно выбранному качеству)</h6>
-                                <div class="position-relative">
-                                    <transition name="fade"><div v-if="siteTorrentsLoading" class="loading-overlay"></div></transition>
-                                    <div class="div-table table-site-torrents">
-                                        <div class="div-table-header">
-                                            <div class="div-table-cell">ID</div><div class="div-table-cell">Ссылка</div><div class="div-table-cell">Дата</div><div class="div-table-cell">Эпизоды</div><div class="div-table-cell">Качество</div>
-                                        </div>
-                                        <div class="div-table-body">
-                                            <transition-group name="list" tag="div">
-                                                <div v-for="t in filteredSiteTorrents" :key="t.torrent_id" class="div-table-row" :class="{'row-danger': siteDataIsStale && !siteTorrentsLoading}">
-                                                    <div class="div-table-cell">{{ t.torrent_id }}</div><div class="div-table-cell">{{ t.link }}</div><div class="div-table-cell">{{ t.date_time }}</div><div class="div-table-cell">{{ t.episodes }}</div><div class="div-table-cell">{{ t.quality }}</div>
+                                <div v-if="selectedSeries.source_type === 'torrent'">
+                                    <h6>Торренты с сайта (согласно выбранному качеству)</h6>
+                                    <div class="position-relative">
+                                        <transition name="fade"><div v-if="siteTorrentsLoading" class="loading-overlay"></div></transition>
+                                        <div class="div-table table-site-torrents">
+                                            <div class="div-table-header">
+                                                <div class="div-table-cell">ID</div><div class="div-table-cell">Ссылка</div><div class="div-table-cell">Дата</div><div class="div-table-cell">Эпизоды</div><div class="div-table-cell">Качество</div>
+                                            </div>
+                                            <div class="div-table-body">
+                                                <transition-group name="list" tag="div">
+                                                    <div v-for="t in filteredSiteTorrents" :key="t.torrent_id" class="div-table-row" :class="{'row-danger': siteDataIsStale && !siteTorrentsLoading}">
+                                                        <div class="div-table-cell">{{ t.torrent_id }}</div><div class="div-table-cell">{{ t.link }}</div><div class="div-table-cell">{{ t.date_time }}</div><div class="div-table-cell">{{ t.episodes }}</div><div class="div-table-cell">{{ t.quality }}</div>
+                                                    </div>
+                                                </transition-group>
+                                                <div v-if="!siteTorrentsLoading && filteredSiteTorrents.length === 0" class="div-table-row">
+                                                    <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Торренты не найдены.</div>
                                                 </div>
-                                            </transition-group>
-                                            <div v-if="!siteTorrentsLoading && filteredSiteTorrents.length === 0" class="div-table-row">
-                                                <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Торренты не найдены.</div>
                                             </div>
                                         </div>
                                     </div>
+                                    <small v-if="siteDataIsStale" class="text-danger d-block mt-2">Не удалось обновить данные с сайта, показана последняя сохраненная версия.</small>
                                 </div>
-                                <small v-if="siteDataIsStale" class="text-danger d-block mt-2">Не удалось обновить данные с сайта, показана последняя сохраненная версия.</small>
                             </div>
+                        </div>
+
+                        <div class="tab-pane fade" id="composition-tab-pane-generic" role="tabpanel">
+                            <series-composition-manager v-if="activeTab === 'composition'" :series-id="seriesId" @show-toast="emitToast" />
                         </div>
 
                         <div class="tab-pane fade" id="qb-torrents-tab-pane-generic" role="tabpanel">
@@ -213,13 +223,11 @@ const StatusModal = {
   },
   emits: ['series-updated', 'show-toast'],
   computed: {
-    // --- ИЗМЕНЕНИЕ: Новое вычисляемое свойство для блокировки кнопки сохранения ---
     isBusy() {
         const busyStates = ['scanning', 'metadata', 'renaming', 'checking', 'activation'];
         if (!this.selectedSeries || !this.selectedSeries.state) {
             return false;
         }
-        // Проверяем, является ли статус JSON-объектом (несколько активных задач)
         try {
             const stateObj = JSON.parse(this.selectedSeries.state);
             if (typeof stateObj === 'object' && Object.keys(stateObj).length > 0) {
@@ -232,12 +240,10 @@ const StatusModal = {
                 return mappedStates.some(state => busyStates.includes(state));
             }
         } catch(e) {
-            // Если не JSON, это простая строка статуса
             return busyStates.includes(this.selectedSeries.state);
         }
         return false;
     },
-    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
     sortedQualityOptionsKeys() {
         if (!this.selectedSeries.site || !this.selectedSeries.site.includes('astar')) return [];
         return sortEpisodeKeys(Object.keys(this.episodeQualityOptions));
@@ -291,8 +297,10 @@ const StatusModal = {
                 this.selectedSeries.qualityByEpisodes = {};
             }
 
-            this.refreshSiteTorrents(); 
-            this.refreshQBTorrents();
+            if (this.selectedSeries.source_type === 'torrent') {
+                this.refreshSiteTorrents(); 
+                this.refreshQBTorrents();
+            }
             this.loadHistory();
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); this.close(); }
     },
@@ -463,6 +471,9 @@ const StatusModal = {
     translateStatus(state) {
         const statuses = { 'uploading': 'Раздача', 'forcedUP': 'Раздача', 'downloading': 'Загрузка', 'forcedDL': 'Загрузка', 'metaDL': 'Загрузка', 'stalledUP': 'Ожидание', 'stalledDL': 'Ожидание', 'checkingUP': 'Проверка', 'checkingDL': 'Проверка', 'checkingResumeData': 'Проверка', 'pausedUP': 'Пауза', 'pausedDL': 'Пауза', 'queuedUP': 'В очереди', 'queuedDL': 'В очереди', 'allocating': 'Выделение места', 'moving': 'Перемещение', 'error': 'Ошибка', 'missingFiles': 'Нет файлов' };
         return statuses[state] || 'Неизвестно';
+    },
+    emitToast(message, type) {
+        this.$emit('show-toast', message, type);
     }
   }
 };

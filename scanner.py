@@ -7,6 +7,9 @@ from parsers.kinozal_parser import KinozalParser
 from parsers.anilibria_parser import AnilibriaParser
 from parsers.astar_parser import AstarParser
 from parsers.anilibria_tv_parser import AnilibriaTvParser
+from scrapers.vk_scraper import VKScraper
+from rule_engine import RuleEngine
+from collectors.smart_collector import SmartCollector
 import hashlib
 import json
 import time
@@ -14,6 +17,12 @@ import time
 def generate_torrent_id(link, date_time):
     """Генерирует уникальный ID для торрента на основе его ссылки и даты."""
     unique_string = f"{link}{date_time or ''}"
+    return hashlib.md5(unique_string.encode()).hexdigest()[:16]
+
+def generate_media_item_id(url: str, pub_date: datetime) -> str:
+    """Генерирует уникальный ID для медиа-элемента на основе URL и даты."""
+    date_str = pub_date.strftime('%Y-%m-%d %H:%M:%S')
+    unique_string = f"{url}{date_str}"
     return hashlib.md5(unique_string.encode()).hexdigest()[:16]
 
 def _broadcast_series_update(series_id):
@@ -39,6 +48,80 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
             app.logger.error("scanner", f"Ошибка сканирования: Сериал с ID {series_id} не найден.")
             return {"success": False, "error": "Сериал не найден"}
 
+        # --- НАЧАЛО БЛОКА ЛОГИКИ ДЛЯ РАЗНЫХ ИСТОЧНИКОВ ---
+        if series.get('source_type') == 'vk_video':
+            app.logger.info("scanner", f"Запуск сканирования для VK-сериала: {series['name']}")
+            
+            try:
+                # URL для VK хранится в формате "url_канала|поисковый_запрос"
+                channel_url, query = series['url'].split('|')
+            except ValueError:
+                 app.logger.error("scanner", f"Неверный формат URL для VK-сериала ID {series_id}. Ожидается 'канал|запрос'")
+                 return {"success": False, "error": "Неверный формат URL для VK-сериала. Ожидается 'канал|запрос'"}
+
+            # 1. Скрапинг данных с VK
+            scraper = VKScraper(app.db, app.logger)
+            scraped_videos = scraper.scrape_video_data(channel_url, query)
+
+            # 2. Обработка движком правил
+            engine = RuleEngine(app.db, app.logger)
+            profile_id = series.get('parser_profile_id')
+            if not profile_id:
+                app.logger.error("scanner", f"Для VK-сериала ID {series_id} не назначен профиль правил парсера.")
+                return {"success": False, "error": "Для сериала не назначен профиль правил парсера."}
+            
+            processed_videos = engine.process_videos(profile_id, scraped_videos)
+
+            # 3. Сборка оптимального плейлиста
+            collector = SmartCollector(app.logger)
+            existing_items = app.db.get_media_items_for_series(series_id)
+            
+            profiles = app.db.get_parser_profiles()
+            profile = next((p for p in profiles if p['id'] == profile_id), None)
+            preferred_voiceovers = profile.get('preferred_voiceovers', '') if profile else ''
+
+            final_plan = collector.collect(processed_videos, existing_items, preferred_voiceovers)
+            
+            # 4. Сохранение результата в БД
+            items_to_save_in_db = []
+            tasks_for_downloader = []
+
+            for item in final_plan:
+                db_item = {
+                    "series_id": series_id,
+                    "unique_id": generate_media_item_id(item['source_data']['url'], item['source_data']['publication_date']),
+                    "status": item['status'],
+                    "source_url": item['source_data']['url'],
+                    "publication_date": item['source_data']['publication_date'],
+                }
+                
+                if item['result']['action'] in ['extract_single', 'assign_episode_number']:
+                    db_item["episode_start"] = item['result']['extracted']['episode']
+                elif item['result']['action'] == 'extract_range':
+                    db_item["episode_start"] = item['result']['extracted']['start']
+                    db_item["episode_end"] = item['result']['extracted']['end']
+                
+                if 'voiceover' in item['result']['extracted']:
+                    db_item['voiceover_tag'] = item['result']['extracted']['voiceover']
+
+                items_to_save_in_db.append(db_item)
+                
+                existing = next((i for i in existing_items if i['unique_id'] == db_item['unique_id']), None)
+                if item['status'] in ['new', 'new_compilation'] and not (existing and existing.get('is_ignored_by_user')):
+                    tasks_for_downloader.append(db_item)
+            
+            if items_to_save_in_db:
+                app.logger.info("scanner", f"Обнаружено {len(items_to_save_in_db)} медиа-элементов для обновления/добавления в БД.")
+                app.db.add_or_update_media_items(items_to_save_in_db)
+
+            app.logger.info("scanner", f"Сформировано {len(tasks_for_downloader)} задач для загрузчика (реализация на Этапе 3).")
+
+            app.db.set_series_state(series_id, 'waiting', scan_time=datetime.now(timezone.utc))
+            _broadcast_series_update(series_id)
+            return {"success": True, "message": "Сканирование VK-сериала завершено."}
+
+
+        # --- НАЧАЛО СТАРОЙ ЛОГИКИ ДЛЯ ТОРРЕНТОВ ---
         if not recovery_mode:
             state_str = series['state']
             is_busy = False
@@ -196,7 +279,6 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                 error_message = "Не удалось добавить ни одного торрента из списка."
                 app.logger.error("scanner", f"Ошибка в процессе сканирования для series_id {series_id}: {error_message}")
                 app.db.set_series_state(series_id, 'error')
-                # --- ИЗМЕНЕНИЕ: Убрано обновление времени при ошибке ---
                 _broadcast_series_update(series_id)
                 if task_id:
                     app.db.delete_scan_task(task_id)
@@ -240,7 +322,6 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
             if app.debug_manager.is_debug_enabled('scanner'):
                 app.logger.debug("scanner", f"Задача сканирования ID {task_id} успешно завершена и удалена.")
 
-            # --- ИЗМЕНЕНИЕ: Убрано обновление времени при успешном завершении ---
             _broadcast_series_update(series_id)
             
             return {"success": True, "tasks_created": tasks_created}

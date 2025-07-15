@@ -1,7 +1,7 @@
 import requests
-from urllib.parse import urlparse
+from urllib.parse import urlparse, parse_qs
 from datetime import datetime
-from typing import List, Dict
+from typing import List, Dict, Any
 
 class VKScraper:
     API_VERSION = '5.199'
@@ -34,12 +34,17 @@ class VKScraper:
                 self.logger.error(f"vk_scraper", f"Ошибка API: {response['error']['error_msg']}")
                 return None
             
-            object_id = response['response']['object_id']
-            obj_type = response['response']['type']
-            
-            owner_id = -object_id if obj_type == 'group' else object_id
-            self.logger.info("vk_scraper", f"ID канала: {owner_id}")
-            return owner_id
+            # Проверяем, что ответ содержит словарь, а не список или что-то еще
+            if response.get('response') and isinstance(response.get('response'), dict):
+                object_id = response['response']['object_id']
+                obj_type = response['response']['type']
+                
+                owner_id = -object_id if obj_type == 'group' else object_id
+                self.logger.info("vk_scraper", f"ID канала: {owner_id}")
+                return owner_id
+            else:
+                self.logger.error(f"vk_scraper", f"Неожиданный формат ответа от API VK для screen_name '{screen_name}': {response}")
+                return None
         except requests.exceptions.RequestException as e:
             self.logger.error(f"vk_scraper", f"Сетевая ошибка: {e}")
             return None
@@ -83,15 +88,20 @@ class VKScraper:
                 
         return all_videos
 
-    async def scrape_titles_and_dates(self, channel_url: str, query: str) -> List[Dict[str, str]]:
+    def scrape_video_data(self, channel_url: str, query: str) -> List[Dict[str, Any]]:
         if not self.access_token:
             raise ValueError("Токен доступа VK не настроен.")
             
+        # --- ИЗМЕНЕНИЕ: Исправлена логика извлечения имени канала ---
         try:
             parsed_url = urlparse(channel_url)
-            screen_name = parsed_url.path.strip('/').split('/')[-1]
-            if screen_name.startswith('@'):
-                screen_name = screen_name[1:]
+            path_parts = parsed_url.path.strip('/').split('/')
+            screen_name_part = next((part for part in path_parts if part.startswith('@')), None)
+            
+            if not screen_name_part:
+                raise ValueError("Не удалось найти имя канала (должно начинаться с @) в URL.")
+            
+            screen_name = screen_name_part[1:]
         except Exception as e:
             self.logger.error("vk_scraper", f"Не удалось распарсить URL канала '{channel_url}': {e}")
             raise ValueError("Неверный формат URL канала.")
@@ -104,15 +114,18 @@ class VKScraper:
         
         results = []
         for video in videos:
-            creation_date = "Неизвестно"
-            if 'date' in video:
-                unix_timestamp = video['date']
-                creation_date = datetime.utcfromtimestamp(unix_timestamp).strftime('%d.%m.%Y')
+            video_id = video.get('id')
+            video_owner_id = video.get('owner_id')
+            video_url = f"https://vk.com/video{video_owner_id}_{video_id}"
+            
+            unix_timestamp = video.get('date', 0)
+            publication_date = datetime.utcfromtimestamp(unix_timestamp)
             
             results.append({
                 "title": video.get('title', 'Без названия'),
-                "date": creation_date
+                "url": video_url,
+                "publication_date": publication_date
             })
             
         self.logger.info("vk_scraper", f"Найдено {len(results)} видео.")
-        return results
+        return sorted(results, key=lambda x: x['publication_date'], reverse=True)

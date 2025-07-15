@@ -4,8 +4,9 @@ from flask import send_from_directory, Blueprint
 from .series import series_bp
 from .settings import settings_bp
 from .system import system_bp
-# --- ИЗМЕНЕНИЕ: Импортируем ОБА новых чертежа ---
 from .parser import profiles_bp, rules_bp
+# --- ИЗМЕНЕНИЕ: Импортируем новый чертеж ---
+from .media import media_bp
 
 def init_all_routes(app):
     """
@@ -23,6 +24,7 @@ def init_all_routes(app):
     app.register_blueprint(series_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(system_bp)
-    # --- ИЗМЕНЕНИЕ: Регистрируем ОБА новых чертежа ---
     app.register_blueprint(profiles_bp)
     app.register_blueprint(rules_bp)
+    # --- ИЗМЕНЕНИЕ: Регистрируем новый чертеж ---
+    app.register_blueprint(media_bp)

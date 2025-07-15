@@ -76,10 +76,19 @@
     grid-template-columns: 2.5fr 1.5fr 1fr 5fr;
 }
 
-/* --- ИЗМЕНЕНИЕ: Новое правило для таблицы статусов --- */
 .div-table.table-active-statuses .div-table-header,
 .div-table.table-active-statuses .div-table-row {
     grid-template-columns: 2.5fr 2fr 1.5fr 2fr 1.5fr 1.5fr;
+}
+
+.div-table.table-composition .div-table-header,
+.div-table.table-composition .div-table-row {
+    /* ИЗМЕНЕНИЕ: Уменьшаем колонку статуса и S/E, отдавая больше места ссылке */
+    grid-template-columns: 50px 120px 100px 4fr 1.5fr 1.5fr;
+}
+
+.div-table.table-composition .status-col {
+    font-weight: bold;
 }
 
 
@@ -101,3 +110,37 @@
 .row-state-renaming   { background-color: #e9d5ff !important; }
 .row-state-checking   { background-color: #cfe2ff !important; }
 .row-state-activation { background-color: #d1e7dd !important; }
+
+
+/* Стили для таблицы композиции */
+.row-ignored {
+    background-color: #f8f9fa !important;
+    color: #6c757d;
+    text-decoration: line-through;
+}
+
+.row-completed {
+    background-color: #d1e7dd !important; /* Зеленый - успех */
+}
+
+.row-discarded, .row-redundant {
+    background-color: #e9ecef !important; /* Серый - заменен/избыточен */
+    color: #adb5bd;
+}
+
+.row-new, .row-new-compilation {
+    background-color: #cfe2ff !important; /* Синий - в очереди */
+}
+
+.legend {
+    font-size: 0.8rem;
+    color: #6c757d;
+}
+.legend-box {
+    display: inline-block;
+    width: 12px;
+    height: 12px;
+    border-radius: 3px;
+    margin-right: 4px;
+    border: 1px solid rgba(0,0,0,0.2);
+}

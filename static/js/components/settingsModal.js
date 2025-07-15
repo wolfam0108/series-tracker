@@ -4,7 +4,6 @@ const SettingsModal = {
     'settings-naming-tab': SettingsNamingTab,
     'settings-agents-tab': SettingsAgentsTab,
     'settings-debug-tab': SettingsDebugTab,
-    // --- ИЗМЕНЕНИЕ: Добавляем новый компонент ---
     'settings-parser-tab': SettingsParserTab,
   },
   props: {
@@ -40,7 +39,7 @@ const SettingsModal = {
                             <button class="nav-link modern-tab-link" 
                                     id="parser-tab" data-bs-toggle="tab" data-bs-target="#parser-tab-pane" 
                                     type="button" role="tab" @click="setActiveTab('parser')">
-                                <i class="bi bi-funnel me-2"></i>Парсеры
+                                <i class="bi bi-funnel me-2"></i>Фильтры VK
                             </button>
                         </li>
                         <li class="nav-item" role="presentation">
@@ -123,12 +122,13 @@ const SettingsModal = {
     },
     setActiveTab(tabName) {
         this.activeTab = tabName;
-        // Загружаем данные для активной вкладки
-        if (this.$refs[`${tabName}Tab`]) {
-            this.$refs[`${tabName}Tab`].load();
-        }
-        // Выгружаем данные для неактивной вкладки отладки
-        if(tabName !== 'debug' && this.$refs.debugTab) {
+        // Используем $nextTick чтобы убедиться, что ref доступен после смены таба
+        this.$nextTick(() => {
+            if (this.$refs[`${tabName}Tab`] && typeof this.$refs[`${tabName}Tab`].load === 'function') {
+                this.$refs[`${tabName}Tab`].load();
+            }
+        });
+        if(tabName !== 'debug' && this.$refs.debugTab && typeof this.$refs.debugTab.unload === 'function') {
             this.$refs.debugTab.unload();
         }
     },
@@ -136,7 +136,6 @@ const SettingsModal = {
       if (this.activeTab === 'auth') {
         this.$refs.authTab.save();
       }
-      // В будущем здесь будет сохранение и для других вкладок
     },
     emitToast(message, type) {
       this.$emit('show-toast', message, type);

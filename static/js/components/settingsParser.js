@@ -67,16 +67,19 @@ const SettingsParserTab = {
                         </div>
                         <div v-if="!isRuleCollapsed(rule.id)" class="rule-body">
                             <div class="rule-block if-block">
-                               <div class="rule-block-header">ЕСЛИ</div>
-                               <div class="rule-block-content">
-                                   <div v-for="(cond, c_index) in rule.conditions" :key="c_index" class="condition-row">
-                                       <select v-model="cond.condition_type" class="modern-select rule-select">
-                                           <option value="contains">Содержит</option>
-                                           <option value="not_contains">Не содержит</option>
-                                       </select>
-                                       <div class="pattern-constructor" 
-                                            @dragover.prevent @dragenter.prevent 
-                                            @drop="onDrop($event, cond._blocks)">
+                               <div v-for="(cond, c_index) in rule.conditions" :key="c_index">
+                                   <div class="condition-group">
+                                       <div class="condition-header">
+                                           <div class="rule-block-header">
+                                               <span>ЕСЛИ</span>
+                                               <select v-model="cond.condition_type" class="modern-select rule-select-compact">
+                                                   <option value="contains">Содержит</option>
+                                                   <option value="not_contains">Не содержит</option>
+                                               </select>
+                                           </div>
+                                           <button @click="removeCondition(rule, c_index)" class="control-btn text-danger" title="Удалить условие"><i class="bi bi-x-lg"></i></button>
+                                       </div>
+                                       <div class="pattern-constructor" @dragover.prevent @dragenter.prevent @drop="onDrop($event, cond._blocks)">
                                            <div class="pattern-blocks-container">
                                                <div v-for="(block, b_index) in cond._blocks" :key="b_index" 
                                                     class="pattern-block" :class="'block-type-' + block.type"
@@ -87,52 +90,59 @@ const SettingsParserTab = {
                                                </div>
                                            </div>
                                            <div class="pattern-palette">
-                                                <button v-for="p_block in blockPalette" :key="p_block.type" 
-                                                        class="palette-btn" :title="p_block.title"
-                                                        draggable="true" @dragstart="onDragStart($event, {source: 'palette', blockType: p_block.type})">
-                                                        + {{ p_block.label }}
-                                                </button>
+                                               <button v-for="p_block in blockPalette" :key="p_block.type" class="palette-btn" :title="p_block.title" draggable="true" @dragstart="onDragStart($event, {source: 'palette', blockType: p_block.type})">+ {{ p_block.label }}</button>
                                            </div>
                                        </div>
-                                       <select v-model="cond.logical_operator" class="modern-select rule-select" v-if="c_index < rule.conditions.length - 1">
+                                   </div>
+                                   <div class="logical-operator-container" v-if="c_index < rule.conditions.length - 1">
+                                       <select v-model="cond.logical_operator" class="modern-select rule-select-compact">
                                            <option value="AND">И</option>
                                            <option value="OR">ИЛИ</option>
                                        </select>
-                                       <button @click="removeCondition(rule, c_index)" class="control-btn text-danger" title="Удалить условие"><i class="bi bi-x-lg"></i></button>
                                    </div>
-                                   <button @click="addCondition(rule)" class="modern-btn btn-secondary btn-sm mt-2"><i class="bi bi-plus-lg"></i> Добавить условие</button>
                                </div>
+                               <div class="text-end mt-2"><button @click="addCondition(rule)" class="control-btn text-primary" title="Добавить условие"><i class="bi bi-plus-lg"></i></button></div>
                             </div>
+                            
                             <div class="rule-block then-block">
-                               <div class="rule-block-header">ТО</div>
-                               <div class="rule-block-content action-row">
-                                   <select v-model="rule.action_type" class="modern-select rule-select">
-                                       <option value="exclude">Исключить видео</option>
-                                       <option value="extract_single">Извлечь номер серии</option>
-                                       <option value="extract_range">Извлечь диапазон серий</option>
-                                       <option value="extract_season">Установить номер сезона</option>
-                                   </select>
-                                   <div v-if="rule.action_type !== 'exclude'" class="pattern-constructor"
-                                        @dragover.prevent @dragenter.prevent
-                                        @drop="onDrop($event, rule._action_blocks)">
-                                       <div class="pattern-blocks-container">
-                                            <div v-for="(block, b_index) in rule._action_blocks" :key="b_index" 
-                                                 class="pattern-block" :class="'block-type-' + block.type"
-                                                 draggable="true" @dragstart="onDragStart($event, {fromContainer: rule._action_blocks, fromIndex: b_index})">
-                                               <span v-if="block.type !== 'text'">{{ blockPaletteMap[block.type].label }} (захват #{{b_index + 1}})</span>
-                                               <input v-if="block.type === 'text'" v-model="block.value" type="text" class="pattern-block-input">
-                                               <button @click="removePatternBlock(rule._action_blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                <div v-for="(action, a_index) in rule.actions" :key="a_index" class="condition-group">
+                                    <div class="condition-header">
+                                        <div class="rule-block-header">
+                                            <span>ТО</span>
+                                            <select v-model="action.action_type" @change="onActionTypeChange(action)" class="modern-select rule-select-compact">
+                                               <option value="exclude">Исключить видео</option>
+                                               <option value="extract_single">Извлечь номер серии</option>
+                                               <option value="extract_range">Извлечь диапазон серий</option>
+                                               <option value="extract_season">Установить номер сезона</option>
+                                               <option value="assign_voiceover">Назначить озвучку/тег</option>
+                                               <option value="assign_episode_number">Назначить номер серии/сезона</option>
+                                            </select>
+                                        </div>
+                                        <button @click="removeAction(rule, a_index)" class="control-btn text-danger" title="Удалить действие"><i class="bi bi-x-lg"></i></button>
+                                    </div>
+                                    <div class="action-content">
+                                       <div v-if="['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)" class="pattern-constructor" @dragover.prevent @dragenter.prevent @drop="onDrop($event, action._action_blocks)">
+                                           <div class="pattern-blocks-container">
+                                                <div v-for="(block, b_index) in action._action_blocks" :key="b_index" class="pattern-block" :class="'block-type-' + block.type" draggable="true" @dragstart="onDragStart($event, {fromContainer: action._action_blocks, fromIndex: b_index})">
+                                                   <span v-if="block.type !== 'text'">{{ blockPaletteMap[block.type].label }} (захват #{{b_index + 1}})</span>
+                                                   <input v-if="block.type === 'text'" v-model="block.value" type="text" class="pattern-block-input">
+                                                   <button @click="removePatternBlock(action._action_blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                                </div>
+                                           </div>
+                                           <div class="pattern-palette">
+                                               <button v-for="p_block in blockPalette" :key="p_block.type" class="palette-btn" :title="p_block.title" draggable="true" @dragstart="onDragStart($event, {source: 'palette', blockType: p_block.type})">+ {{ p_block.label }}</button>
                                            </div>
                                        </div>
-                                       <div class="pattern-palette">
-                                           <button v-for="p_block in blockPalette" :key="p_block.type"
-                                                    class="palette-btn" :title="p_block.title"
-                                                    draggable="true" @dragstart="onDragStart($event, {source: 'palette', blockType: p_block.type})">
-                                                    + {{ p_block.label }}
-                                           </button>
+                                       <div v-if="action.action_type === 'assign_voiceover'" class="modern-input-group">
+                                           <input type="text" class="modern-input" v-model="action.action_pattern" placeholder="Напр: AniDub">
                                        </div>
-                                   </div>
-                               </div>
+                                       <div v-if="action.action_type === 'assign_episode_number'" class="d-flex gap-2">
+                                           <input type="number" class="modern-input" :value="getAssignedNumber(action).season" @input="updateAssignedNumber(action, 'season', $event)" placeholder="Сезон">
+                                           <input type="number" class="modern-input" :value="getAssignedNumber(action).episode" @input="updateAssignedNumber(action, 'episode', $event)" placeholder="Серия">
+                                       </div>
+                                    </div>
+                                </div>
+                                <div class="text-end mt-2"><button @click="addAction(rule)" class="control-btn text-primary" title="Добавить действие"><i class="bi bi-plus-lg"></i></button></div>
                             </div>
                         </div>
                     </div>
@@ -210,10 +220,7 @@ const SettingsParserTab = {
     }
   },
   methods: {
-    // --- Управление профилями и правилами ---
-    async load() {
-      await this.loadProfiles();
-    },
+    async load() { await this.loadProfiles(); },
     async loadProfiles() {
         this.isLoading = true;
         try {
@@ -250,8 +257,7 @@ const SettingsParserTab = {
         this.isLoading = true;
         try {
             const response = await fetch(`/api/parser-profiles/${this.selectedProfileId}`, { method: 'DELETE' });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Ошибка удаления профиля');
+            if (!response.ok) throw new Error((await response.json()).error || 'Ошибка удаления профиля');
             this.selectedProfileId = null;
             this.rules = [];
             await this.loadProfiles();
@@ -260,38 +266,26 @@ const SettingsParserTab = {
     },
     async loadRules() {
         if (!this.selectedProfileId) return;
-        this.isLoading = true;
-        this.rules = [];
-        this.testResults = [];
-        this.collapsedRules = {};
+        this.isLoading = true; this.rules = []; this.testResults = []; this.collapsedRules = {};
         try {
             const response = await fetch(`/api/parser-profiles/${this.selectedProfileId}/rules`);
             if (!response.ok) throw new Error('Ошибка загрузки правил');
-            const rules = await response.json();
-            this.rules = rules.map(rule => {
-                rule.conditions = rule.conditions.map(cond => {
-                    cond._blocks = this.parsePatternJson(cond.pattern);
-                    return cond;
-                });
-                rule._action_blocks = this.parsePatternJson(rule.action_pattern);
-                this.collapsedRules[rule.id] = true;
-                return rule;
-            });
+            this.rules = (await response.json()).map(rule => ({
+                ...rule,
+                conditions: rule.conditions.map(c => ({...c, _blocks: this.parsePatternJson(c.pattern)})),
+                actions: [{ action_type: rule.action_type, action_pattern: rule.action_pattern, _action_blocks: this.parsePatternJson(rule.action_pattern) }],
+                collapsed: true,
+            }));
+            this.rules.forEach(rule => this.collapsedRules[rule.id] = true);
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
         finally { this.isLoading = false; }
     },
     addRule() {
         const newRule = {
             id: 'new-' + Date.now(),
-            profile_id: this.selectedProfileId,
-            name: 'Новое правило',
-            action_type: 'exclude',
-            _action_blocks: [], 
-            conditions: [{
-                condition_type: 'contains',
-                _blocks: [{type: 'text', value: 'текст для поиска'}],
-                logical_operator: 'AND'
-            }],
+            profile_id: this.selectedProfileId, name: 'Новое правило',
+            conditions: [{ condition_type: 'contains', _blocks: [{type: 'text', value: 'текст для поиска'}], logical_operator: 'AND' }],
+            actions: [{ action_type: 'exclude', action_pattern: '[]', _action_blocks: [] }],
             is_new: true,
         };
         this.rules.push(newRule);
@@ -303,9 +297,13 @@ const SettingsParserTab = {
             cond.pattern = JSON.stringify(cond._blocks || []);
             delete cond._blocks;
         });
-        payload.action_pattern = JSON.stringify(payload._action_blocks || []);
-        delete payload._action_blocks;
-        delete payload.is_new;
+        // Для MVP пока берем только первое действие
+        if (payload.actions && payload.actions.length > 0) {
+            payload.action_type = payload.actions[0].action_type;
+            payload.action_pattern = payload.actions[0].action_pattern;
+        }
+        delete payload.actions;
+        delete payload.is_new; delete payload.collapsed;
         return payload;
     },
     async saveRule(rule) {
@@ -320,9 +318,7 @@ const SettingsParserTab = {
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Ошибка сохранения правила');
             this.$emit('show-toast', 'Правило сохранено', 'success');
-            if (isNew) {
-                await this.loadRules();
-            }
+            if (isNew) await this.loadRules();
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
     },
     async deleteRule(ruleId) {
@@ -348,44 +344,30 @@ const SettingsParserTab = {
             });
         } catch (error) { this.$emit('show-toast', 'Ошибка изменения порядка', 'danger'); this.loadRules(); }
     },
-    toggleRule(ruleId) {
-        this.collapsedRules[ruleId] = !this.collapsedRules[ruleId];
-    },
-    isRuleCollapsed(ruleId) {
-        return !!this.collapsedRules[ruleId];
-    },
+    toggleRule(ruleId) { this.collapsedRules[ruleId] = !this.collapsedRules[ruleId]; },
+    isRuleCollapsed(ruleId) { return !!this.collapsedRules[ruleId]; },
     parsePatternJson(jsonString) {
         try {
             if (!jsonString) return [];
             const blocks = JSON.parse(jsonString);
             return Array.isArray(blocks) ? blocks : [];
-        } catch (e) {
-            return [];
-        }
+        } catch (e) { return []; }
     },
-    addPatternBlock(targetBlocks, block) {
-        targetBlocks.push({ type: block.type, value: block.type === 'text' ? '' : undefined });
+    addPatternBlock(targetBlocks, block) { targetBlocks.push({ type: block.type, value: block.type === 'text' ? '' : undefined }); },
+    removePatternBlock(targetBlocks, blockIndex) { targetBlocks.splice(blockIndex, 1); },
+    addCondition(rule) { rule.conditions.push({ condition_type: 'contains', _blocks: [], logical_operator: 'AND' }); },
+    removeCondition(rule, index) { rule.conditions.splice(index, 1); },
+    addAction(rule) {
+        if (!rule.actions) rule.actions = [];
+        rule.actions.push({ action_type: 'exclude', action_pattern: '[]', _action_blocks: [] });
     },
-    removePatternBlock(targetBlocks, blockIndex) {
-        targetBlocks.splice(blockIndex, 1);
-    },
-    addCondition(rule) {
-        rule.conditions.push({ 
-            condition_type: 'contains', 
-            _blocks: [], 
-            logical_operator: 'AND' 
-        });
-    },
-    removeCondition(rule, index) {
-        rule.conditions.splice(index, 1);
-    },
+    removeAction(rule, index) { rule.actions.splice(index, 1); },
     onDragStart(event, payload) {
         event.dataTransfer.effectAllowed = 'move';
         event.dataTransfer.setData('application/json', JSON.stringify(payload));
     },
     onDrop(event, targetBlocks) {
         const payload = JSON.parse(event.dataTransfer.getData('application/json'));
-        
         if (payload.source === 'palette') {
             this.addPatternBlock(targetBlocks, { type: payload.blockType });
         } else if (payload.fromContainer) {
@@ -397,10 +379,28 @@ const SettingsParserTab = {
             }
         }
     },
+    onActionTypeChange(action) {
+        if (['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)) {
+            action.action_pattern = '[]';
+            action._action_blocks = [];
+        } else if (action.action_type === 'assign_episode_number') {
+            action.action_pattern = JSON.stringify({ season: 1, episode: 1 });
+        } else {
+             action._action_blocks = [];
+             action.action_pattern = '';
+        }
+    },
+    getAssignedNumber(action) {
+        try { return JSON.parse(action.action_pattern); } catch (e) { return { season: '', episode: '' }; }
+    },
+    updateAssignedNumber(action, key, event) {
+        const data = this.getAssignedNumber(action);
+        data[key] = parseInt(event.target.value, 10) || 0;
+        action.action_pattern = JSON.stringify(data);
+    },
     async runTest() {
         if (!this.testTitles || !this.selectedProfileId) return;
-        this.isTesting = true;
-        this.testResults = [];
+        this.isTesting = true; this.testResults = [];
         try {
             const titles = this.testTitles.split('\n').filter(t => t.trim() !== '');
             const response = await fetch('/api/parser-profiles/test', {
@@ -426,18 +426,17 @@ const SettingsParserTab = {
             if (result.extracted.episode !== undefined) return `Серия: ${result.extracted.episode}`;
             if (result.extracted.season !== undefined) return `Сезон: ${result.extracted.season}`;
             if (result.extracted.start !== undefined) return `Диапазон: ${result.extracted.start}-${result.extracted.end}`;
+            if (result.extracted.voiceover) return `Тег: ${result.extracted.voiceover}`;
         }
         return 'Совпадение';
     },
     async scrapeTestTitles() {
         if (!this.scrapeChannelUrl || !this.scrapeQuery) return;
-        this.isScraping = true;
-        this.scrapedItems = [];
+        this.isScraping = true; this.scrapedItems = [];
         this.$emit('show-toast', 'Запущен сбор названий через VK API...', 'info');
         try {
             const response = await fetch('/api/parser-profiles/scrape-titles', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
+                method: 'POST', headers: {'Content-Type': 'application/json'},
                 body: JSON.stringify({ channel_url: this.scrapeChannelUrl, query: this.scrapeQuery })
             });
             const data = await response.json();
@@ -446,18 +445,7 @@ const SettingsParserTab = {
             this.$emit('show-toast', `Собрано ${data.length} записей.`, 'success');
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
-        } finally {
-            this.isScraping = false;
-        }
+        } finally { this.isScraping = false; }
     },
-    copyScrapedTitles() {
-        if (this.scrapedItems.length === 0) return;
-        const titlesOnly = this.scrapedItems.map(item => item.title).join('\n');
-        navigator.clipboard.writeText(titlesOnly).then(() => {
-            this.$emit('show-toast', 'Названия скопированы в буфер обмена.', 'success');
-        }, () => {
-            this.$emit('show-toast', 'Не удалось скопировать текст.', 'danger');
-        });
-    }
   }
 };

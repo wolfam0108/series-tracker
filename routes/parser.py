@@ -2,7 +2,6 @@ from flask import Blueprint, jsonify, request, current_app as app
 from rule_engine import RuleEngine
 from scrapers.vk_scraper import VKScraper
 import json
-import asyncio
 
 # Чертеж для управления профилями и получения/создания правил внутри профиля
 profiles_bp = Blueprint('parser_profiles_api', __name__, url_prefix='/api/parser-profiles')
@@ -64,7 +63,8 @@ def scrape_vk_titles():
     
     try:
         scraper = VKScraper(app.db, app.logger)
-        titles_with_dates = asyncio.run(scraper.scrape_titles_and_dates(channel_url, query))
+        # --- ИЗМЕНЕНИЕ: Исправлено имя вызываемого метода ---
+        titles_with_dates = scraper.scrape_video_data(channel_url, query)
         return jsonify(titles_with_dates)
     except Exception as e:
         app.logger.error("parser_api", f"Ошибка скрапинга VK: {e}", exc_info=True)
@@ -74,7 +74,6 @@ def scrape_vk_titles():
 @rules_bp.route('/<int:rule_id>', methods=['PUT'])
 def update_rule(rule_id):
     data = request.get_json()
-    app.logger.debug("parser_api", f"PUT /rules/{rule_id} - Получен payload: {json.dumps(data, indent=2, ensure_ascii=False)}")
     try:
         app.db.update_rule(rule_id, data)
         return jsonify({"success": True})
@@ -109,5 +108,8 @@ def test_parser_rules():
         return jsonify({"error": "profile_id не указан"}), 400
     
     engine = RuleEngine(app.db, app.logger)
-    results = engine.test_rules_on_titles(profile_id, titles)
+    # --- ИЗМЕНЕНИЕ: Метод process_videos теперь ожидает объекты, а не строки ---
+    # Для теста мы передаем только названия, поэтому создаем нужную структуру
+    video_data = [{"title": title} for title in titles]
+    results = engine.process_videos(profile_id, video_data)
     return jsonify(results)

@@ -12,7 +12,7 @@ from models import (
     Base, Auth, Series, RenamingPattern, SeasonPattern, AdvancedRenamingPattern,
     Torrent, Setting, Log, QualityPattern, QualitySearchPattern, ResolutionPattern,
     ResolutionSearchPattern, AgentTask, ScanTask,
-    ParserProfile, ParserRule, ParserRuleCondition
+    ParserProfile, ParserRule, ParserRuleCondition, MediaItem
 )
 
 class Database:
@@ -151,7 +151,13 @@ class Database:
 
     def add_series(self, data: Dict[str, Any]) -> int:
         with self.Session() as session:
-            series = Series(url=data["url"], name=data["name"], name_en=data["name_en"], site=data["site"], save_path=data["save_path"], season=data.get("season"), quality=data.get("quality"))
+            allowed_keys = {c.name for c in Series.__table__.columns if c.name != 'id'}
+            series_data = {key: data[key] for key in allowed_keys if key in data}
+            
+            if 'source_type' not in series_data:
+                series_data['source_type'] = 'torrent'
+            
+            series = Series(**series_data)
             session.add(series)
             session.commit()
             return series.id
@@ -584,16 +590,29 @@ class Database:
     def get_parser_profiles(self) -> List[Dict[str, Any]]:
         with self.Session() as session:
             profiles = session.query(ParserProfile).all()
-            return [{"id": p.id, "name": p.name} for p in profiles]
+            return [{"id": p.id, "name": p.name, "preferred_voiceovers": p.preferred_voiceovers} for p in profiles]
 
     def create_parser_profile(self, name: str) -> int:
         with self.Session() as session:
             if session.query(ParserProfile).filter_by(name=name).first():
                 raise ValueError(f"Профиль парсера с именем '{name}' уже существует.")
-            new_profile = ParserProfile(name=name)
+            new_profile = ParserProfile(name=name, preferred_voiceovers="")
             session.add(new_profile)
             session.commit()
             return new_profile.id
+
+    def update_parser_profile(self, profile_id: int, data: Dict[str, Any]):
+        with self.Session() as session:
+            profile = session.query(ParserProfile).filter_by(id=profile_id).first()
+            if not profile:
+                raise ValueError(f"Профиль с ID {profile_id} не найден.")
+            
+            if 'name' in data:
+                profile.name = data['name']
+            if 'preferred_voiceovers' in data:
+                profile.preferred_voiceovers = data['preferred_voiceovers']
+            
+            session.commit()
 
     def delete_parser_profile(self, profile_id: int):
         with self.Session() as session:
@@ -638,58 +657,52 @@ class Database:
                 priority=max_priority + 1
             )
             
-            session.add(new_rule)
-            session.flush() # Получаем ID для new_rule
-
             if conditions_data := rule_data.get('conditions'):
                 for cond_data in conditions_data:
-                    new_condition = ParserRuleCondition(
-                        rule_id=new_rule.id,
+                    new_rule.conditions.append(ParserRuleCondition(
                         condition_type=cond_data.get('condition_type'),
                         pattern=cond_data.get('pattern'),
                         logical_operator=cond_data.get('logical_operator', 'AND')
-                    )
-                    session.add(new_condition)
+                    ))
 
+            session.add(new_rule)
             session.commit()
             return new_rule.id
 
     def update_rule(self, rule_id: int, rule_data: Dict[str, Any]):
         with self.Session() as session:
             try:
-                # Начинаем транзакцию
-                with session.begin_nested():
-                    rule = session.query(ParserRule).filter_by(id=rule_id).with_for_update().first()
-                    if not rule:
-                        self.logger.error("db", f"Попытка обновить несуществующее правило с ID: {rule_id}")
-                        return
+                rule = session.query(ParserRule).filter_by(id=rule_id).first()
+                if not rule:
+                    self.logger.error("db", f"Попытка обновить несуществующее правило с ID: {rule_id}")
+                    return
 
-                    # 1. Удаляем все старые условия, связанные с этим правилом
-                    session.query(ParserRuleCondition).filter_by(rule_id=rule_id).delete(synchronize_session=False)
+                # Явное удаление старых условий
+                session.query(ParserRuleCondition).filter_by(rule_id=rule_id).delete(synchronize_session=False)
+                session.flush()
 
-                    # 2. Обновляем основные поля самого правила
-                    rule.name = rule_data.get('name', rule.name)
-                    rule.action_type = rule_data.get('action_type', rule.action_type)
-                    rule.action_pattern = rule_data.get('action_pattern', rule.action_pattern)
+                # Обновление полей правила
+                rule.name = rule_data.get('name', rule.name)
+                rule.action_type = rule_data.get('action_type', rule.action_type)
+                rule.action_pattern = rule_data.get('action_pattern', rule.action_pattern)
 
-                    # 3. Добавляем новые условия
-                    if conditions_data := rule_data.get('conditions'):
-                        for cond_data in conditions_data:
-                            new_condition = ParserRuleCondition(
-                                rule_id=rule.id,
-                                condition_type=cond_data.get('condition_type'),
-                                pattern=cond_data.get('pattern'),
-                                logical_operator=cond_data.get('logical_operator', 'AND')
-                            )
-                            session.add(new_condition)
+                # Добавление новых условий
+                if conditions_data := rule_data.get('conditions'):
+                    for cond_data in conditions_data:
+                        new_condition = ParserRuleCondition(
+                            rule_id=rule.id,
+                            condition_type=cond_data.get('condition_type'),
+                            pattern=cond_data.get('pattern'),
+                            logical_operator=cond_data.get('logical_operator', 'AND')
+                        )
+                        session.add(new_condition)
                 
-                # Коммитим внешнюю транзакцию
                 session.commit()
             except Exception as e:
                 self.logger.error("db.update_rule", f"Ошибка при обновлении правила ID {rule_id}: {e}", exc_info=True)
                 session.rollback()
                 raise
-
+    
     def update_rules_order(self, ordered_rule_ids: List[int]):
          with self.Session() as session:
             for index, rule_id in enumerate(ordered_rule_ids):
@@ -703,4 +716,38 @@ class Database:
             rule = session.query(ParserRule).filter_by(id=rule_id).first()
             if rule:
                 session.delete(rule)
+                session.commit()
+    
+    def get_media_items_for_series(self, series_id: int) -> List[Dict[str, Any]]:
+        with self.Session() as session:
+            items = session.query(MediaItem).filter_by(series_id=series_id).options(joinedload(MediaItem.series)).all()
+            
+            result = []
+            for item in items:
+                item_dict = {c.name: getattr(item, c.name) for c in item.__table__.columns if c.name != 'series'}
+                if item.series:
+                    item_dict['series'] = {c.name: getattr(item.series, c.name) for c in item.series.__table__.columns}
+                result.append(item_dict)
+            return result
+
+    def add_or_update_media_items(self, items_to_process: List[Dict[str, Any]]):
+        with self.Session() as session:
+            for item_data in items_to_process:
+                unique_id = item_data.get('unique_id')
+                if not unique_id:
+                    continue
+
+                existing_item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+                if existing_item:
+                    existing_item.status = item_data.get('status', existing_item.status)
+                else:
+                    new_item = MediaItem(**item_data)
+                    session.add(new_item)
+            session.commit()
+
+    def set_media_item_ignored_status(self, item_id: int, is_ignored: bool):
+         with self.Session() as session:
+            item = session.query(MediaItem).filter_by(id=item_id).first()
+            if item:
+                item.is_ignored_by_user = is_ignored
                 session.commit()
