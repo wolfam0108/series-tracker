@@ -1,0 +1,68 @@
+/* ==================================================================== */
+/* Адаптивные стили (Media Queries)                                    */
+/* ==================================================================== */
+
+@media (max-width: 768px) {
+    .modern-modal {
+        margin: 10px;
+    }
+    
+    .modern-header {
+        padding: 16px;
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .modern-header .modal-title {
+        width: 100%;
+        text-align: center;
+        margin-bottom: 1rem;
+        padding: 0;
+    }
+
+    .modern-nav-tabs {
+        width: 100%;
+        justify-content: center;
+        overflow-x: auto;
+        margin-left: 0;
+    }
+
+    .modern-close {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+    }
+
+    .modern-body {
+        padding: 20px;
+    }
+    
+    .modern-footer {
+        padding: 16px 20px;
+        flex-direction: column;
+    }
+    
+    .fieldset-content {
+        padding: 16px;
+    }
+
+    .pattern-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .pattern-controls {
+        justify-content: center;
+    }
+
+    .standard-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .standard-controls {
+        justify-content: center;
+    }
+}

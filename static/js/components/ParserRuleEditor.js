@@ -34,54 +34,54 @@ const ParserRuleEditor = {
                                 <div class="rule-block if-block">
                                    <div v-for="(cond, c_index) in rule.conditions" :key="c_index">
                                        <div class="condition-group">
-                                           <div class="condition-header">
-                                               <div class="rule-block-header">
-                                                   <span>ЕСЛИ</span>
-                                                   <select v-model="cond.condition_type" class="modern-select rule-select-compact">
-                                                       <option value="contains">Содержит</option>
-                                                       <option value="not_contains">Не содержит</option>
-                                                   </select>
-                                               </div>
-                                               <button @click="removeCondition(rule, c_index)" class="control-btn text-danger" title="Удалить условие" :disabled="rule.conditions.length <= 1"><i class="bi bi-x-lg"></i></button>
-                                           </div>
-                                           <div class="pattern-constructor">
-                                               <div class="pattern-blocks-container"
-                                                    @dragover.prevent="dragOver($event, cond._blocks)" 
-                                                    @dragleave.prevent="dragLeave" 
-                                                    @drop="onDrop($event, cond._blocks, dragTarget.index)">
-                                                    <transition-group name="list" tag="div" class="d-inline-flex flex-wrap align-items-center gap-2">
-                                                        <template v-for="(block, b_index) in cond._blocks" :key="block.id">
-                                                            <div class="drop-placeholder" v-if="dragTarget.container === cond._blocks && dragTarget.index === b_index"></div>
-                                                            <div :class="['pattern-block', 'block-type-' + block.type]" 
-                                                                draggable="true" @dragstart="onDragStart($event, cond._blocks, b_index)">
-                                                                <span v-if="block.type !== 'text'">{{ getBlockLabel(block, 'if') }}</span>
-                                                                <span v-if="block.type === 'text'"
-                                                                    class="pattern-block-input"
-                                                                    contenteditable="true"
-                                                                    @input="updateBlockValue($event, block)"
-                                                                    @blur="updateBlockValue($event, block)"
-                                                                    @paste="handlePaste($event)"
-                                                                    :data-placeholder="block.value ? '' : 'Текст...'">{{ block.value }}</span>
-                                                                <button @click="removePatternBlock(cond._blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                            <div class="modern-input-group condition-header-group">
+                                                <span class="input-group-text">ЕСЛИ</span>
+                                                <select v-model="cond.condition_type" class="modern-select">
+                                                    <option value="contains">Содержит</option>
+                                                    <option value="not_contains">Не содержит</option>
+                                                </select>
+                                                <button @click="removeCondition(rule, c_index)" class="btn btn-danger" title="Удалить условие" :disabled="rule.conditions.length <= 1"><i class="bi bi-x-lg"></i></button>
+                                            </div>
+                                            <div class="modern-input-group">
+                                                <div class="pattern-constructor">
+                                                    <div class="pattern-blocks-container"
+                                                            @dragover.prevent="dragOver($event, cond._blocks)" 
+                                                            @dragleave.prevent="dragLeave" 
+                                                            @drop="onDrop($event, cond._blocks, dragTarget.index)">
+                                                        <transition-group name="list" tag="div" class="d-inline-flex flex-wrap align-items-center gap-2">
+                                                            <template v-for="(block, b_index) in cond._blocks" :key="block.id">
+                                                                <div class="drop-placeholder" v-if="dragTarget.container === cond._blocks && dragTarget.index === b_index"></div>
+                                                                <div :class="['pattern-block', 'block-type-' + block.type]" 
+                                                                    draggable="true" @dragstart="onDragStart($event, cond._blocks, b_index)">
+                                                                    <span v-if="block.type !== 'text'">{{ getBlockLabel(block, 'if') }}</span>
+                                                                    <span v-if="block.type === 'text'"
+                                                                        class="pattern-block-input"
+                                                                        contenteditable="true"
+                                                                        @input="updateBlockValue($event, block)"
+                                                                        @blur="updateBlockValue($event, block)"
+                                                                        @paste="handlePaste($event)"
+                                                                        :data-placeholder="block.value ? '' : 'Текст...'">{{ block.value }}</span>
+                                                                    <button @click="removePatternBlock(cond._blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                                                </div>
+                                                            </template>
+                                                        </transition-group>
+                                                        <div class="drop-placeholder" v-if="dragTarget.container === cond._blocks && dragTarget.index === cond._blocks.length"></div>
+                                                    </div>
+                                                    <div class="palette-footer">
+                                                        <div class="pattern-palette">
+                                                            <div v-for="p_block in blockPalette" :key="p_block.type" 
+                                                                :class="['palette-btn', 'block-type-' + p_block.type]" 
+                                                                :title="p_block.title" 
+                                                                draggable="true"
+                                                                @dragstart="onDragStart($event, null, -1, p_block.type)"
+                                                                @click="addPatternBlock(cond._blocks, p_block.type)">
+                                                                {{ p_block.label }}
                                                             </div>
-                                                        </template>
-                                                    </transition-group>
-                                                    <div class="drop-placeholder" v-if="dragTarget.container === cond._blocks && dragTarget.index === cond._blocks.length"></div>
-                                               </div>
-                                               <div class="palette-footer">
-                                                   <div class="pattern-palette">
-                                                        <div v-for="p_block in blockPalette" :key="p_block.type" 
-                                                            :class="['palette-btn', 'block-type-' + p_block.type]" 
-                                                            :title="p_block.title" 
-                                                            draggable="true"
-                                                            @dragstart="onDragStart($event, null, -1, p_block.type)"
-                                                            @click="addPatternBlock(cond._blocks, p_block.type)">
-                                                            {{ p_block.label }}
                                                         </div>
-                                                   </div>
-                                                   <button @click="addCondition(rule)" class="control-btn text-primary" title="Добавить условие"><i class="bi bi-plus-lg"></i></button>
-                                               </div>
-                                           </div>
+                                                    </div>
+                                                </div>
+                                                <button @click="addCondition(rule, c_index)" class="btn btn-primary" title="Добавить условие"><i class="bi bi-plus-lg"></i></button>
+                                            </div>
                                        </div>
                                        <div class="logical-operator-container" v-if="c_index < rule.conditions.length - 1">
                                            <select v-model="cond.logical_operator" class="modern-select rule-select-compact">
@@ -94,72 +94,73 @@ const ParserRuleEditor = {
                                 
                                 <div class="rule-block then-block">
                                     <div v-for="(action, a_index) in rule.actions" :key="a_index" class="condition-group">
-                                        <div class="condition-header">
-                                            <div class="rule-block-header">
-                                                <span>ТО</span>
-                                                <select v-model="action.action_type" @change="onActionTypeChange(action)" class="modern-select rule-select-compact">
-                                                   <option value="exclude">Исключить видео</option>
-                                                   <option value="extract_single">Извлечь номер серии</option>
-                                                   <option value="extract_range">Извлечь диапазон серий</option>
-                                                   <option value="extract_season">Установить номер сезона</option>
-                                                   <option value="assign_voiceover">Назначить озвучку/тег</option>
-                                                   <option value="assign_episode">Назначить номер серии</option>
-                                                   <option value="assign_season">Назначить номер сезона</option>
-                                                </select>
-                                            </div>
-                                            <button @click="removeAction(rule, a_index)" class="control-btn text-danger" title="Удалить действие" :disabled="rule.actions.length <= 1"><i class="bi bi-x-lg"></i></button>
+                                        <div class="modern-input-group condition-header-group" :class="{'mb-0': action.action_type === 'exclude'}">
+                                            <span class="input-group-text">ТО</span>
+                                            <select v-model="action.action_type" @change="onActionTypeChange(action)" class="modern-select">
+                                                <option value="exclude">Исключить видео</option>
+                                                <option value="extract_single">Извлечь номер серии</option>
+                                                <option value="extract_range">Извлечь диапазон серий</option>
+                                                <option value="extract_season">Установить номер сезона</option>
+                                                <option value="assign_voiceover">Назначить озвучку/тег</option>
+                                                <option value="assign_episode">Назначить номер серии</option>
+                                                <option value="assign_season">Назначить номер сезона</option>
+                                            </select>
+                                            <button @click="removeAction(rule, a_index)" class="btn btn-danger" title="Удалить действие" :disabled="rule.actions.length <= 1"><i class="bi bi-x-lg"></i></button>
                                         </div>
-                                        <div class="action-content">
-                                           <div v-if="['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)" class="pattern-constructor">
-                                               <div class="pattern-blocks-container"
-                                                    @dragover.prevent="dragOver($event, action._action_blocks)" 
-                                                    @dragleave.prevent="dragLeave" 
-                                                    @drop="onDrop($event, action._action_blocks, dragTarget.index)">
-                                                    <transition-group name="list" tag="div" class="d-inline-flex flex-wrap align-items-center gap-2">
-                                                        <template v-for="(block, b_index) in action._action_blocks" :key="block.id">
-                                                            <div class="drop-placeholder" v-if="dragTarget.container === action._action_blocks && dragTarget.index === b_index"></div>
-                                                            <div :class="['pattern-block', 'block-type-' + block.type]" 
-                                                                draggable="true" @dragstart="onDragStart($event, action._action_blocks, b_index)">
-                                                                <span v-if="block.type !== 'text'">{{ getBlockLabel(block, 'then', action._action_blocks) }}</span>
-                                                                <span v-if="block.type === 'text'"
-                                                                    class="pattern-block-input"
-                                                                    contenteditable="true"
-                                                                    @input="updateBlockValue($event, block)"
-                                                                    @blur="updateBlockValue($event, block)"
-                                                                    @paste="handlePaste($event)"
-                                                                    :data-placeholder="block.value ? '' : 'Текст...'">{{ block.value }}</span>
-                                                                <button @click="removePatternBlock(action._action_blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                        <div class="action-content" v-if="action.action_type !== 'exclude'">
+                                            <div v-if="['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)" class="modern-input-group">
+                                                <div class="pattern-constructor">
+                                                    <div class="pattern-blocks-container"
+                                                            @dragover.prevent="dragOver($event, action._action_blocks)" 
+                                                            @dragleave.prevent="dragLeave" 
+                                                            @drop="onDrop($event, action._action_blocks, dragTarget.index)">
+                                                        <transition-group name="list" tag="div" class="d-inline-flex flex-wrap align-items-center gap-2">
+                                                            <template v-for="(block, b_index) in action._action_blocks" :key="block.id">
+                                                                <div class="drop-placeholder" v-if="dragTarget.container === action._action_blocks && dragTarget.index === b_index"></div>
+                                                                <div :class="['pattern-block', 'block-type-' + block.type]" 
+                                                                    draggable="true" @dragstart="onDragStart($event, action._action_blocks, b_index)">
+                                                                    <span v-if="block.type !== 'text'">{{ getBlockLabel(block, 'then', action._action_blocks) }}</span>
+                                                                    <span v-if="block.type === 'text'"
+                                                                        class="pattern-block-input"
+                                                                        contenteditable="true"
+                                                                        @input="updateBlockValue($event, block)"
+                                                                        @blur="updateBlockValue($event, block)"
+                                                                        @paste="handlePaste($event)"
+                                                                        :data-placeholder="block.value ? '' : 'Текст...'">{{ block.value }}</span>
+                                                                    <button @click="removePatternBlock(action._action_blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                                                </div>
+                                                            </template>
+                                                        </transition-group>
+                                                        <div class="drop-placeholder" v-if="dragTarget.container === action._action_blocks && dragTarget.index === action._action_blocks.length"></div>
+                                                    </div>
+                                                    <div class="palette-footer">
+                                                        <div class="pattern-palette">
+                                                            <div v-for="p_block in blockPalette" :key="p_block.type" 
+                                                                :class="['palette-btn', 'block-type-' + p_block.type]" 
+                                                                :title="p_block.title" 
+                                                                draggable="true"
+                                                                @dragstart="onDragStart($event, null, -1, p_block.type)"
+                                                                @click="addPatternBlock(action._action_blocks, p_block.type)">
+                                                                {{ p_block.label }}
                                                             </div>
-                                                        </template>
-                                                    </transition-group>
-                                                    <div class="drop-placeholder" v-if="dragTarget.container === action._action_blocks && dragTarget.index === action._action_blocks.length"></div>
-                                               </div>
-                                                <div class="palette-footer">
-                                                    <div class="pattern-palette">
-                                                        <div v-for="p_block in blockPalette" :key="p_block.type" 
-                                                            :class="['palette-btn', 'block-type-' + p_block.type]" 
-                                                            :title="p_block.title" 
-                                                            draggable="true"
-                                                            @dragstart="onDragStart($event, null, -1, p_block.type)"
-                                                            @click="addPatternBlock(action._action_blocks, p_block.type)">
-                                                            {{ p_block.label }}
                                                         </div>
                                                     </div>
                                                 </div>
-                                           </div>
-                                           <div v-if="action.action_type === 'assign_voiceover'" class="modern-input-group">
-                                               <input type="text" class="modern-input" v-model="action.action_pattern" placeholder="Напр: AniDub">
-                                           </div>
-                                           <div v-if="action.action_type === 'assign_episode'">
-                                               <input type="number" class="modern-input" v-model="action.action_pattern" placeholder="Номер серии">
-                                           </div>
-                                           <div v-if="action.action_type === 'assign_season'">
-                                               <input type="number" class="modern-input" v-model="action.action_pattern" placeholder="Номер сезона">
-                                           </div>
+                                                <button v-if="a_index === rule.actions.length - 1" @click="addAction(rule)" class="btn btn-primary" title="Добавить действие"><i class="bi bi-plus-lg"></i></button>
+                                            </div>
+                                            <div v-if="action.action_type === 'assign_voiceover'" class="modern-input-group">
+                                                <input type="text" class="modern-input" v-model="action.action_pattern" placeholder="Напр: AniDub">
+                                                <button v-if="a_index === rule.actions.length - 1" @click="addAction(rule)" class="btn btn-primary" title="Добавить действие"><i class="bi bi-plus-lg"></i></button>
+                                            </div>
+                                            <div v-if="action.action_type === 'assign_episode'" class="modern-input-group">
+                                                <input type="number" class="modern-input" v-model="action.action_pattern" placeholder="Номер серии">
+                                                <button v-if="a_index === rule.actions.length - 1" @click="addAction(rule)" class="btn btn-primary" title="Добавить действие"><i class="bi bi-plus-lg"></i></button>
+                                            </div>
+                                            <div v-if="action.action_type === 'assign_season'" class="modern-input-group">
+                                                <input type="number" class="modern-input" v-model="action.action_pattern" placeholder="Номер сезона">
+                                                <button v-if="a_index === rule.actions.length - 1" @click="addAction(rule)" class="btn btn-primary" title="Добавить действие"><i class="bi bi-plus-lg"></i></button>
+                                            </div>
                                         </div>
-                                    </div>
-                                    <div class="palette-footer">
-                                        <div class="flex-grow-1"></div> <button @click="addAction(rule)" class="control-btn text-primary" title="Добавить действие"><i class="bi bi-plus-lg"></i></button>
                                     </div>
                                 </div>
                             </div>
@@ -373,7 +374,10 @@ const ParserRuleEditor = {
         targetBlocks.push({ type: blockType, value: blockType === 'text' ? '' : undefined, id: Date.now() }); 
     },
     removePatternBlock(targetBlocks, blockIndex) { targetBlocks.splice(blockIndex, 1); },
-    addCondition(rule) { rule.conditions.push({ condition_type: 'contains', _blocks: [], logical_operator: 'AND' }); },
+    addCondition(rule, index) {
+        const newCondition = { condition_type: 'contains', _blocks: [], logical_operator: 'AND' };
+        rule.conditions.splice(index + 1, 0, newCondition);
+    },
     removeCondition(rule, index) { rule.conditions.splice(index, 1); },
     addAction(rule) {
         if (!rule.actions) rule.actions = [];

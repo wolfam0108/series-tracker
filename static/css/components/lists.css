@@ -1,0 +1,161 @@
+/* ==================================================================== */
+/* Стили для контейнеров и списков                                     */
+/* ==================================================================== */
+
+.modern-fieldset {
+    background: var(--bg-white);
+    border: 1px solid var(--border-color);
+    border-radius: var(--card-border-radius);
+    margin-bottom: 24px;
+    overflow: hidden;
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.06);
+}
+
+.fieldset-header {
+    background: linear-gradient(135deg, var(--bg-light) 0%, var(--border-color) 100%);
+    padding: 16px 20px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+}
+
+.fieldset-title {
+    font-size: 16px;
+    font-weight: 600;
+    color: #2c3e50;
+}
+
+.fieldset-content {
+    padding: 20px;
+}
+
+.list-card {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-white);
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.list-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.list-card-header {
+    background: var(--bg-light);
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.list-card-body {
+    padding: 12px;
+}
+
+.patterns-list {
+    max-height: 400px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-white);
+}
+
+.pattern-item {
+    border-bottom: 1px solid var(--border-color);
+    transition: all 0.2s ease;
+}
+
+.pattern-item:last-child {
+    border-bottom: none;
+}
+
+.pattern-item:hover {
+    background: var(--bg-light);
+}
+
+.pattern-content {
+    padding: 12px 16px;
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 16px;
+}
+
+.pattern-info {
+    flex: 1;
+    min-width: 0;
+    display: flex;
+    align-items: center;
+    gap: 1rem;
+}
+
+.pattern-name {
+    flex: 0 0 30%;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    font-weight: 600;
+}
+
+.pattern-value {
+    font-family: var(--bs-font-monospace);
+    color: #495057;
+    text-overflow: ellipsis;
+    overflow: hidden;
+    white-space: nowrap;
+    flex: 1 1 auto;
+}
+
+.pattern-controls {
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    flex-shrink: 0;
+}
+
+.search-patterns-list {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 8px;
+    margin-bottom: 12px;
+}
+
+.search-pattern-item {
+    background: var(--bg-light);
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 8px;
+    display: flex;
+    align-items: center;
+    gap: 8px;
+    font-size: 12px;
+}
+
+.search-pattern-item code {
+    background: none;
+    padding: 0;
+    font-size: 12px;
+    color: #2c3e50;
+}
+
+.pattern-remove-btn {
+    background: none;
+    border: none;
+    color: #dc3545;
+    cursor: pointer;
+    padding: 2px;
+    border-radius: 3px;
+    transition: all 0.2s ease;
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 18px;
+    height: 18px;
+}
+
+.pattern-remove-btn:hover {
+    background: #dc3545;
+    color: white;
+}

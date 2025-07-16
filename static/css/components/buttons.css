@@ -1,0 +1,150 @@
+/* ==================================================================== */
+/* Стили для кнопок                                                    */
+/* ==================================================================== */
+
+/* Общие свойства для всех кнопок */
+.btn {
+    border: none;
+    border-radius: 8px;
+    font-weight: 500;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    text-decoration: none;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    gap: 8px;
+    line-height: 1.4;
+    padding: 10px 20px;
+    font-size: 14px;
+    min-height: 44px;
+}
+
+/* Общий эффект при наведении */
+.btn:hover,
+.modern-symbol-btn:hover,
+.action-btn:hover {
+    filter: brightness(90%);
+    transform: none;
+}
+
+/* Цветовые схемы */
+.btn-primary {
+    background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
+}
+
+.btn-secondary {
+    background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(108, 117, 125, 0.3);
+}
+
+.btn-success {
+    background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
+}
+
+.btn-warning {
+    background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
+    color: #212529;
+    box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);
+}
+
+.btn-danger {
+    background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
+    color: white;
+    box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
+}
+
+.btn:disabled {
+    opacity: 0.6;
+    cursor: not-allowed;
+    filter: none;
+}
+
+/* Современные символьные кнопки для паттернов */
+.modern-symbol-btn {
+    background: linear-gradient(135deg, #6c757d 0%, #495057 100%);
+    color: white;
+    border: none;
+    border-radius: 6px;
+    padding: 8px 12px;
+    font-size: 12px;
+    font-weight: 600;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    display: inline-flex;
+    align-items: center;
+    justify-content: center;
+    min-width: 36px;
+    height: 38px;
+    box-shadow: 0 2px 4px rgba(108, 117, 125, 0.2);
+}
+
+.modern-symbol-btn:active {
+    transform: translateY(0);
+    box-shadow: 0 2px 4px rgba(108, 117, 125, 0.2);
+}
+
+
+/* Кнопки управления в списках */
+.control-btn {
+    background: none;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    padding: 6px 8px;
+    cursor: pointer;
+    transition: all 0.2s ease;
+    color: var(--text-color);
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 32px;
+    height: 32px;
+}
+
+.control-btn:hover {
+    background: var(--bg-light);
+    border-color: var(--border-color-focus);
+}
+
+.control-btn:disabled {
+    opacity: 0.5;
+    cursor: not-allowed;
+    border-color: var(--border-color);
+    color: var(--text-muted);
+}
+.control-btn:disabled:hover {
+    background: none;
+}
+
+.control-btn.text-danger {
+    color: #dc3545;
+    border-color: #dc3545;
+}
+
+.control-btn.text-danger:hover:not(:disabled) {
+    background: #dc3545;
+    color: white;
+}
+
+.control-btn.text-primary {
+    color: #0d6efd;
+    border-color: #0d6efd;
+}
+.control-btn.text-primary:hover:not(:disabled) {
+    background: #0d6efd;
+    color: white;
+}
+
+.control-btn.text-success {
+    color: #198754;
+    border-color: #198754;
+}
+.control-btn.text-success:hover:not(:disabled) {
+    background: #198754;
+    color: white;
+}
