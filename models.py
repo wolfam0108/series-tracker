@@ -135,7 +135,6 @@ class ParserProfile(Base):
     __tablename__ = 'parser_profiles'
     id = Column(Integer, primary_key=True)
     name = Column(Text, nullable=False, unique=True)
-    # --- ИЗМЕНЕНИЕ: Добавлено поле для предпочитаемых озвучек ---
     preferred_voiceovers = Column(Text)
     rules = relationship("ParserRule", back_populates="profile", cascade="all, delete-orphan", order_by="ParserRule.priority")
 
@@ -145,8 +144,7 @@ class ParserRule(Base):
     profile_id = Column(Integer, ForeignKey('parser_profiles.id'), nullable=False)
     name = Column(Text, nullable=False)
     priority = Column(Integer, default=0, nullable=False)
-    action_type = Column(Text, nullable=False)
-    action_pattern = Column(Text)
+    action_pattern = Column(Text) # Теперь хранит JSON-массив действий
     profile = relationship("ParserProfile", back_populates="rules")
     conditions = relationship("ParserRuleCondition", back_populates="rule", cascade="all, delete-orphan", order_by="ParserRuleCondition.id")
 
@@ -159,17 +157,16 @@ class ParserRuleCondition(Base):
     logical_operator = Column(Text, default='AND', nullable=False)
     rule = relationship("ParserRule", back_populates="conditions")
 
-# --- ИЗМЕНЕНИЕ: Новая модель для хранения медиа-элементов (VK видео и т.д.) ---
 class MediaItem(Base):
     __tablename__ = 'media_items'
     id = Column(Integer, primary_key=True)
     series_id = Column(Integer, ForeignKey('series.id'), nullable=False)
-    unique_id = Column(Text, nullable=False, unique=True) # Генерируется из URL+Date
+    unique_id = Column(Text, nullable=False, unique=True) 
     
     episode_start = Column(Integer, nullable=False)
-    episode_end = Column(Integer, nullable=True) # Для компиляций
+    episode_end = Column(Integer, nullable=True) 
     
-    status = Column(Text, default='pending', nullable=False) # pending, downloading, completed, ignored, discarded
+    status = Column(Text, default='pending', nullable=False) 
     is_ignored_by_user = Column(Boolean, default=False, nullable=False)
 
     source_url = Column(Text, nullable=False)

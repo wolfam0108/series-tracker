@@ -105,7 +105,7 @@ const SettingsParserTab = {
                             </div>
                             
                             <div class="rule-block then-block">
-                                <div v-for="(action, a_index) in rule.actions" :key="a_index" class="condition-group">
+                                <div v-for="(action, a_index) in rule.actions" :key="a_index" class="condition-group mb-3">
                                     <div class="condition-header">
                                         <div class="rule-block-header">
                                             <span>ТО</span>
@@ -264,18 +264,30 @@ const SettingsParserTab = {
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
         finally { this.isLoading = false; }
     },
+    // --- ИЗМЕНЕНИЕ: Логика загрузки правил теперь парсит action_pattern в массив actions ---
     async loadRules() {
         if (!this.selectedProfileId) return;
         this.isLoading = true; this.rules = []; this.testResults = []; this.collapsedRules = {};
         try {
             const response = await fetch(`/api/parser-profiles/${this.selectedProfileId}/rules`);
             if (!response.ok) throw new Error('Ошибка загрузки правил');
-            this.rules = (await response.json()).map(rule => ({
-                ...rule,
-                conditions: rule.conditions.map(c => ({...c, _blocks: this.parsePatternJson(c.pattern)})),
-                actions: [{ action_type: rule.action_type, action_pattern: rule.action_pattern, _action_blocks: this.parsePatternJson(rule.action_pattern) }],
-                collapsed: true,
-            }));
+            
+            const rawRules = await response.json();
+            this.rules = rawRules.map(rule => {
+                let actions = [];
+                try {
+                    actions = JSON.parse(rule.action_pattern || '[]');
+                    if (!Array.isArray(actions)) actions = [];
+                } catch(e) { actions = []; }
+
+                return {
+                    ...rule,
+                    conditions: rule.conditions.map(c => ({...c, _blocks: this.parsePatternJson(c.pattern)})),
+                    actions: actions.map(a => ({...a, _action_blocks: this.parsePatternJson(a.action_pattern)})),
+                    collapsed: true,
+                }
+            });
+
             this.rules.forEach(rule => this.collapsedRules[rule.id] = true);
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
         finally { this.isLoading = false; }
@@ -291,19 +303,31 @@ const SettingsParserTab = {
         this.rules.push(newRule);
         this.collapsedRules[newRule.id] = false;
     },
+    // --- ИЗМЕНЕНИЕ: Логика сохранения правила теперь собирает actions в единый JSON ---
     prepareRuleForSave(rule) {
         const payload = JSON.parse(JSON.stringify(rule));
+        
         payload.conditions.forEach(cond => {
             cond.pattern = JSON.stringify(cond._blocks || []);
             delete cond._blocks;
         });
-        // Для MVP пока берем только первое действие
-        if (payload.actions && payload.actions.length > 0) {
-            payload.action_type = payload.actions[0].action_type;
-            payload.action_pattern = payload.actions[0].action_pattern;
-        }
+
+        const actionsToSave = (payload.actions || []).map(action => {
+            const savedAction = {
+                action_type: action.action_type,
+                action_pattern: action.action_pattern || ''
+            };
+            if (['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)) {
+                savedAction.action_pattern = JSON.stringify(action._action_blocks || []);
+            }
+            return savedAction;
+        });
+        
+        payload.action_pattern = JSON.stringify(actionsToSave);
+
         delete payload.actions;
-        delete payload.is_new; delete payload.collapsed;
+        delete payload.is_new; 
+        delete payload.collapsed;
         return payload;
     },
     async saveRule(rule) {
@@ -423,10 +447,10 @@ const SettingsParserTab = {
         if (result.action === 'exclude') return 'Исключено';
         if (result.error) return `Ошибка: ${result.error}`;
         if (result.extracted) {
-            if (result.extracted.episode !== undefined) return `Серия: ${result.extracted.episode}`;
-            if (result.extracted.season !== undefined) return `Сезон: ${result.extracted.season}`;
-            if (result.extracted.start !== undefined) return `Диапазон: ${result.extracted.start}-${result.extracted.end}`;
-            if (result.extracted.voiceover) return `Тег: ${result.extracted.voiceover}`;
+            // Собираем все извлеченные данные в одну строку
+            return Object.entries(result.extracted)
+                .map(([key, value]) => `${key}: ${value}`)
+                .join('; ');
         }
         return 'Совпадение';
     },

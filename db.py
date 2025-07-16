@@ -638,7 +638,6 @@ class Database:
                     "profile_id": rule.profile_id,
                     "name": rule.name,
                     "priority": rule.priority,
-                    "action_type": rule.action_type,
                     "action_pattern": rule.action_pattern,
                     "conditions": conditions
                 })
@@ -652,7 +651,6 @@ class Database:
             new_rule = ParserRule(
                 profile_id=profile_id,
                 name=rule_data.get('name', 'Новое правило'),
-                action_type=rule_data.get('action_type', 'exclude'),
                 action_pattern=rule_data.get('action_pattern', '[]'),
                 priority=max_priority + 1
             )
@@ -683,7 +681,6 @@ class Database:
 
                 # Обновление полей правила
                 rule.name = rule_data.get('name', rule.name)
-                rule.action_type = rule_data.get('action_type', rule.action_type)
                 rule.action_pattern = rule_data.get('action_pattern', rule.action_pattern)
 
                 # Добавление новых условий

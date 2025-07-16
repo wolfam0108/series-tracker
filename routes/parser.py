@@ -46,6 +46,7 @@ def get_rules_for_profile(profile_id):
 def add_rule_to_profile(profile_id):
     data = request.get_json()
     try:
+        # --- ИЗМЕНЕНИЕ: action_pattern теперь напрямую принимает JSON-строку с фронтенда ---
         rule_id = app.db.add_rule_to_profile(profile_id, data)
         return jsonify({"success": True, "id": rule_id})
     except Exception as e:
@@ -63,7 +64,6 @@ def scrape_vk_titles():
     
     try:
         scraper = VKScraper(app.db, app.logger)
-        # --- ИЗМЕНЕНИЕ: Исправлено имя вызываемого метода ---
         titles_with_dates = scraper.scrape_video_data(channel_url, query)
         return jsonify(titles_with_dates)
     except Exception as e:
@@ -75,6 +75,7 @@ def scrape_vk_titles():
 def update_rule(rule_id):
     data = request.get_json()
     try:
+        # --- ИЗМЕНЕНИЕ: action_pattern теперь напрямую принимает JSON-строку с фронтенда ---
         app.db.update_rule(rule_id, data)
         return jsonify({"success": True})
     except Exception as e:
@@ -108,8 +109,6 @@ def test_parser_rules():
         return jsonify({"error": "profile_id не указан"}), 400
     
     engine = RuleEngine(app.db, app.logger)
-    # --- ИЗМЕНЕНИЕ: Метод process_videos теперь ожидает объекты, а не строки ---
-    # Для теста мы передаем только названия, поэтому создаем нужную структуру
     video_data = [{"title": title} for title in titles]
     results = engine.process_videos(profile_id, video_data)
     return jsonify(results)

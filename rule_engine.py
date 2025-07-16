@@ -60,49 +60,62 @@ class RuleEngine:
         
         return any(or_group_results)
 
-    def _execute_action(self, title: str, action_type: str, action_pattern: str) -> Dict[str, Any]:
-        result = {'action': action_type, 'extracted': {}}
-
-        if action_type == 'exclude':
-            return result
-
-        if action_type == 'assign_voiceover':
-            result['extracted']['voiceover'] = action_pattern
-            return result
+    # --- ИЗМЕНЕНИЕ: Метод теперь применяет список действий ---
+    def _execute_actions(self, title: str, actions_json: str) -> Dict[str, Any]:
+        final_result = {'action': 'multi_action', 'extracted': {}}
         
-        if action_type == 'assign_episode_number':
-            try:
-                assigned_data = json.loads(action_pattern)
-                result['extracted']['season'] = int(assigned_data['season'])
-                result['extracted']['episode'] = int(assigned_data['episode'])
-                return result
-            except (json.JSONDecodeError, KeyError, ValueError) as e:
-                result['error'] = f"Ошибка данных для назначения номера: {e}"
-                return result
-
-        regex_str = self._build_regex_from_blocks(action_pattern, for_extraction=True)
-        if not regex_str:
-            result['error'] = "Паттерн действия пуст или некорректен"
-            return result
-
-        match = re.search(regex_str, title, re.IGNORECASE)
-        if not match:
-            return None 
-
         try:
-            if action_type == 'extract_single':
-                result['extracted']['episode'] = int(match.group(1))
-            elif action_type == 'extract_range':
-                result['extracted']['start'] = int(match.group(1))
-                result['extracted']['end'] = int(match.group(2))
-            elif action_type == 'extract_season':
-                result['extracted']['season'] = int(match.group(1))
-        except (IndexError, ValueError) as e:
-            result['error'] = f"Ошибка извлечения данных: {e}. Проверьте группы захвата ( ) в блоках [Число]."
-        
-        return result
+            actions = json.loads(actions_json)
+            if not isinstance(actions, list):
+                final_result['error'] = "Action pattern не является списком."
+                return final_result
+        except (json.JSONDecodeError, TypeError):
+            final_result['error'] = "Некорректный JSON в action_pattern."
+            return final_result
 
-    # --- ИЗМЕНЕНИЕ: Метод теперь принимает полные данные о видео, а не только названия ---
+        for action in actions:
+            action_type = action.get('action_type')
+            action_pattern = action.get('action_pattern', '[]')
+
+            if action_type == 'exclude':
+                return {'action': 'exclude', 'extracted': {}} # Если есть exclude, сразу выходим
+
+            if action_type == 'assign_voiceover':
+                final_result['extracted']['voiceover'] = action_pattern
+            
+            elif action_type == 'assign_episode_number':
+                try:
+                    assigned_data = json.loads(action_pattern)
+                    final_result['extracted']['season'] = int(assigned_data['season'])
+                    final_result['extracted']['episode'] = int(assigned_data['episode'])
+                except (json.JSONDecodeError, KeyError, ValueError) as e:
+                    final_result.setdefault('error', []).append(f"Ошибка данных для назначения номера: {e}")
+            
+            else: # Логика для извлечения
+                regex_str = self._build_regex_from_blocks(action_pattern, for_extraction=True)
+                if not regex_str:
+                    final_result.setdefault('error', []).append(f"Паттерн для '{action_type}' пуст.")
+                    continue
+
+                match = re.search(regex_str, title, re.IGNORECASE)
+                if not match:
+                    # Это не ошибка, просто паттерн не совпал.
+                    continue
+
+                try:
+                    if action_type == 'extract_single':
+                        final_result['extracted']['episode'] = int(match.group(1))
+                    elif action_type == 'extract_range':
+                        final_result['extracted']['start'] = int(match.group(1))
+                        final_result['extracted']['end'] = int(match.group(2))
+                    elif action_type == 'extract_season':
+                        final_result['extracted']['season'] = int(match.group(1))
+                except (IndexError, ValueError) as e:
+                    final_result.setdefault('error', []).append(f"Ошибка извлечения для '{action_type}': {e}")
+        
+        return final_result
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
     def process_videos(self, profile_id: int, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         rules = self.db.get_rules_for_profile(profile_id)
         final_results = []
@@ -114,14 +127,14 @@ class RuleEngine:
 
             for rule in rules:
                 if self._evaluate_conditions(title, rule['conditions']):
-                    temp_result = self._execute_action(title, rule['action_type'], rule['action_pattern'])
+                    # --- ИЗМЕНЕНИЕ: Вызываем новую функцию для выполнения всех действий ---
+                    temp_result = self._execute_actions(title, rule['action_pattern'])
                     
                     if temp_result is not None:
                         action_result = temp_result
                         matched_rule = rule
                         break
             
-            # Сохраняем исходные данные видео и добавляем результат обработки
             final_results.append({
                 "source_data": video_data,
                 "matched_rule_name": matched_rule['name'] if matched_rule else "Нет совпадений",
