@@ -3,24 +3,23 @@
 /* ==================================================================== */
 
 /* Анимации для списков Vue */
+/* --- ИЗМЕНЕНИЕ: Упрощена анимация списка, удален .badge-fade-move --- */
 .list-move,
-.badge-fade-move { /* Добавлено для плашек */
-    transition: transform 0.4s ease;
-}
-
 .list-enter-active,
 .list-leave-active {
-    transition: opacity var(--row-animation-speed) ease;
+    transition: all 0.4s ease;
 }
 
 .list-enter-from,
 .list-leave-to {
     opacity: 0;
+    transform: translateY(20px);
 }
 
 .list-leave-active {
+    /* Для бага скроллбара, родитель должен иметь position: relative */
     position: absolute;
-    width: 100%;
+    width: calc(100% - 1rem); /* Вычитаем отступы родителя */
 }
 
 .badge-fade-enter-active {
@@ -46,6 +45,23 @@
 .fade-enter-from,
 .fade-leave-to {
   opacity: 0;
+}
+
+/* --- ИЗМЕНЕНИЕ: Добавлена анимация для плейсхолдера drag-n-drop --- */
+@keyframes pulse-placeholder {
+    0%, 100% {
+        opacity: 1;
+    }
+    50% {
+        opacity: 0.3;
+    }
+}
+.drop-placeholder {
+    height: 30px;
+    width: 4px;
+    background-color: var(--border-color-focus);
+    border-radius: 2px;
+    animation: pulse-placeholder 1.5s infinite ease-in-out;
 }
 
 /* Анимации пульсации для строк таблицы */

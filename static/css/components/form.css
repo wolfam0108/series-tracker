@@ -313,7 +313,6 @@ textarea.modern-input {
     line-height: 1.4;
 }
 
-/* --- ИЗМЕНЕНИЕ: Добавлены общие классы для карточек-элементов списка --- */
 .list-card {
     border: 1px solid var(--border-color);
     border-radius: 8px;
@@ -336,12 +335,9 @@ textarea.modern-input {
 }
 
 .list-card-body {
-    padding: 16px;
+    padding: 12px;
 }
-/* --- КОНЕЦ ИЗМЕНЕНИЯ --- */
 
-
-/* Стили для компактных паттернов */
 .patterns-list {
     max-height: 400px;
     overflow-y: auto;
@@ -426,14 +422,20 @@ textarea.modern-input {
 .control-btn:disabled {
     opacity: 0.5;
     cursor: not-allowed;
+    border-color: var(--border-color);
+    color: var(--text-muted);
 }
+.control-btn:disabled:hover {
+    background: none;
+}
+
 
 .control-btn.text-danger {
     color: #dc3545;
     border-color: #dc3545;
 }
 
-.control-btn.text-danger:hover {
+.control-btn.text-danger:hover:not(:disabled) {
     background: #dc3545;
     color: white;
 }
@@ -442,27 +444,18 @@ textarea.modern-input {
     color: #0d6efd;
     border-color: #0d6efd;
 }
-.control-btn.text-primary:hover {
+.control-btn.text-primary:hover:not(:disabled) {
     background: #0d6efd;
     color: white;
 }
 
-/* Стили для стандартов качества/разрешения */
-/* --- ИЗМЕНЕНИЕ: .quality-standard-card теперь использует .list-card, специфичные стили удалены --- */
-.quality-standard-card {
-    /* Этот класс теперь используется как маркер, но структурные стили предоставляет .list-card */
+.control-btn.text-success {
+    color: #198754;
+    border-color: #198754;
 }
-
-/* --- ИЗМЕНЕНИЕ: .standard-header и .standard-content заменены на .list-card-header и .list-card-body --- */
-.standard-title {
-    display: flex;
-    align-items: center;
-}
-
-.standard-controls {
-    display: flex;
-    align-items: center;
-    gap: 8px;
+.control-btn.text-success:hover:not(:disabled) {
+    background: #198754;
+    color: white;
 }
 
 .search-patterns-list {
@@ -510,26 +503,11 @@ textarea.modern-input {
     color: white;
 }
 
-/* Спиннеры */
-.modern-spinner {
-    width: 16px;
-    height: 16px;
-    border: 2px solid var(--bg-white);
-    border-top: 2px solid transparent;
-    border-radius: 50%;
-    animation: spin 1s linear infinite;
-}
-
-/* Стили для нового конструктора правил парсера */
-/* --- ИЗМЕНЕНИЕ: .rule-card теперь использует .list-card, специфичные стили удалены --- */
 .rule-card {
-    /* Структурные стили предоставляет .list-card */
     display: flex; 
     flex-direction: column; 
-    gap: 1rem;
 }
 
-/* --- ИЗМЕНЕНИЕ: .rule-header и .rule-body заменены на .list-card-header и .list-card-body --- */
 .rule-title {
     display: flex;
     align-items: center;
@@ -560,14 +538,13 @@ textarea.modern-input {
     gap: 0.5rem;
 }
 
-.rule-block { margin-bottom: 1rem; }
+.rule-block { margin-bottom: 0.75rem; }
 .rule-block:last-child { margin-bottom: 0; }
 
 .rule-block-header {
     display: flex;
     align-items: center;
     gap: 0.75rem;
-    margin-bottom: 0.5rem;
     font-weight: bold;
     font-size: 0.9rem;
     text-transform: uppercase;
@@ -577,10 +554,11 @@ textarea.modern-input {
 .then-block .rule-block-header span { color: #198754; }
 
 .condition-group {
-    padding: 1rem;
+    padding: 0.75rem;
     background-color: #f8f9fa;
     border-radius: 6px;
     border-left: 3px solid;
+    margin-bottom: 0.75rem;
 }
 .if-block .condition-group { border-color: #0d6efd; }
 .then-block .condition-group { border-color: #198754; }
@@ -589,28 +567,18 @@ textarea.modern-input {
     display: flex;
     align-items: center;
     justify-content: space-between;
-}
-.condition-row {
-    display: flex;
-    align-items: flex-end;
-    gap: 0.5rem;
-    margin-top: 0.5rem;
+    margin-bottom: 0.5rem;
 }
 
-.logical-operator-group {
+.logical-operator-container {
     padding: 0.5rem 1rem;
-    margin: 0.75rem 0;
+    margin-bottom: 0.75rem;
     background-color: #f8f9fa;
     border-left: 3px solid #ced4da;
     border-radius: 6px;
     display: flex;
-    justify-content: space-between;
+    justify-content: center;
     align-items: center;
-}
-
-.add-control-group {
-    text-align: center;
-    margin-top: 0.75rem;
 }
 
 .action-content { padding-top: 0.5rem; }
@@ -619,7 +587,6 @@ textarea.modern-input {
     padding: 0.3rem 0.6rem !important;
     height: auto !important;
     font-size: 0.9em;
-    flex-basis: auto;
     flex-grow: 1;
     white-space: normal;
     line-height: 1.2;
@@ -634,6 +601,7 @@ textarea.modern-input {
     display: flex;
     flex-direction: column;
 }
+
 .pattern-blocks-container {
     display: flex;
     flex-wrap: wrap;
@@ -642,6 +610,7 @@ textarea.modern-input {
     align-items: center;
     padding: 0.25rem;
     flex-grow: 1;
+    position: relative;
 }
 
 .pattern-block {
@@ -653,7 +622,22 @@ textarea.modern-input {
 .block-type-whitespace { background-color: #f8f9fa; border: 1px dashed #ced4da; }
 .block-type-any_text, .block-type-start_of_line, .block-type-end_of_line { background-color: #d1e7dd; color: #0f5132; }
 
-.pattern-block-input { border: none; background: transparent; padding: 0; width: auto; min-width: 50px; outline: none; height: 100%; }
+.pattern-block-input {
+    min-width: 1ch;
+    max-width: 250px;
+    border: none;
+    background: transparent;
+    padding: 0 2px;
+    outline: none;
+    height: 100%;
+    white-space: pre;
+    display: inline-block;
+}
+.pattern-block-input:empty:before {
+    content: attr(data-placeholder);
+    color: #6c757d;
+    font-style: italic;
+}
 
 .pattern-block-remove {
     background: #6c757d; color: white; border: none; border-radius: 50%; width: 16px; height: 16px;
@@ -662,15 +646,36 @@ textarea.modern-input {
 }
 .pattern-block:hover .pattern-block-remove { opacity: 1; }
 
-.pattern-palette { margin-top: 0.5rem; padding-top: 0.5rem; border-top: 1px solid #e9ecef; display: flex; flex-wrap: wrap; gap: 0.5rem; }
+.palette-footer {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    margin-top: 0.5rem;
+    padding-top: 0.5rem;
+    border-top: 1px solid #e9ecef;
+}
+
+.pattern-palette {
+    display: flex;
+    flex-wrap: wrap;
+    gap: 0.5rem;
+    justify-content: flex-start;
+}
 
 .palette-btn {
-    border: 1px solid #ced4da; background-color: #fff; font-size: 0.8rem; padding: 0.25rem 0.5rem;
+    font-size: 0.8rem; padding: 0.25rem 0.5rem;
     border-radius: 4px; cursor: grab; transition: background-color 0.2s ease;
-    height: auto; min-height: 32px; white-space: normal; text-align: center; line-height: 1.2;
-    flex-basis: 80px; flex-grow: 1;
+    height: auto; min-height: 32px; white-space: nowrap; text-align: center; line-height: 1.2;
+    flex: 0 0 auto;
 }
-.palette-btn:hover { background-color: #e9ecef; }
+.palette-btn.block-type-text { background-color: #e9ecef; border: 1px solid #dee2e6;}
+.palette-btn.block-type-number { background-color: #cfe2ff; color: #004085; font-weight: bold; border: 1px solid #b8daff; }
+.palette-btn.block-type-whitespace { background-color: #f8f9fa; border: 1px dashed #ced4da; }
+.palette-btn.block-type-any_text, 
+.palette-btn.block-type-start_of_line, 
+.palette-btn.block-type-end_of_line { background-color: #d1e7dd; color: #0f5132; border: 1px solid #badbcc;}
+
+.palette-btn:hover { filter: brightness(0.95); }
 
 .test-results {
     max-height: 400px;
@@ -696,3 +701,69 @@ textarea.modern-input {
 .result-no-match { background-color: #f8f9fa; }
 .result-exclude { background-color: #f8d7da; }
 .result-error { background-color: #fff3cd; }
+
+/* Адаптивность (восстановлено) */
+@media (max-width: 768px) {
+    .modern-modal {
+        margin: 10px;
+    }
+    
+    .modern-header {
+        padding: 16px;
+        flex-direction: column;
+        align-items: stretch;
+    }
+    
+    .modern-header .modal-title {
+        width: 100%;
+        text-align: center;
+        margin-bottom: 1rem;
+        padding: 0;
+    }
+
+    .modern-nav-tabs {
+        width: 100%;
+        justify-content: center;
+        overflow-x: auto;
+        margin-left: 0;
+    }
+
+    .modern-close {
+        position: absolute;
+        top: 16px;
+        right: 16px;
+    }
+
+    .modern-body {
+        padding: 20px;
+    }
+    
+    .modern-footer {
+        padding: 16px 20px;
+        flex-direction: column;
+    }
+    
+    .fieldset-content {
+        padding: 16px;
+    }
+
+    .pattern-content {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .pattern-controls {
+        justify-content: center;
+    }
+
+    .standard-header {
+        flex-direction: column;
+        align-items: stretch;
+        gap: 12px;
+    }
+
+    .standard-controls {
+        justify-content: center;
+    }
+}
