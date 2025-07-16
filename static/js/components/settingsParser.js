@@ -79,18 +79,33 @@ const SettingsParserTab = {
                                            </div>
                                            <button @click="removeCondition(rule, c_index)" class="control-btn text-danger" title="Удалить условие"><i class="bi bi-x-lg"></i></button>
                                        </div>
-                                       <div class="pattern-constructor" @dragover.prevent @dragenter.prevent @drop="onDrop($event, cond._blocks)">
-                                           <div class="pattern-blocks-container">
-                                               <div v-for="(block, b_index) in cond._blocks" :key="b_index" 
-                                                    class="pattern-block" :class="'block-type-' + block.type"
-                                                    draggable="true" @dragstart="onDragStart($event, {fromContainer: cond._blocks, fromIndex: b_index})">
-                                                   <span v-if="block.type !== 'text'">{{ blockPaletteMap[block.type].label }}</span>
-                                                   <input v-if="block.type === 'text'" v-model="block.value" type="text" class="pattern-block-input">
-                                                   <button @click="removePatternBlock(cond._blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
-                                               </div>
+                                       <div class="pattern-constructor">
+                                           <div class="pattern-blocks-container"
+                                                @dragover.prevent="dragOver($event, cond._blocks)" 
+                                                @dragleave.prevent="dragLeave" 
+                                                @drop="onDrop($event, cond._blocks, dropIndex)">
+                                                <transition-group name="list">
+                                                    <template v-for="(block, b_index) in cond._blocks" :key="block.id">
+                                                        <div class="drop-placeholder" v-if="dropIndex === b_index"></div>
+                                                        <div :class="['pattern-block', 'block-type-' + block.type]" 
+                                                            draggable="true" @dragstart="onDragStart($event, cond._blocks, b_index)">
+                                                            <span v-if="block.type !== 'text'">{{ getBlockLabel(block, 'if') }}</span>
+                                                            <input v-if="block.type === 'text'" v-model="block.value" type="text" class="pattern-block-input" placeholder="Текст...">
+                                                            <button @click="removePatternBlock(cond._blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                                        </div>
+                                                    </template>
+                                                </transition-group>
+                                                <div class="drop-placeholder" v-if="dropIndex === cond._blocks.length"></div>
                                            </div>
                                            <div class="pattern-palette">
-                                               <button v-for="p_block in blockPalette" :key="p_block.type" class="palette-btn" :title="p_block.title" draggable="true" @dragstart="onDragStart($event, {source: 'palette', blockType: p_block.type})">+ {{ p_block.label }}</button>
+                                                <div v-for="p_block in blockPalette" :key="p_block.type" 
+                                                    :class="['palette-btn', 'block-type-' + p_block.type]" 
+                                                    :title="p_block.title" 
+                                                    draggable="true"
+                                                    @dragstart="onDragStart($event, null, -1, p_block.type)"
+                                                    @click="addPatternBlock(cond._blocks, p_block.type)">
+                                                    {{ p_block.label }}
+                                                </div>
                                            </div>
                                        </div>
                                    </div>
@@ -121,16 +136,33 @@ const SettingsParserTab = {
                                         <button @click="removeAction(rule, a_index)" class="control-btn text-danger" title="Удалить действие"><i class="bi bi-x-lg"></i></button>
                                     </div>
                                     <div class="action-content">
-                                       <div v-if="['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)" class="pattern-constructor" @dragover.prevent @dragenter.prevent @drop="onDrop($event, action._action_blocks)">
-                                           <div class="pattern-blocks-container">
-                                                <div v-for="(block, b_index) in action._action_blocks" :key="b_index" class="pattern-block" :class="'block-type-' + block.type" draggable="true" @dragstart="onDragStart($event, {fromContainer: action._action_blocks, fromIndex: b_index})">
-                                                   <span v-if="block.type !== 'text'">{{ blockPaletteMap[block.type].label }} (захват #{{b_index + 1}})</span>
-                                                   <input v-if="block.type === 'text'" v-model="block.value" type="text" class="pattern-block-input">
-                                                   <button @click="removePatternBlock(action._action_blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
-                                                </div>
+                                       <div v-if="['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)" class="pattern-constructor">
+                                           <div class="pattern-blocks-container"
+                                                @dragover.prevent="dragOver($event, action._action_blocks)" 
+                                                @dragleave.prevent="dragLeave" 
+                                                @drop="onDrop($event, action._action_blocks, dropIndex)">
+                                                <transition-group name="list">
+                                                    <template v-for="(block, b_index) in action._action_blocks" :key="block.id">
+                                                        <div class="drop-placeholder" v-if="dropIndex === b_index"></div>
+                                                        <div :class="['pattern-block', 'block-type-' + block.type]" 
+                                                            draggable="true" @dragstart="onDragStart($event, action._action_blocks, b_index)">
+                                                            <span v-if="block.type !== 'text'">{{ getBlockLabel(block, 'then', action._action_blocks) }}</span>
+                                                            <input v-if="block.type === 'text'" v-model="block.value" type="text" class="pattern-block-input" placeholder="Текст...">
+                                                            <button @click="removePatternBlock(action._action_blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                                        </div>
+                                                    </template>
+                                                </transition-group>
+                                                <div class="drop-placeholder" v-if="dropIndex === action._action_blocks.length"></div>
                                            </div>
                                            <div class="pattern-palette">
-                                               <button v-for="p_block in blockPalette" :key="p_block.type" class="palette-btn" :title="p_block.title" draggable="true" @dragstart="onDragStart($event, {source: 'palette', blockType: p_block.type})">+ {{ p_block.label }}</button>
+                                                <div v-for="p_block in blockPalette" :key="p_block.type" 
+                                                    :class="['palette-btn', 'block-type-' + p_block.type]" 
+                                                    :title="p_block.title" 
+                                                    draggable="true"
+                                                    @dragstart="onDragStart($event, null, -1, p_block.type)"
+                                                    @click="addPatternBlock(action._action_blocks, p_block.type)">
+                                                    {{ p_block.label }}
+                                                </div>
                                            </div>
                                        </div>
                                        <div v-if="action.action_type === 'assign_voiceover'" class="modern-input-group">
@@ -201,6 +233,8 @@ const SettingsParserTab = {
       scrapeQuery: '',
       isScraping: false,
       scrapedItems: [],
+      draggedItem: null,
+      dropIndex: null, // Index for showing the placeholder
     };
   },
   emits: ['show-toast'],
@@ -208,12 +242,6 @@ const SettingsParserTab = {
     selectedProfileName() {
         const profile = this.profiles.find(p => p.id === this.selectedProfileId);
         return profile ? profile.name : '';
-    },
-    blockPaletteMap() {
-        return this.blockPalette.reduce((acc, item) => {
-            acc[item.type] = item;
-            return acc;
-        }, {});
     },
     scrapedTitlesOnly() {
         return this.scrapedItems.map(item => item.title).join('\n');
@@ -264,7 +292,6 @@ const SettingsParserTab = {
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
         finally { this.isLoading = false; }
     },
-    // --- ИЗМЕНЕНИЕ: Логика загрузки правил теперь парсит action_pattern в массив actions ---
     async loadRules() {
         if (!this.selectedProfileId) return;
         this.isLoading = true; this.rules = []; this.testResults = []; this.collapsedRules = {};
@@ -296,19 +323,18 @@ const SettingsParserTab = {
         const newRule = {
             id: 'new-' + Date.now(),
             profile_id: this.selectedProfileId, name: 'Новое правило',
-            conditions: [{ condition_type: 'contains', _blocks: [{type: 'text', value: 'текст для поиска'}], logical_operator: 'AND' }],
+            conditions: [{ condition_type: 'contains', _blocks: [{type: 'text', value: '', id: Date.now()}], logical_operator: 'AND' }],
             actions: [{ action_type: 'exclude', action_pattern: '[]', _action_blocks: [] }],
             is_new: true,
         };
         this.rules.push(newRule);
         this.collapsedRules[newRule.id] = false;
     },
-    // --- ИЗМЕНЕНИЕ: Логика сохранения правила теперь собирает actions в единый JSON ---
     prepareRuleForSave(rule) {
         const payload = JSON.parse(JSON.stringify(rule));
         
         payload.conditions.forEach(cond => {
-            cond.pattern = JSON.stringify(cond._blocks || []);
+            cond.pattern = JSON.stringify((cond._blocks || []).map(({ id, ...rest }) => rest)); // Remove internal id
             delete cond._blocks;
         });
 
@@ -318,7 +344,7 @@ const SettingsParserTab = {
                 action_pattern: action.action_pattern || ''
             };
             if (['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)) {
-                savedAction.action_pattern = JSON.stringify(action._action_blocks || []);
+                savedAction.action_pattern = JSON.stringify((action._action_blocks || []).map(({ id, ...rest }) => rest)); // Remove internal id
             }
             return savedAction;
         });
@@ -374,10 +400,12 @@ const SettingsParserTab = {
         try {
             if (!jsonString) return [];
             const blocks = JSON.parse(jsonString);
-            return Array.isArray(blocks) ? blocks : [];
+            return Array.isArray(blocks) ? blocks.map(b => ({...b, id: Date.now() + Math.random()})) : [];
         } catch (e) { return []; }
     },
-    addPatternBlock(targetBlocks, block) { targetBlocks.push({ type: block.type, value: block.type === 'text' ? '' : undefined }); },
+    addPatternBlock(targetBlocks, blockType) { 
+        targetBlocks.push({ type: blockType, value: blockType === 'text' ? '' : undefined, id: Date.now() }); 
+    },
     removePatternBlock(targetBlocks, blockIndex) { targetBlocks.splice(blockIndex, 1); },
     addCondition(rule) { rule.conditions.push({ condition_type: 'contains', _blocks: [], logical_operator: 'AND' }); },
     removeCondition(rule, index) { rule.conditions.splice(index, 1); },
@@ -386,23 +414,57 @@ const SettingsParserTab = {
         rule.actions.push({ action_type: 'exclude', action_pattern: '[]', _action_blocks: [] });
     },
     removeAction(rule, index) { rule.actions.splice(index, 1); },
-    onDragStart(event, payload) {
+    // Drag and Drop Methods
+    onDragStart(event, fromContainer, fromIndex, blockType) {
         event.dataTransfer.effectAllowed = 'move';
-        event.dataTransfer.setData('application/json', JSON.stringify(payload));
+        this.draggedItem = { fromContainer, fromIndex, blockType };
     },
-    onDrop(event, targetBlocks) {
-        const payload = JSON.parse(event.dataTransfer.getData('application/json'));
-        if (payload.source === 'palette') {
-            this.addPatternBlock(targetBlocks, { type: payload.blockType });
-        } else if (payload.fromContainer) {
-            const fromContainer = payload.fromContainer;
-            const fromIndex = payload.fromIndex;
-            if (fromContainer === targetBlocks) {
-                 const elementToMove = fromContainer.splice(fromIndex, 1)[0];
-                 targetBlocks.push(elementToMove);
+    dragOver(event, targetContainer) {
+        const containerRect = event.currentTarget.getBoundingClientRect();
+        const children = Array.from(event.currentTarget.querySelectorAll('.pattern-block, .drop-placeholder'));
+        
+        let closest = null;
+        let closestDist = Infinity;
+        
+        children.forEach((child, index) => {
+            const childRect = child.getBoundingClientRect();
+            const dist = event.clientX - (childRect.left + childRect.width / 2);
+            if (dist < 0 && dist > -closestDist) {
+                closestDist = -dist;
+                closest = { index: index, element: child };
             }
+        });
+
+        if (closest) {
+            this.dropIndex = closest.index;
+        } else {
+            this.dropIndex = targetContainer.length;
         }
     },
+    dragLeave() {
+        this.dropIndex = null;
+    },
+    onDrop(event, targetContainer, dropIndex) {
+        if (!this.draggedItem) return;
+
+        // Item from palette
+        if (this.draggedItem.blockType) {
+            targetContainer.splice(dropIndex, 0, {
+                type: this.draggedItem.blockType,
+                value: this.draggedItem.blockType === 'text' ? '' : undefined,
+                id: Date.now()
+            });
+        }
+        // Item from another container
+        else if (this.draggedItem.fromContainer) {
+            const item = this.draggedItem.fromContainer.splice(this.draggedItem.fromIndex, 1)[0];
+            targetContainer.splice(dropIndex, 0, item);
+        }
+        
+        this.draggedItem = null;
+        this.dropIndex = null;
+    },
+    // Action Block Methods
     onActionTypeChange(action) {
         if (['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)) {
             action.action_pattern = '[]';
@@ -422,6 +484,15 @@ const SettingsParserTab = {
         data[key] = parseInt(event.target.value, 10) || 0;
         action.action_pattern = JSON.stringify(data);
     },
+    getBlockLabel(block, context, container) {
+        if (block.type === 'number' && context === 'then') {
+            const numberBlocks = container.filter(b => b.type === 'number');
+            const captureIndex = numberBlocks.indexOf(block) + 1;
+            return `Число #${captureIndex}`;
+        }
+        return this.blockPalette.find(p => p.type === block.type)?.label || 'Неизвестный';
+    },
+    // Testing Methods
     async runTest() {
         if (!this.testTitles || !this.selectedProfileId) return;
         this.isTesting = true; this.testResults = [];
@@ -445,15 +516,15 @@ const SettingsParserTab = {
     formatResultData(result) {
         if (!result) return '-';
         if (result.action === 'exclude') return 'Исключено';
-        if (result.error) return `Ошибка: ${result.error}`;
-        if (result.extracted) {
-            // Собираем все извлеченные данные в одну строку
+        if (result.error) return `Ошибка: ${Array.isArray(result.error) ? result.error.join(', ') : result.error}`;
+        if (result.extracted && Object.keys(result.extracted).length > 0) {
             return Object.entries(result.extracted)
                 .map(([key, value]) => `${key}: ${value}`)
                 .join('; ');
         }
         return 'Совпадение';
     },
+    // Scraper Methods
     async scrapeTestTitles() {
         if (!this.scrapeChannelUrl || !this.scrapeQuery) return;
         this.isScraping = true; this.scrapedItems = [];
@@ -466,6 +537,7 @@ const SettingsParserTab = {
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Ошибка сбора названий');
             this.scrapedItems = data;
+            this.testTitles = this.scrapedTitlesOnly;
             this.$emit('show-toast', `Собрано ${data.length} записей.`, 'success');
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
