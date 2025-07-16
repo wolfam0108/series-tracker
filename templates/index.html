@@ -10,7 +10,6 @@
     
     <link rel="stylesheet" href="/static/css/base/variables.css">
     <link rel="stylesheet" href="/static/css/base/layout.css">
-    <link rel="stylesheet" href="/static/css/settingsParser.css">
     <link rel="stylesheet" href="/static/css/components/card.css">
     <link rel="stylesheet" href="/static/css/components/modal.css">
     <link rel="stylesheet" href="/static/css/components/form.css">
@@ -36,15 +35,15 @@
         <div class="page-header">
             <h1 class="page-title">Трекер сериалов</h1>
             <div class="header-actions">
-                <button class="header-btn btn-primary" @click="openAddModal">
+                <button class="btn btn-primary" @click="openAddModal">
                     <i class="bi bi-plus-lg"></i>
                     Добавить сериал
                 </button>
-                <button class="header-btn btn-secondary" @click="openLogsModal">
+                <button class="btn btn-secondary" @click="openLogsModal">
                     <i class="bi bi-journal-text"></i>
                     Просмотр логов
                 </button>
-                <button class="header-btn btn-success" @click="openSettingsModal">
+                <button class="btn btn-success" @click="openSettingsModal">
                     <i class="bi bi-gear"></i>
                     Настройки
                 </button>
@@ -97,13 +96,13 @@
                         {{ formatScanTime(s.last_scan_time) }}
                     </div>
                     <div class="card-actions">
-                         <button class="action-btn btn-status" @click="openStatusModal(s.id)" title="Статус">
+                         <button class="btn action-btn btn-status" @click="openStatusModal(s.id)" title="Статус">
                             <i class="bi bi-info-circle"></i>
                         </button>
-                        <button class="action-btn btn-scan" @click="scanSeries(s.id)" :disabled="isSeriesBusy(s)" title="Сканировать">
+                        <button class="btn action-btn btn-scan" @click="scanSeries(s.id)" :disabled="isSeriesBusy(s)" title="Сканировать">
                             <i class="bi bi-arrow-clockwise"></i>
                         </button>
-                        <button class="action-btn btn-delete" @click="deleteSeries(s.id)" :disabled="isSeriesBusy(s)" title="Удалить">
+                        <button class="btn action-btn btn-delete" @click="deleteSeries(s.id)" :disabled="isSeriesBusy(s)" title="Удалить">
                             <i class="bi bi-trash"></i>
                         </button>
                     </div>
@@ -115,7 +114,7 @@
             <i class="bi bi-collection-play"></i>
             <h4>Сериалы не найдены</h4>
             <p>Добавьте первый сериал, чтобы начать отслеживание</p>
-            <button class="header-btn btn-primary" @click="openAddModal">
+            <button class="btn btn-primary" @click="openAddModal">
                 <i class="bi bi-plus-lg"></i>
                 Добавить сериал
             </button>

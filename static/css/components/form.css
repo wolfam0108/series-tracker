@@ -3,7 +3,7 @@
 /* ==================================================================== */
 
 /* Общие свойства для всех кнопок */
-.modern-btn, .header-btn, .action-btn {
+.btn {
     border: none;
     border-radius: 8px;
     font-weight: 500;
@@ -15,56 +15,51 @@
     justify-content: center;
     gap: 8px;
     line-height: 1.4;
-}
-
-/* Общий эффект при наведении */
-.modern-btn:hover,
-.header-btn:hover,
-.action-btn:hover,
-.modern-symbol-btn:hover {
-    filter: brightness(90%);
-    transform: none;
-}
-
-/* Стили для кнопок в шапке и модальных окнах */
-.modern-btn, .header-btn {
     padding: 10px 20px;
     font-size: 14px;
     min-height: 44px;
 }
 
+/* Общий эффект при наведении */
+.btn:hover,
+.modern-symbol-btn:hover,
+.action-btn:hover {
+    filter: brightness(90%);
+    transform: none;
+}
+
 /* Цветовые схемы */
-.modern-btn.btn-primary, .header-btn.btn-primary {
+.btn-primary {
     background: linear-gradient(135deg, #007bff 0%, #0056b3 100%);
     color: white;
     box-shadow: 0 2px 8px rgba(0, 123, 255, 0.3);
 }
 
-.modern-btn.btn-secondary, .header-btn.btn-secondary {
+.btn-secondary {
     background: linear-gradient(135deg, #6c757d 0%, #5a6268 100%);
     color: white;
     box-shadow: 0 2px 8px rgba(108, 117, 125, 0.3);
 }
 
-.modern-btn.btn-success, .header-btn.btn-success {
+.btn-success {
     background: linear-gradient(135deg, #28a745 0%, #1e7e34 100%);
     color: white;
     box-shadow: 0 2px 8px rgba(40, 167, 69, 0.3);
 }
 
-.modern-btn.btn-warning {
+.btn-warning {
     background: linear-gradient(135deg, #ffc107 0%, #e0a800 100%);
     color: #212529;
     box-shadow: 0 2px 8px rgba(255, 193, 7, 0.3);
 }
 
-.modern-btn.btn-danger {
+.btn-danger {
     background: linear-gradient(135deg, #dc3545 0%, #c82333 100%);
     color: white;
     box-shadow: 0 2px 8px rgba(220, 53, 69, 0.3);
 }
 
-.modern-btn:disabled {
+.btn:disabled {
     opacity: 0.6;
     cursor: not-allowed;
     filter: none;
@@ -219,7 +214,7 @@ textarea.modern-input {
     box-shadow: none;
 }
 
-.modern-input-group .modern-btn {
+.modern-input-group .btn {
     border-radius: 0;
     border-left: 1px solid var(--border-color);
     min-height: auto;
@@ -317,6 +312,34 @@ textarea.modern-input {
     cursor: pointer;
     line-height: 1.4;
 }
+
+/* --- ИЗМЕНЕНИЕ: Добавлены общие классы для карточек-элементов списка --- */
+.list-card {
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    background: var(--bg-white);
+    overflow: hidden;
+    transition: all 0.2s ease;
+}
+
+.list-card:hover {
+    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
+}
+
+.list-card-header {
+    background: var(--bg-light);
+    padding: 12px 16px;
+    border-bottom: 1px solid var(--border-color);
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+}
+
+.list-card-body {
+    padding: 16px;
+}
+/* --- КОНЕЦ ИЗМЕНЕНИЯ --- */
+
 
 /* Стили для компактных паттернов */
 .patterns-list {
@@ -425,27 +448,12 @@ textarea.modern-input {
 }
 
 /* Стили для стандартов качества/разрешения */
+/* --- ИЗМЕНЕНИЕ: .quality-standard-card теперь использует .list-card, специфичные стили удалены --- */
 .quality-standard-card {
-    border: 1px solid var(--border-color);
-    border-radius: 8px;
-    background: var(--bg-white);
-    overflow: hidden;
-    transition: all 0.2s ease;
+    /* Этот класс теперь используется как маркер, но структурные стили предоставляет .list-card */
 }
 
-.quality-standard-card:hover {
-    box-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
-}
-
-.standard-header {
-    background: var(--bg-light);
-    padding: 12px 16px;
-    border-bottom: 1px solid var(--border-color);
-    display: flex;
-    align-items: center;
-    justify-content: space-between;
-}
-
+/* --- ИЗМЕНЕНИЕ: .standard-header и .standard-content заменены на .list-card-header и .list-card-body --- */
 .standard-title {
     display: flex;
     align-items: center;
@@ -455,10 +463,6 @@ textarea.modern-input {
     display: flex;
     align-items: center;
     gap: 8px;
-}
-
-.standard-content {
-    padding: 16px;
 }
 
 .search-patterns-list {
@@ -517,30 +521,15 @@ textarea.modern-input {
 }
 
 /* Стили для нового конструктора правил парсера */
-.rules-list { display: flex; flex-direction: column; gap: 1rem; }
+/* --- ИЗМЕНЕНИЕ: .rule-card теперь использует .list-card, специфичные стили удалены --- */
 .rule-card {
-    border: 1px solid #dee2e6;
-    border-radius: 8px;
-    background-color: #fff;
-    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
-    transition: box-shadow .2s ease;
-    overflow: hidden;
-}
-.rule-card:hover { box-shadow: 0 4px 8px rgba(0,0,0,0.08); }
-
-.rule-header {
-    display: flex;
-    justify-content: space-between;
-    align-items: center;
-    padding: 0.5rem 1rem;
-    background-color: #f8f9fa;
-}
-.rule-body { 
-    padding: 1rem; 
-    animation: fadeIn 0.3s;
-    border-top: 1px solid #dee2e6;
+    /* Структурные стили предоставляет .list-card */
+    display: flex; 
+    flex-direction: column; 
+    gap: 1rem;
 }
 
+/* --- ИЗМЕНЕНИЕ: .rule-header и .rule-body заменены на .list-card-header и .list-card-body --- */
 .rule-title {
     display: flex;
     align-items: center;
@@ -587,7 +576,6 @@ textarea.modern-input {
 .if-block .rule-block-header span { color: #0d6efd; }
 .then-block .rule-block-header span { color: #198754; }
 
-/* ИЗМЕНЕНИЕ: Новая структура для условия */
 .condition-group {
     padding: 1rem;
     background-color: #f8f9fa;
@@ -604,7 +592,7 @@ textarea.modern-input {
 }
 .condition-row {
     display: flex;
-    align-items: flex-end; /* Выравниваем по низу */
+    align-items: flex-end;
     gap: 0.5rem;
     margin-top: 0.5rem;
 }
@@ -636,7 +624,6 @@ textarea.modern-input {
     white-space: normal;
     line-height: 1.2;
 }
-/* КОНЕЦ ИЗМЕНЕНИЯ */
 
 .pattern-constructor {
     flex: 1 1 auto;

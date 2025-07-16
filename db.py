@@ -727,20 +727,29 @@ class Database:
                 result.append(item_dict)
             return result
 
+# --- ИЗМЕНЕНИЕ: Добавлена явная обработка ошибок в методе сохранения ---
     def add_or_update_media_items(self, items_to_process: List[Dict[str, Any]]):
         with self.Session() as session:
-            for item_data in items_to_process:
-                unique_id = item_data.get('unique_id')
-                if not unique_id:
-                    continue
-
-                existing_item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
-                if existing_item:
-                    existing_item.status = item_data.get('status', existing_item.status)
-                else:
+            try:
+                # Перед добавлением новых, удаляем все старые записи для этого сериала
+                if items_to_process:
+                    series_id_to_clear = items_to_process[0].get('series_id')
+                    if series_id_to_clear:
+                        self.logger.info("db", f"Очистка старых media_items для series_id: {series_id_to_clear}")
+                        session.query(MediaItem).filter_by(series_id=series_id_to_clear).delete(synchronize_session=False)
+                
+                for item_data in items_to_process:
+                    # Логика теперь просто добавляет новые элементы
                     new_item = MediaItem(**item_data)
                     session.add(new_item)
-            session.commit()
+
+                session.commit()
+                self.logger.info("db", f"Успешно сохранено {len(items_to_process)} медиа-элементов.")
+            except Exception as e:
+                self.logger.error("db.add_or_update_media_items", f"Ошибка во время транзакции. Откат. Ошибка: {e}", exc_info=True)
+                session.rollback()
+                raise  # Перевыбрасываем исключение, чтобы оно было видно в логах сканера
+
 
     def set_media_item_ignored_status(self, item_id: int, is_ignored: bool):
          with self.Session() as session:

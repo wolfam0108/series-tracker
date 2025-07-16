@@ -9,7 +9,8 @@ from parsers.astar_parser import AstarParser
 from parsers.anilibria_tv_parser import AnilibriaTvParser
 from scrapers.vk_scraper import VKScraper
 from rule_engine import RuleEngine
-from collectors.smart_collector import SmartCollector
+# --- SmartCollector больше не используется в этой отладочной версии ---
+# from collectors.smart_collector import SmartCollector 
 import hashlib
 import json
 import time
@@ -48,22 +49,18 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
             app.logger.error("scanner", f"Ошибка сканирования: Сериал с ID {series_id} не найден.")
             return {"success": False, "error": "Сериал не найден"}
 
-        # --- НАЧАЛО БЛОКА ЛОГИКИ ДЛЯ РАЗНЫХ ИСТОЧНИКОВ ---
         if series.get('source_type') == 'vk_video':
             app.logger.info("scanner", f"Запуск сканирования для VK-сериала: {series['name']}")
             
             try:
-                # URL для VK хранится в формате "url_канала|поисковый_запрос"
                 channel_url, query = series['url'].split('|')
             except ValueError:
                  app.logger.error("scanner", f"Неверный формат URL для VK-сериала ID {series_id}. Ожидается 'канал|запрос'")
                  return {"success": False, "error": "Неверный формат URL для VK-сериала. Ожидается 'канал|запрос'"}
 
-            # 1. Скрапинг данных с VK
             scraper = VKScraper(app.db, app.logger)
             scraped_videos = scraper.scrape_video_data(channel_url, query)
 
-            # 2. Обработка движком правил
             engine = RuleEngine(app.db, app.logger)
             profile_id = series.get('parser_profile_id')
             if not profile_id:
@@ -72,56 +69,56 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
             
             processed_videos = engine.process_videos(profile_id, scraped_videos)
 
-            # 3. Сборка оптимального плейлиста
-            collector = SmartCollector(app.logger)
-            existing_items = app.db.get_media_items_for_series(series_id)
-            
-            profiles = app.db.get_parser_profiles()
-            profile = next((p for p in profiles if p['id'] == profile_id), None)
-            preferred_voiceovers = profile.get('preferred_voiceovers', '') if profile else ''
-
-            final_plan = collector.collect(processed_videos, existing_items, preferred_voiceovers)
-            
-            # 4. Сохранение результата в БД
             items_to_save_in_db = []
-            tasks_for_downloader = []
+            
+            for item in processed_videos:
+                if not item.get('result') or not item['result'].get('extracted'):
+                    continue
 
-            for item in final_plan:
                 db_item = {
                     "series_id": series_id,
                     "unique_id": generate_media_item_id(item['source_data']['url'], item['source_data']['publication_date']),
-                    "status": item['status'],
+                    "status": 'new',
                     "source_url": item['source_data']['url'],
                     "publication_date": item['source_data']['publication_date'],
                 }
                 
-                if item['result']['action'] in ['extract_single', 'assign_episode_number']:
-                    db_item["episode_start"] = item['result']['extracted']['episode']
-                elif item['result']['action'] == 'extract_range':
-                    db_item["episode_start"] = item['result']['extracted']['start']
-                    db_item["episode_end"] = item['result']['extracted']['end']
-                
-                if 'voiceover' in item['result']['extracted']:
-                    db_item['voiceover_tag'] = item['result']['extracted']['voiceover']
+                extracted_data = item['result']['extracted']
+
+                if extracted_data.get('episode') is not None:
+                    db_item["episode_start"] = extracted_data['episode']
+                elif extracted_data.get('start') is not None:
+                    db_item["episode_start"] = extracted_data['start']
+                    if extracted_data.get('end') is not None:
+                        db_item["episode_end"] = extracted_data['end']
+
+                if 'voiceover' in extracted_data:
+                    db_item['voiceover_tag'] = extracted_data['voiceover']
+
+                if 'episode_start' not in db_item:
+                    continue
 
                 items_to_save_in_db.append(db_item)
-                
-                existing = next((i for i in existing_items if i['unique_id'] == db_item['unique_id']), None)
-                if item['status'] in ['new', 'new_compilation'] and not (existing and existing.get('is_ignored_by_user')):
-                    tasks_for_downloader.append(db_item)
             
-            if items_to_save_in_db:
-                app.logger.info("scanner", f"Обнаружено {len(items_to_save_in_db)} медиа-элементов для обновления/добавления в БД.")
-                app.db.add_or_update_media_items(items_to_save_in_db)
-
-            app.logger.info("scanner", f"Сформировано {len(tasks_for_downloader)} задач для загрузчика (реализация на Этапе 3).")
+            # --- ИЗМЕНЕНИЕ: Удаляем дубликаты перед сохранением ---
+            unique_items_to_save = []
+            seen_ids = set()
+            for item in items_to_save_in_db:
+                if item['unique_id'] not in seen_ids:
+                    unique_items_to_save.append(item)
+                    seen_ids.add(item['unique_id'])
+            
+            if unique_items_to_save:
+                app.logger.info("scanner", f"Обнаружено {len(unique_items_to_save)} уникальных медиа-элементов для добавления в БД.")
+                app.db.add_or_update_media_items(unique_items_to_save)
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             app.db.set_series_state(series_id, 'waiting', scan_time=datetime.now(timezone.utc))
             _broadcast_series_update(series_id)
-            return {"success": True, "message": "Сканирование VK-сериала завершено."}
+            
+            return {"success": True, "message": "Сканирование и сохранение завершено."}
 
-
-        # --- НАЧАЛО СТАРОЙ ЛОГИКИ ДЛЯ ТОРРЕНТОВ ---
+        # --- Логика для торрентов (остается без изменений) ---
         if not recovery_mode:
             state_str = series['state']
             is_busy = False

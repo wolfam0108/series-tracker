@@ -81,7 +81,7 @@ const SettingsModal = {
                 </div>
                 <div class="modal-footer modern-footer">
                      <button type="button" 
-                             class="modern-btn btn-primary" 
+                             class="btn btn-primary" 
                              @click="saveCurrentTab" 
                              :disabled="isSaving" 
                              v-if="activeTab === 'auth'">
@@ -89,7 +89,7 @@ const SettingsModal = {
                         <i v-else class="bi bi-check-lg me-2"></i>
                         {{ isSaving ? 'Сохранение...' : 'Сохранить' }}
                     </button>
-                    <button type="button" class="modern-btn btn-secondary" @click="close">
+                    <button type="button" class="btn btn-secondary" @click="close">
                         <i class="bi bi-x-lg me-2"></i>
                         Закрыть
                     </button>

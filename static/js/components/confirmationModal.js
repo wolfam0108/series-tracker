@@ -18,10 +18,10 @@ const ConfirmationModal = {
             </div>
             </div>
           <div class="modal-footer modern-footer">
-            <button type="button" class="modern-btn btn-secondary" @click="cancel">
+            <button type="button" class="btn btn-secondary" @click="cancel">
               <i class="bi bi-x-lg me-2"></i>Отмена
             </button>
-            <button type="button" class="modern-btn btn-danger" @click="confirm">
+            <button type="button" class="btn btn-danger" @click="confirm">
               <i class="bi bi-check-lg me-2"></i>Подтвердить
             </button>
           </div>
@@ -34,19 +34,16 @@ const ConfirmationModal = {
       modal: null,
       title: 'Подтверждение',
       message: 'Вы уверены?',
-      // --- ИЗМЕНЕНИЕ: Добавлена структура для чекбокса ---
       checkbox: {
         visible: false,
         text: '',
         checked: false,
       },
-      // --- КОНЕЦ ИЗМЕНЕНИЯ ---
       resolvePromise: null,
       rejectPromise: null,
     };
   },
   methods: {
-    // --- ИЗМЕНЕНИЕ: Метод open теперь принимает конфигурацию для чекбокса ---
     open(title, message, checkboxConfig = null) {
       this.title = title || 'Подтверждение';
       this.message = message || 'Вы уверены?';
@@ -70,12 +67,10 @@ const ConfirmationModal = {
     },
     confirm() {
       if (this.resolvePromise) {
-        // Возвращаем объект с результатом и состоянием чекбокса
         this.resolvePromise({ confirmed: true, checkboxState: this.checkbox.checked });
       }
       this.close();
     },
-    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
     cancel() {
       if (this.rejectPromise) {
         this.rejectPromise(false);

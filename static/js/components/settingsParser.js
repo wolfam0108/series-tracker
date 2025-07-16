@@ -14,8 +14,8 @@ const SettingsParserTab = {
                         <option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
                     </select>
                     <input v-model.trim="newProfileName" @keyup.enter="createProfile" type="text" class="modern-input" placeholder="Имя нового профиля...">
-                    <button @click="createProfile" class="modern-btn btn-success" :disabled="!newProfileName || isLoading"><i class="bi bi-plus-lg"></i></button>
-                    <button @click="deleteProfile" class="modern-btn btn-danger" :disabled="!selectedProfileId || isLoading"><i class="bi bi-trash"></i></button>
+                    <button @click="createProfile" class="btn btn-success" :disabled="!newProfileName || isLoading"><i class="bi bi-plus-lg"></i></button>
+                    <button @click="deleteProfile" class="btn btn-danger" :disabled="!selectedProfileId || isLoading"><i class="bi bi-trash"></i></button>
                 </div>
             </div>
         </div>
@@ -30,7 +30,7 @@ const SettingsParserTab = {
                     <input v-model.trim="scrapeChannelUrl" type="text" class="modern-input" placeholder="Ссылка на канал, например, https://vkvideo.ru/@anidubonline" style="flex-grow: 2;">
                     <div class="modern-input-group-divider"></div>
                     <input v-model.trim="scrapeQuery" type="text" class="modern-input" placeholder="Название для поиска, например, Противостояние святого">
-                    <button @click="scrapeTestTitles" class="modern-btn btn-primary" :disabled="!scrapeChannelUrl || !scrapeQuery || isScraping">
+                    <button @click="scrapeTestTitles" class="btn btn-primary" :disabled="!scrapeChannelUrl || !scrapeQuery || isScraping">
                         <span v-if="isScraping" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                         <i v-else class="bi bi-cloud-download"></i>
                         <span class="ms-2">Получить</span>
@@ -45,15 +45,15 @@ const SettingsParserTab = {
         <div v-if="selectedProfileId" class="modern-fieldset mb-4">
             <div class="fieldset-header d-flex justify-content-between align-items-center">
                 <h6 class="fieldset-title mb-0">Правила для профиля: {{ selectedProfileName }}</h6>
-                <button @click="addRule" class="modern-btn btn-primary btn-sm"><i class="bi bi-plus-circle-dotted me-2"></i>Добавить правило</button>
+                <button @click="addRule" class="btn btn-primary btn-sm"><i class="bi bi-plus-circle-dotted me-2"></i>Добавить правило</button>
             </div>
             <div class="fieldset-content">
                 <div v-if="isLoading" class="text-center p-4"><div class="spinner-border" role="status"></div></div>
                 <div v-else-if="rules.length === 0" class="empty-state p-4">Нет правил для этого профиля. Добавьте первое.</div>
                 
                 <transition-group name="list" tag="div" class="rules-list">
-                    <div v-for="(rule, index) in rules" :key="rule.id" class="rule-card">
-                        <div class="rule-header">
+                    <div v-for="(rule, index) in rules" :key="rule.id" class="list-card rule-card">
+                        <div class="list-card-header rule-header">
                             <div class="rule-title" @click="toggleRule(rule.id)">
                                 <i class="bi rule-toggle-icon" :class="isRuleCollapsed(rule.id) ? 'bi-chevron-right' : 'bi-chevron-down'"></i>
                                 <input type="text" v-model="rule.name" @click.stop class="rule-name-input" placeholder="Имя правила...">
@@ -65,7 +65,7 @@ const SettingsParserTab = {
                                <button @click="deleteRule(rule.id)" class="control-btn text-danger" title="Удалить правило"><i class="bi bi-trash"></i></button>
                             </div>
                         </div>
-                        <div v-if="!isRuleCollapsed(rule.id)" class="rule-body">
+                        <div v-if="!isRuleCollapsed(rule.id)" class="list-card-body rule-body">
                             <div class="rule-block if-block">
                                <div v-for="(cond, c_index) in rule.conditions" :key="c_index">
                                    <div class="condition-group">
@@ -202,7 +202,7 @@ const SettingsParserTab = {
                     </div>
                 </div>
                 <div class="text-end mt-3">
-                    <button @click="runTest" class="modern-btn btn-success" :disabled="!testTitles || isTesting">
+                    <button @click="runTest" class="btn btn-success" :disabled="!testTitles || isTesting">
                         <i class="bi bi-play-circle me-2"></i>Запустить тест
                     </button>
                 </div>

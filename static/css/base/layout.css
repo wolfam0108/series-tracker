@@ -25,6 +25,8 @@
     flex-wrap: wrap;
 }
 
+/* --- ИЗМЕНЕНИЕ: Класс .header-btn удален. Теперь используется .btn --- */
+
 /* Пустое состояние */
 .empty-state {
     text-align: center;

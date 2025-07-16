@@ -161,10 +161,10 @@ const AddSeriesModal = {
                     </div>
                 </div>
                 <div class="modal-footer modern-footer">
-                    <button class="modern-btn btn-primary" @click="addSeries" :disabled="!canAddSeries || parsing">
+                    <button class="btn btn-primary" @click="addSeries" :disabled="!canAddSeries || parsing">
                         <i class="bi bi-check-lg me-2"></i>Добавить
                     </button>
-                    <button type="button" class="modern-btn btn-secondary" @click="close">
+                    <button type="button" class="btn btn-secondary" @click="close">
                         <i class="bi bi-x-lg me-2"></i>Отмена
                     </button>
                 </div>

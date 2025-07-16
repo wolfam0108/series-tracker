@@ -45,7 +45,7 @@ const SettingsDebugTab = {
                         </div>
                     </div>
 
-                    <button class="modern-btn btn-primary" @click="scanAllNow" :disabled="scannerStatus.is_scanning || scannerStatus.is_awaiting_tasks" style="border-radius: 0 6px 6px 0;"><i class="bi bi-fast-forward-fill me-2"></i>Сканировать всё</button>
+                    <button class="btn btn-primary" @click="scanAllNow" :disabled="scannerStatus.is_scanning || scannerStatus.is_awaiting_tasks" style="border-radius: 0 6px 6px 0;"><i class="bi bi-fast-forward-fill me-2"></i>Сканировать всё</button>
                 </div>
             </div>
         </div>
@@ -88,7 +88,7 @@ const SettingsDebugTab = {
             </div>
             <div class="fieldset-content">
                 <div class="d-flex align-items-center gap-3">
-                    <button class="modern-btn btn-warning flex-shrink-0" @click="resetAgentState"><i class="bi bi-arrow-counterclockwise me-2"></i>Сбросить статусы и очередь Агента</button>
+                    <button class="btn btn-warning flex-shrink-0" @click="resetAgentState"><i class="bi bi-arrow-counterclockwise me-2"></i>Сбросить статусы и очередь Агента</button>
                     <p class="form-text text-muted mb-0">Эта кнопка очистит очередь агента задач и сбросит статус всех сериалов, которые "зависли" в состоянии сканирования или проверки, на 'waiting'.</p>
                 </div>
             </div>
@@ -106,7 +106,7 @@ const SettingsDebugTab = {
                         <option v-for="table in tables" :key="table" :value="table">{{ table }}</option>
                     </select>
                     <span class="input-group-text" style="flex: 0.6; text-align: left; justify-content: left; white-space: normal;">{{ getTableDescription(selectedTableToClear) }}</span>
-                    <button class="modern-btn btn-danger" @click="clearSelectedTable" :disabled="!selectedTableToClear">
+                    <button class="btn btn-danger" @click="clearSelectedTable" :disabled="!selectedTableToClear">
                         <i class="bi bi-trash"></i>
                     </button>
                 </div>

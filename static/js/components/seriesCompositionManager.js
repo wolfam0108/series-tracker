@@ -11,13 +11,10 @@ const SeriesCompositionManager = {
             <div class="d-flex align-items-center gap-3 legend">
                 <small><b>Легенда:</b></small>
                 <small><span class="legend-box row-new"></span>Н - Новый</small>
-                <small><span class="legend-box row-new-compilation"></span>НК - Новая компиляция</small>
-                <small><span class="legend-box row-discarded"></span>З - Заменен</small>
-                <small><span class="legend-box row-redundant"></span>И - Избыточный</small>
                 <small><span class="legend-box row-completed"></span>С - Скачан</small>
                 <small><span class="legend-box row-ignored"></span>П - Пропущен</small>
             </div>
-            <button class="modern-btn btn-sm btn-primary" @click="loadComposition" :disabled="isLoading">
+            <button class="btn btn-sm btn-primary" @click="loadComposition" :disabled="isLoading">
                 <span v-if="isLoading" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                 <i v-else class="bi bi-arrow-clockwise"></i>
                 <span class="ms-1">Обновить</span>
@@ -29,7 +26,7 @@ const SeriesCompositionManager = {
                 <div v-if="isLoading" class="loading-overlay"></div>
             </transition>
             
-            <div v-if="!mediaItems.length" class="empty-state">Нет данных для отображения. Запустите сканирование сериала, нажав "Обновить".</div>
+            <div v-if="!mediaItems.length" class="empty-state">Нет данных для отображения. Нажмите "Обновить", чтобы запустить сканирование.</div>
             <div v-else class="div-table table-composition">
                 <div class="div-table-header">
                     <div class="div-table-cell" style="flex: 0 0 50px;"></div>
@@ -50,7 +47,7 @@ const SeriesCompositionManager = {
                         <div class="div-table-cell">{{ formatEpisode(item) }}</div>
                         <div class="div-table-cell" :title="getLinkFromItem(item)">{{ getLinkFromItem(item) }}</div>
                         <div class="div-table-cell">{{ getVoiceoverTag(item) }}</div>
-                        <div class="div-table-cell">{{ formatDate(item.publication_date || (item.source_data && item.source_data.publication_date)) }}</div>
+                        <div class="div-table-cell">{{ formatDate(item.publication_date) }}</div>
                     </div>
                 </div>
             </div>
@@ -68,16 +65,17 @@ const SeriesCompositionManager = {
     sortedMediaItems() {
         if (!this.mediaItems) return [];
         return [...this.mediaItems].sort((a, b) => {
-             const epA = a.episode_start || (a.result && a.result.extracted ? a.result.extracted.episode || a.result.extracted.start : 0);
-             const epB = b.episode_start || (b.result && b.result.extracted ? b.result.extracted.episode || b.result.extracted.start : 0);
+             const epA = a.episode_start ?? 0;
+             const epB = b.episode_start ?? 0;
              return epB - epA;
         });
     }
   },
   methods: {
+    // --- ИЗМЕНЕНИЕ: Возвращаем единый метод для загрузки и сканирования ---
     async loadComposition() {
         this.isLoading = true;
-        this.$emit('show-toast', 'Запуск сканирования и анализа...', 'info');
+        this.$emit('show-toast', 'Запуск сканирования и получение данных...', 'info');
         try {
             const response = await fetch(`/api/series/${this.seriesId}/composition`);
             const data = await response.json();
@@ -91,6 +89,10 @@ const SeriesCompositionManager = {
         }
     },
     async toggleIgnore(item) {
+        if (!item.id) {
+            this.$emit('show-toast', 'Элемент еще не сохранен в БД. Пожалуйста, обновите страницу.', 'warning');
+            return;
+        }
         const newIgnoreStatus = !item.is_ignored_by_user;
         try {
             const response = await fetch(`/api/media-items/${item.id}/ignore`, {
@@ -106,44 +108,23 @@ const SeriesCompositionManager = {
     },
     getRowClass(item) {
         if (item.is_ignored_by_user) return 'row-ignored';
-        const statusClassMap = {
-            'completed': 'row-completed',
-            'discarded': 'row-discarded',
-            'redundant': 'row-redundant',
-            'new': 'row-new',
-            'new_compilation': 'row-new-compilation',
-            'pending': 'row-new'
-        };
-        return statusClassMap[item.status] || '';
+        // Упрощенная логика для теста
+        return item.status === 'completed' ? 'row-completed' : 'row-new';
     },
     getStatusText(item) {
-        if (item.is_ignored_by_user) return 'П'; // Пропущен
-        const statusMap = {
-            'new': 'Н', 'new_compilation': 'НК',
-            'completed': 'С', 'downloaded': 'С',
-            'discarded': 'З', 'redundant': 'И',
-            'pending': 'О', 'downloading': 'ЗГ',
-        };
-        return statusMap[item.status] || '?';
+        if (item.is_ignored_by_user) return 'П';
+        // Упрощенная логика для теста
+        return item.status === 'completed' ? 'С' : 'Н';
     },
     isEffectivelyIgnored(item) {
-        if (item.is_ignored_by_user) return true;
-        return ['discarded', 'redundant'].includes(item.status);
+        return item.is_ignored_by_user;
     },
     formatEpisode(item) {
-        const seriesData = item.series || {};
-        const extractedData = (item.result && item.result.extracted) || {};
+        const season = String(item.series?.season ?? 1).padStart(2, '0');
+        const start = String(item.episode_start ?? 0).padStart(2, '0');
         
-        const seasonNum = extractedData.season || seriesData.season || 1;
-        const season = String(seasonNum).padStart(2, '0');
-
-        const startNum = item.episode_start || extractedData.episode || extractedData.start;
-        if (startNum === undefined) return 'N/A';
-        const start = String(startNum).padStart(2, '0');
-        
-        const endNum = item.episode_end || extractedData.end;
-        if (endNum && endNum !== startNum) {
-             const end = String(endNum).padStart(2, '0');
+        if (item.episode_end) {
+             const end = String(item.episode_end).padStart(2, '0');
              return `s${season}e${start}-e${end}`;
         }
         return `s${season}e${start}`;
@@ -153,12 +134,9 @@ const SeriesCompositionManager = {
         return new Date(isoString).toLocaleDateString('ru-RU');
     },
     getLinkFromItem(item) {
-        return item.source_url || (item.source_data ? item.source_data.url : 'URL не найден');
+        return item.source_url || 'URL не найден';
     },
     getVoiceoverTag(item) {
-        if (item.result && item.result.extracted && item.result.extracted.voiceover) {
-            return item.result.extracted.voiceover;
-        }
         return item.voiceover_tag || '-';
     }
   },

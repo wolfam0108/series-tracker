@@ -57,10 +57,10 @@ const SettingsAdvancedNamingTab = {
                         </div>
                          </div>
                      <div class="d-flex justify-content-end mt-2 gap-2">
-                        <button class="modern-btn btn-secondary" @click="clearForm" v-if="newPattern.id">
+                        <button class="btn btn-secondary" @click="clearForm" v-if="newPattern.id">
                             <i class="bi bi-x-lg"></i> Очистить форму
                         </button>
-                        <button class="modern-btn btn-primary" @click="savePattern" :disabled="!isNewPatternValid.isValid">
+                        <button class="btn btn-primary" @click="savePattern" :disabled="!isNewPatternValid.isValid">
                             <i class="bi bi-save"></i> {{ newPattern.id ? 'Сохранить изменения' : 'Добавить новое правило' }}
                         </button>
                     </div>
@@ -72,25 +72,16 @@ const SettingsAdvancedNamingTab = {
                 <div class="patterns-list">
                    <transition-group name="list" tag="div">
                        <div v-for="(p, index) in patterns" :key="p.id" 
-                            class="pattern-item" 
+                            class="list-card pattern-item" 
                             :class="{'editing': newPattern.id === p.id}"
                             :data-id="p.id" 
                             @click="selectPatternForEditing(p)"
                             role="button"
                             title="Нажмите, чтобы редактировать">
-                           <div class="pattern-content">
+                           <div class="list-card-header pattern-content">
                                <div class="pattern-info" style="display: grid; grid-template-columns: 1fr 2fr; gap: 1rem; align-items: start; width:100%">
                                    <div class="pattern-name">
                                        <strong>{{ p.name }}</strong>
-                                       <small v-if="p.arithmetic_op" class="d-block text-muted">
-                                            Операция: {{ p.arithmetic_op > 0 ? '+' : '' }}{{ p.arithmetic_op }}
-                                       </small>
-                                   </div>
-                                   <div style="font-family: var(--bs-font-monospace); font-size: 0.9em; word-break: break-all;">
-                                       <div><span class="text-muted">1. Фильтр:</span> {{ p.file_filter }}</div>
-                                       <div><span class="text-muted">2. Поиск X:</span> {{ p.pattern_search }}</div>
-                                       <div><span class="text-muted">3. Заменяем:</span> {{ p.area_to_replace }}</div>
-                                       <div><span class="text-muted">4. Вставляем:</span> {{ p.replacement_template }}</div>
                                    </div>
                                </div>
                                <div class="pattern-controls">
@@ -100,6 +91,17 @@ const SettingsAdvancedNamingTab = {
                                        <input class="form-check-input" type="checkbox" role="switch" v-model="p.is_active" @click.stop @change="updatePattern(p)">
                                    </div>
                                    <button class="control-btn text-danger" @click.stop="deletePattern(p.id)" title="Удалить"><i class="bi bi-trash"></i></button>
+                               </div>
+                           </div>
+                           <div class="list-card-body">
+                                <small v-if="p.arithmetic_op" class="d-block text-muted mb-2">
+                                     Операция: {{ p.arithmetic_op > 0 ? '+' : '' }}{{ p.arithmetic_op }}
+                                </small>
+                                <div style="font-family: var(--bs-font-monospace); font-size: 0.9em; word-break: break-all;">
+                                   <div><span class="text-muted">1. Фильтр:</span> {{ p.file_filter }}</div>
+                                   <div><span class="text-muted">2. Поиск X:</span> {{ p.pattern_search }}</div>
+                                   <div><span class="text-muted">3. Заменяем:</span> {{ p.area_to_replace }}</div>
+                                   <div><span class="text-muted">4. Вставляем:</span> {{ p.replacement_template }}</div>
                                </div>
                            </div>
                        </div>
@@ -117,7 +119,7 @@ const SettingsAdvancedNamingTab = {
                 <p class="text-muted small mb-3">Проверяет введенное имя файла по всем <b>активным</b> правилам из списка выше.</p>
                 <div class="modern-input-group">
                     <input type="text" class="modern-input" placeholder="Введите имя файла для теста" v-model="testData.filename">
-                    <button class="modern-btn btn-success" @click="testAllPatterns" :disabled="!testData.filename">
+                    <button class="btn btn-success" @click="testAllPatterns" :disabled="!testData.filename">
                         <i class="bi bi-check-circle me-2"></i>Проверить все
                     </button>
                 </div>

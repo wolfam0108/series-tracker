@@ -78,10 +78,10 @@ const LogsModal = {
                     <small v-if="logs.length > logLimit" class="text-muted mt-2 pt-2 border-top">Отображаются последние {{ logLimit }} из {{ logs.length }} записей.</small>
                 </div>
                 <div class="modal-footer modern-footer">
-                    <button type="button" class="modern-btn btn-primary" @click="saveLogLimit" :disabled="isLimitUnchanged">
+                    <button type="button" class="btn btn-primary" @click="saveLogLimit" :disabled="isLimitUnchanged">
                         <i class="bi bi-save me-2"></i>Сохранить лимит
                     </button>
-                    <button type="button" class="modern-btn btn-secondary" @click="close">
+                    <button type="button" class="btn btn-secondary" @click="close">
                         <i class="bi bi-x-lg me-2"></i>Закрыть
                     </button>
                 </div>

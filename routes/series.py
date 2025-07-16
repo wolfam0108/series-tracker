@@ -55,25 +55,28 @@ def get_series_details(series_id):
         series['last_scan_time'] = series['last_scan_time'].isoformat()
     return jsonify(series) if series else (jsonify({"error": "Сериал не найден"}), 404)
 
-# --- ИЗМЕНЕНИЕ: Этот маршрут теперь запускает сканирование ПЕРЕД тем, как отдать данные ---
+# --- ИЗМЕНЕНИЕ: Возвращаем логику "сканировать, затем читать" ---
 @series_bp.route('/<int:series_id>/composition', methods=['GET'])
 def get_series_composition(series_id):
-    # 1. Запускаем сканирование для актуализации данных
     app.logger.info("routes.series", f"Запрос на композицию для ID {series_id}, запускаю сканирование...")
     scan_result = perform_series_scan(series_id)
+    
     if not scan_result.get('success'):
-        # Если сканирование не удалось, возвращаем ошибку
-        return jsonify({"error": scan_result.get('error', 'Неизвестная ошибка сканирования')}), 500
+        # В случае ошибки сканирования, все равно пытаемся отдать то, что есть в БД
+        app.logger.warning("routes.series", f"Сканирование для ID {series_id} не удалось, будут показаны существующие данные.")
 
-    # 2. Получаем обновленные данные из БД
     app.logger.info("routes.series", f"Сканирование для ID {series_id} завершено, получаю данные из БД.")
     items = app.db.get_media_items_for_series(series_id)
     
-    # 3. Конвертируем datetime в ISO-строку для JSON
     for item in items:
         if item.get('publication_date'):
             item['publication_date'] = item['publication_date'].isoformat()
     return jsonify(items)
+
+# --- ИЗМЕНЕНИЕ: Этот эндпоинт больше не нужен в упрощенной схеме ---
+@series_bp.route('/<int:series_id>/rescan_composition', methods=['POST'])
+def rescan_series_composition(series_id):
+    return jsonify({"success": False, "error": "Endpoint deprecated"}), 404
 
 
 @series_bp.route('/<int:series_id>', methods=['POST'])

@@ -50,7 +50,6 @@
     color: #2c3e50 !important;
 }
 
-/* --- ИЗМЕНЕНИЕ: Стили для контейнера заголовка и ID --- */
 .series-title-container {
     display: flex;
     align-items: center;
@@ -63,7 +62,6 @@
     font-size: 14px;
     font-weight: 700;
     flex-shrink: 0;
-    /* --- ИЗМЕНЕНИЕ: Убрана прозрачность, чтобы фон совпадал --- */
 }
 
 .series-title {
@@ -76,7 +74,6 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
-/* --- КОНЕЦ ИЗМЕНЕНИЯ --- */
 
 .series-site {
     font-size: 15px;
@@ -184,19 +181,10 @@ input:checked + .slider:before {
     flex-shrink: 0;
 }
 
+/* --- ИЗМЕНЕНИЕ: Общие свойства для .action-btn удалены, т.к. они теперь в классе .btn --- */
 .action-btn {
     padding: 8px 16px;
-    border: none;
-    border-radius: 8px;
     font-size: 16px;
-    font-weight: 500;
-    cursor: pointer;
-    transition: all 0.2s ease;
-    text-decoration: none;
-    display: inline-flex;
-    align-items: center;
-    justify-content: center;
-    gap: 4px;
     color: white;
 }
 

@@ -1,9 +1,7 @@
 const SettingsNamingTab = {
-  // --- ИЗМЕНЕНИЕ: Добавлен блок для регистрации дочернего компонента ---
   components: {
     'settings-advanced-naming-tab': SettingsAdvancedNamingTab,
   },
-  // --- КОНЕЦ ИЗМЕНЕНИЯ ---
   template: `
     <div class="settings-tab-content">
         <div class="sticky-sub-nav-wrapper">
@@ -40,7 +38,7 @@ const SettingsNamingTab = {
                             <input v-model.trim="newSeriesPattern.pattern" type="text" class="modern-input" placeholder="* sXXeXX *" ref="seriesPatternInput">
                             <button class="modern-symbol-btn" @click="insertSymbol('seriesPatternInput', newSeriesPattern, 'X', 'pattern')" title="Вставить плейсхолдер для номера"><i class="bi bi-x-lg"></i></button>
                             <button class="modern-symbol-btn" @click="insertSymbol('seriesPatternInput', newSeriesPattern, '*', 'pattern')" title="Вставить 'любой текст'"><i class="bi bi-asterisk"></i></button>
-                            <button class="modern-btn btn-primary" @click="addSeriesPattern" :disabled="!newSeriesPattern.pattern || !newSeriesPattern.name">
+                            <button class="btn btn-primary" @click="addSeriesPattern" :disabled="!newSeriesPattern.pattern || !newSeriesPattern.name">
                                 <i class="bi bi-plus-lg"></i> Добавить
                             </button>
                         </div>
@@ -82,7 +80,7 @@ const SettingsNamingTab = {
                     <div class="fieldset-content">
                         <div class="modern-input-group">
                             <input type="text" class="modern-input" placeholder="Введите имя файла для теста" v-model="testAllSeries.filename">
-                            <button class="modern-btn btn-success" @click="testAllSeriesPatterns">
+                            <button class="btn btn-success" @click="testAllSeriesPatterns">
                                 <i class="bi bi-check-circle me-2"></i>Проверить
                             </button>
                         </div>
@@ -107,7 +105,7 @@ const SettingsNamingTab = {
                             <input v-model.trim="newSeasonPattern.pattern" type="text" class="modern-input" placeholder="* сезон X *" ref="seasonPatternInput">
                             <button class="modern-symbol-btn" @click="insertSymbol('seasonPatternInput', newSeasonPattern, 'X', 'pattern')" title="Вставить плейсхолдер для номера"><i class="bi bi-x-lg"></i></button>
                             <button class="modern-symbol-btn" @click="insertSymbol('seasonPatternInput', newSeasonPattern, '*', 'pattern')" title="Вставить 'любой текст'"><i class="bi bi-asterisk"></i></button>
-                            <button class="modern-btn btn-primary" @click="addSeasonPattern" :disabled="!newSeasonPattern.pattern || !newSeasonPattern.name">
+                            <button class="btn btn-primary" @click="addSeasonPattern" :disabled="!newSeasonPattern.pattern || !newSeasonPattern.name">
                                 <i class="bi bi-plus-lg"></i> Добавить
                             </button>
                         </div>
@@ -149,7 +147,7 @@ const SettingsNamingTab = {
                     <div class="fieldset-content">
                         <div class="modern-input-group">
                             <input type="text" class="modern-input" placeholder="Введите имя файла для теста" v-model="testSeason.filename">
-                            <button class="modern-btn btn-success" @click="testAllSeasonPatterns">
+                            <button class="btn btn-success" @click="testAllSeasonPatterns">
                                 <i class="bi bi-check-circle me-2"></i>Проверить
                             </button>
                         </div>
@@ -174,13 +172,13 @@ const SettingsNamingTab = {
                         
                         <div class="modern-input-group mb-4">
                             <input type="text" class="modern-input" v-model="newQualityPattern.standard_value" placeholder="Новый стандарт качества, например: 1080p WEB-DL">
-                            <button class="modern-btn btn-success" @click="addQualityPattern" :disabled="!newQualityPattern.standard_value">
+                            <button class="btn btn-success" @click="addQualityPattern" :disabled="!newQualityPattern.standard_value">
                                 <i class="bi bi-plus-circle me-2"></i>Добавить стандарт
                             </button>
                         </div>
 
-                        <div v-for="(qp, index) in qualityPatterns" :key="qp.id" class="quality-standard-card mb-3">
-                            <div class="standard-header">
+                        <div v-for="(qp, index) in qualityPatterns" :key="qp.id" class="list-card quality-standard-card mb-3">
+                            <div class="list-card-header">
                                 <div class="standard-title">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" v-model="qp.is_active" @change="updateQualityPattern(qp)">
@@ -199,7 +197,7 @@ const SettingsNamingTab = {
                                    </button>
                                 </div>
                             </div>
-                            <div class="standard-content">
+                            <div class="list-card-body">
                                 <div class="search-patterns-list mb-2">
                                     <div v-for="sp in qp.search_patterns" :key="sp.id" class="search-pattern-item">
                                        <code>{{ sp.pattern }}</code>
@@ -211,7 +209,7 @@ const SettingsNamingTab = {
                                 <div class="modern-input-group">
                                     <input type="text" class="modern-input" v-model="qp.newSearchPattern" placeholder="Новый поисковый паттерн..." :ref="'qualityPatternInput' + qp.id">
                                     <button class="modern-symbol-btn" @click="insertSymbol('qualityPatternInput' + qp.id, qp, '*', 'newSearchPattern')" title="Вставить 'любой текст'"><i class="bi bi-asterisk"></i></button>
-                                    <button class="modern-btn btn-primary" @click="addQualitySearchPattern(qp)" :disabled="!qp.newSearchPattern">
+                                    <button class="btn btn-primary" @click="addQualitySearchPattern(qp)" :disabled="!qp.newSearchPattern">
                                         <i class="bi bi-plus-lg"></i> Добавить
                                     </button>
                                 </div>
@@ -229,7 +227,7 @@ const SettingsNamingTab = {
                     <div class="fieldset-content">
                         <div class="modern-input-group">
                             <input type="text" class="modern-input" v-model="testQuality.filename" placeholder="Введите имя файла для теста">
-                             <button class="modern-btn btn-success" @click="testQualityPatterns">
+                             <button class="btn btn-success" @click="testQualityPatterns">
                                 <i class="bi bi-check-circle me-2"></i>Проверить
                             </button>
                         </div>
@@ -248,13 +246,13 @@ const SettingsNamingTab = {
                         
                         <div class="modern-input-group mb-4">
                             <input type="text" class="modern-input" v-model="newResolutionPattern.standard_value" placeholder="Новый стандарт разрешения, например: 1080p">
-                            <button class="modern-btn btn-success" @click="addResolutionPattern" :disabled="!newResolutionPattern.standard_value">
+                            <button class="btn btn-success" @click="addResolutionPattern" :disabled="!newResolutionPattern.standard_value">
                                 <i class="bi bi-plus-circle me-2"></i>Добавить стандарт
                             </button>
                         </div>
 
-                        <div v-for="(rp, index) in resolutionPatterns" :key="rp.id" class="quality-standard-card mb-3">
-                            <div class="standard-header">
+                        <div v-for="(rp, index) in resolutionPatterns" :key="rp.id" class="list-card quality-standard-card mb-3">
+                            <div class="list-card-header">
                                 <div class="standard-title">
                                     <div class="form-check form-switch">
                                         <input class="form-check-input" type="checkbox" v-model="rp.is_active" @change="updateResolutionPattern(rp)">
@@ -273,7 +271,7 @@ const SettingsNamingTab = {
                                    </button>
                                 </div>
                             </div>
-                            <div class="standard-content">
+                            <div class="list-card-body">
                                 <div class="search-patterns-list mb-2">
                                     <div v-for="sp in rp.search_patterns" :key="sp.id" class="search-pattern-item">
                                        <code>{{ sp.pattern }}</code>
@@ -285,7 +283,7 @@ const SettingsNamingTab = {
                                 <div class="modern-input-group">
                                     <input type="text" class="modern-input" v-model="rp.newSearchPattern" placeholder="Новый поисковый паттерн..." :ref="'resolutionPatternInput' + rp.id">
                                     <button class="modern-symbol-btn" @click="insertSymbol('resolutionPatternInput' + rp.id, rp, '*', 'newSearchPattern')" title="Вставить 'любой текст'"><i class="bi bi-asterisk"></i></button>
-                                    <button class="modern-btn btn-primary" @click="addResolutionSearchPattern(rp)" :disabled="!rp.newSearchPattern">
+                                    <button class="btn btn-primary" @click="addResolutionSearchPattern(rp)" :disabled="!rp.newSearchPattern">
                                         <i class="bi bi-plus-lg"></i> Добавить
                                     </button>
                                 </div>
@@ -303,7 +301,7 @@ const SettingsNamingTab = {
                     <div class="fieldset-content">
                         <div class="modern-input-group">
                             <input type="text" class="modern-input" v-model="testResolution.filename" placeholder="Введите имя файла для теста">
-                            <button class="modern-btn btn-success" @click="testResolutionPatterns">
+                            <button class="btn btn-success" @click="testResolutionPatterns">
                                 <i class="bi bi-check-circle me-2"></i>Проверить
                             </button>
                         </div>

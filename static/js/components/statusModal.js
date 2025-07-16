@@ -133,7 +133,7 @@ const StatusModal = {
                         <div class="tab-pane fade" id="qb-torrents-tab-pane-generic" role="tabpanel">
                             <div class="d-flex justify-content-between align-items-center mb-3">
                                 <h6>Торренты из qBittorrent</h6>
-                                <button v-if="qbTorrents.length > 0 && !qbTorrentsLoading" class="modern-btn btn-danger btn-sm" @click="deleteAllTorrents"><i class="bi bi-trash me-2"></i>Удалить все из qBit</button>
+                                <button v-if="qbTorrents.length > 0 && !qbTorrentsLoading" class="btn btn-danger btn-sm" @click="deleteAllTorrents"><i class="bi bi-trash me-2"></i>Удалить все из qBit</button>
                             </div>
                             <div class="position-relative">
                                 <transition name="fade"><div v-if="qbTorrentsLoading" class="loading-overlay"></div></transition>
@@ -195,15 +195,15 @@ const StatusModal = {
                     </div>
                 </div>
                 <div class="modal-footer modern-footer">
-                    <button v-if="activeTab === 'status'" class="modern-btn btn-primary" @click="updateSeries" :disabled="!selectedSeries.id || isBusy" :title="isBusy ? 'Нельзя сохранять во время активных операций' : 'Сохранить изменения'">
+                    <button v-if="activeTab === 'status'" class="btn btn-primary" @click="updateSeries" :disabled="!selectedSeries.id || isBusy" :title="isBusy ? 'Нельзя сохранять во время активных операций' : 'Сохранить изменения'">
                         <i class="bi bi-check-lg me-2"></i>Сохранить
                     </button>
-                    <button v-if="activeTab === 'naming'" class="modern-btn btn-success" @click="executeRename" :disabled="isRenaming || qbTorrents.length === 0">
+                    <button v-if="activeTab === 'naming'" class="btn btn-success" @click="executeRename" :disabled="isRenaming || qbTorrents.length === 0">
                         <span v-if="isRenaming" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
                         <i v-else class="bi bi-pencil-square me-2"></i>
                         Переименовать все
                     </button>
-                    <button class="modern-btn btn-secondary" @click="close"><i class="bi bi-x-lg me-2"></i>Закрыть</button>
+                    <button class="btn btn-secondary" @click="close"><i class="bi bi-x-lg me-2"></i>Закрыть</button>
                 </div>
             </div>
         </div>
