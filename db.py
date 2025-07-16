@@ -189,13 +189,17 @@ class Database:
                             setattr(series, key, value)
                 session.commit()
 
+    # --- ИЗМЕНЕНИЕ: Метод теперь корректно удаляет все связанные записи ---
     def delete_series(self, series_id: int):
         with self.Session() as session:
             series = session.query(Series).filter_by(id=series_id).first()
             if series:
-                session.query(Torrent).filter_by(series_id=series_id).delete()
+                self.logger.info("db", f"Удаление связанных записей для series_id: {series_id}")
+                session.query(Torrent).filter_by(series_id=series_id).delete(synchronize_session=False)
+                session.query(MediaItem).filter_by(series_id=series_id).delete(synchronize_session=False)
                 session.delete(series)
                 session.commit()
+                self.logger.info("db", f"Сериал {series_id} и все связанные с ним записи удалены.")
 
     def set_series_state(self, series_id: int, state: Any, scan_time: Optional[datetime] = None):
         with self.Session() as session:
@@ -675,15 +679,12 @@ class Database:
                     self.logger.error("db", f"Попытка обновить несуществующее правило с ID: {rule_id}")
                     return
 
-                # Явное удаление старых условий
                 session.query(ParserRuleCondition).filter_by(rule_id=rule_id).delete(synchronize_session=False)
                 session.flush()
 
-                # Обновление полей правила
                 rule.name = rule_data.get('name', rule.name)
                 rule.action_pattern = rule_data.get('action_pattern', rule.action_pattern)
 
-                # Добавление новых условий
                 if conditions_data := rule_data.get('conditions'):
                     for cond_data in conditions_data:
                         new_condition = ParserRuleCondition(
@@ -727,29 +728,57 @@ class Database:
                 result.append(item_dict)
             return result
 
-# --- ИЗМЕНЕНИЕ: Добавлена явная обработка ошибок в методе сохранения ---
+    # --- ИЗМЕНЕНИЕ: Полностью переписанный метод с логикой "пометить и обновить/вставить" ---
     def add_or_update_media_items(self, items_to_process: List[Dict[str, Any]]):
+        if not items_to_process:
+            return
+
+        series_id_to_update = items_to_process[0].get('series_id')
+        if not series_id_to_update:
+            self.logger.error("db", "В add_or_update_media_items не передан series_id.")
+            return
+
         with self.Session() as session:
             try:
-                # Перед добавлением новых, удаляем все старые записи для этого сериала
-                if items_to_process:
-                    series_id_to_clear = items_to_process[0].get('series_id')
-                    if series_id_to_clear:
-                        self.logger.info("db", f"Очистка старых media_items для series_id: {series_id_to_clear}")
-                        session.query(MediaItem).filter_by(series_id=series_id_to_clear).delete(synchronize_session=False)
+                # 1. Помечаем все существующие элементы как неактуальные
+                self.logger.info("db", f"Помечаем все существующие media_items для series_id {series_id_to_update} как неактуальные.")
+                session.query(MediaItem).filter_by(
+                    series_id=series_id_to_update
+                ).update({"is_available": False}, synchronize_session=False)
+
+                # 2. Создаем карту существующих элементов для быстрого доступа
+                existing_items_query = session.query(MediaItem).filter_by(series_id=series_id_to_update).all()
+                existing_items_map = {item.unique_id: item for item in existing_items_query}
                 
+                items_added = 0
+                items_updated = 0
+
+                # 3. Обрабатываем новые/обновленные элементы
                 for item_data in items_to_process:
-                    # Логика теперь просто добавляет новые элементы
-                    new_item = MediaItem(**item_data)
-                    session.add(new_item)
+                    unique_id = item_data.get('unique_id')
+                    if not unique_id:
+                        continue
+
+                    # Если элемент уже есть в БД
+                    if existing_item := existing_items_map.get(unique_id):
+                        existing_item.is_available = True
+                        existing_item.publication_date = item_data.get('publication_date', existing_item.publication_date)
+                        existing_item.episode_start = item_data.get('episode_start', existing_item.episode_start)
+                        existing_item.episode_end = item_data.get('episode_end', existing_item.episode_end)
+                        existing_item.voiceover_tag = item_data.get('voiceover_tag', existing_item.voiceover_tag)
+                        items_updated += 1
+                    # Если элемента нет в БД
+                    else:
+                        new_item = MediaItem(**item_data, is_available=True)
+                        session.add(new_item)
+                        items_added += 1
 
                 session.commit()
-                self.logger.info("db", f"Успешно сохранено {len(items_to_process)} медиа-элементов.")
+                self.logger.info("db", f"Сохранение медиа-элементов завершено. Добавлено: {items_added}, Обновлено: {items_updated}.")
             except Exception as e:
-                self.logger.error("db.add_or_update_media_items", f"Ошибка во время транзакции. Откат. Ошибка: {e}", exc_info=True)
+                self.logger.error("db", f"Ошибка в транзакции add_or_update_media_items для series_id {series_id_to_update}. Откат. Ошибка: {e}", exc_info=True)
                 session.rollback()
-                raise  # Перевыбрасываем исключение, чтобы оно было видно в логах сканера
-
+                raise
 
     def set_media_item_ignored_status(self, item_id: int, is_ignored: bool):
          with self.Session() as session:

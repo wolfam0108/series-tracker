@@ -81,14 +81,21 @@
     grid-template-columns: 2.5fr 2fr 1.5fr 2fr 1.5fr 1.5fr;
 }
 
+/* --- ИЗМЕНЕНИЕ: Сетка адаптирована под новые столбцы --- */
 .div-table.table-composition .div-table-header,
 .div-table.table-composition .div-table-row {
-    /* ИЗМЕНЕНИЕ: Уменьшаем колонку статуса и S/E, отдавая больше места ссылке */
-    grid-template-columns: 50px 120px 100px 4fr 1.5fr 1.5fr;
+    grid-template-columns: 50px 80px 100px 140px 80px 100px 3fr 1.5fr 1.5fr;
 }
 
 .div-table.table-composition .status-col {
     font-weight: bold;
+}
+
+/* --- ИЗМЕНЕНИЕ: Добавлен стиль для колонки UID --- */
+.div-table.table-composition .uid-col {
+    font-family: monospace;
+    font-size: 0.85em;
+    word-break: break-all;
 }
 
 
@@ -121,6 +128,12 @@
 
 .row-completed {
     background-color: #d1e7dd !important; /* Зеленый - успех */
+}
+
+.row-unavailable {
+    background-color: #f8f9fa !important;
+    opacity: 0.6;
+    font-style: italic;
 }
 
 .row-discarded, .row-redundant {

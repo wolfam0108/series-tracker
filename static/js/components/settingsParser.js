@@ -130,7 +130,8 @@ const SettingsParserTab = {
                                                <option value="extract_range">Извлечь диапазон серий</option>
                                                <option value="extract_season">Установить номер сезона</option>
                                                <option value="assign_voiceover">Назначить озвучку/тег</option>
-                                               <option value="assign_episode_number">Назначить номер серии/сезона</option>
+                                               <option value="assign_episode">Назначить номер серии</option>
+                                               <option value="assign_season">Назначить номер сезона</option>
                                             </select>
                                         </div>
                                         <button @click="removeAction(rule, a_index)" class="control-btn text-danger" title="Удалить действие"><i class="bi bi-x-lg"></i></button>
@@ -168,9 +169,11 @@ const SettingsParserTab = {
                                        <div v-if="action.action_type === 'assign_voiceover'" class="modern-input-group">
                                            <input type="text" class="modern-input" v-model="action.action_pattern" placeholder="Напр: AniDub">
                                        </div>
-                                       <div v-if="action.action_type === 'assign_episode_number'" class="d-flex gap-2">
-                                           <input type="number" class="modern-input" :value="getAssignedNumber(action).season" @input="updateAssignedNumber(action, 'season', $event)" placeholder="Сезон">
-                                           <input type="number" class="modern-input" :value="getAssignedNumber(action).episode" @input="updateAssignedNumber(action, 'episode', $event)" placeholder="Серия">
+                                       <div v-if="action.action_type === 'assign_episode'">
+                                           <input type="number" class="modern-input" v-model="action.action_pattern" placeholder="Номер серии">
+                                       </div>
+                                       <div v-if="action.action_type === 'assign_season'">
+                                           <input type="number" class="modern-input" v-model="action.action_pattern" placeholder="Номер сезона">
                                        </div>
                                     </div>
                                 </div>
@@ -341,7 +344,8 @@ const SettingsParserTab = {
         const actionsToSave = (payload.actions || []).map(action => {
             const savedAction = {
                 action_type: action.action_type,
-                action_pattern: action.action_pattern || ''
+                // --- ИЗМЕНЕНИЕ: Исправлена ошибка сохранения значения 0 ---
+                action_pattern: action.action_pattern ?? ''
             };
             if (['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)) {
                 savedAction.action_pattern = JSON.stringify((action._action_blocks || []).map(({ id, ...rest }) => rest)); // Remove internal id
@@ -469,20 +473,12 @@ const SettingsParserTab = {
         if (['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)) {
             action.action_pattern = '[]';
             action._action_blocks = [];
-        } else if (action.action_type === 'assign_episode_number') {
-            action.action_pattern = JSON.stringify({ season: 1, episode: 1 });
+        } else if (action.action_type === 'assign_episode' || action.action_type === 'assign_season') {
+            action.action_pattern = '1';
         } else {
              action._action_blocks = [];
              action.action_pattern = '';
         }
-    },
-    getAssignedNumber(action) {
-        try { return JSON.parse(action.action_pattern); } catch (e) { return { season: '', episode: '' }; }
-    },
-    updateAssignedNumber(action, key, event) {
-        const data = this.getAssignedNumber(action);
-        data[key] = parseInt(event.target.value, 10) || 0;
-        action.action_pattern = JSON.stringify(data);
     },
     getBlockLabel(block, context, container) {
         if (block.type === 'number' && context === 'then') {

@@ -60,7 +60,6 @@ class RuleEngine:
         
         return any(or_group_results)
 
-    # --- ИЗМЕНЕНИЕ: Метод теперь применяет список действий ---
     def _execute_actions(self, title: str, actions_json: str) -> Dict[str, Any]:
         final_result = {'action': 'multi_action', 'extracted': {}}
         
@@ -83,13 +82,18 @@ class RuleEngine:
             if action_type == 'assign_voiceover':
                 final_result['extracted']['voiceover'] = action_pattern
             
-            elif action_type == 'assign_episode_number':
+            # --- ИЗМЕНЕНИЕ: Обработка разделенных действий ---
+            elif action_type == 'assign_episode':
                 try:
-                    assigned_data = json.loads(action_pattern)
-                    final_result['extracted']['season'] = int(assigned_data['season'])
-                    final_result['extracted']['episode'] = int(assigned_data['episode'])
-                except (json.JSONDecodeError, KeyError, ValueError) as e:
-                    final_result.setdefault('error', []).append(f"Ошибка данных для назначения номера: {e}")
+                    final_result['extracted']['episode'] = int(action_pattern)
+                except (ValueError, TypeError):
+                    final_result.setdefault('error', []).append(f"Ошибка назначения номера серии: некорректное значение '{action_pattern}'")
+            
+            elif action_type == 'assign_season':
+                try:
+                    final_result['extracted']['season'] = int(action_pattern)
+                except (ValueError, TypeError):
+                    final_result.setdefault('error', []).append(f"Ошибка назначения номера сезона: некорректное значение '{action_pattern}'")
             
             else: # Логика для извлечения
                 regex_str = self._build_regex_from_blocks(action_pattern, for_extraction=True)
@@ -99,7 +103,6 @@ class RuleEngine:
 
                 match = re.search(regex_str, title, re.IGNORECASE)
                 if not match:
-                    # Это не ошибка, просто паттерн не совпал.
                     continue
 
                 try:
@@ -114,7 +117,6 @@ class RuleEngine:
                     final_result.setdefault('error', []).append(f"Ошибка извлечения для '{action_type}': {e}")
         
         return final_result
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
     def process_videos(self, profile_id: int, videos: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
         rules = self.db.get_rules_for_profile(profile_id)
@@ -127,7 +129,6 @@ class RuleEngine:
 
             for rule in rules:
                 if self._evaluate_conditions(title, rule['conditions']):
-                    # --- ИЗМЕНЕНИЕ: Вызываем новую функцию для выполнения всех действий ---
                     temp_result = self._execute_actions(title, rule['action_pattern'])
                     
                     if temp_result is not None:

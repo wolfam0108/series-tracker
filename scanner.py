@@ -20,10 +20,10 @@ def generate_torrent_id(link, date_time):
     unique_string = f"{link}{date_time or ''}"
     return hashlib.md5(unique_string.encode()).hexdigest()[:16]
 
-def generate_media_item_id(url: str, pub_date: datetime) -> str:
-    """Генерирует уникальный ID для медиа-элемента на основе URL и даты."""
+def generate_media_item_id(url: str, pub_date: datetime, series_id: int) -> str:
+    """Генерирует уникальный ID для медиа-элемента на основе URL, даты и ID сериала."""
     date_str = pub_date.strftime('%Y-%m-%d %H:%M:%S')
-    unique_string = f"{url}{date_str}"
+    unique_string = f"{url}{date_str}{series_id}"
     return hashlib.md5(unique_string.encode()).hexdigest()[:16]
 
 def _broadcast_series_update(series_id):
@@ -77,13 +77,17 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
 
                 db_item = {
                     "series_id": series_id,
-                    "unique_id": generate_media_item_id(item['source_data']['url'], item['source_data']['publication_date']),
+                    "unique_id": generate_media_item_id(item['source_data']['url'], item['source_data']['publication_date'], series_id),
                     "status": 'new',
                     "source_url": item['source_data']['url'],
                     "publication_date": item['source_data']['publication_date'],
                 }
                 
                 extracted_data = item['result']['extracted']
+
+                # --- ИЗМЕНЕНИЕ: Добавлена логика сохранения сезона ---
+                if 'season' in extracted_data:
+                    db_item['season'] = extracted_data['season']
 
                 if extracted_data.get('episode') is not None:
                     db_item["episode_start"] = extracted_data['episode']
@@ -100,7 +104,6 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
 
                 items_to_save_in_db.append(db_item)
             
-            # --- ИЗМЕНЕНИЕ: Удаляем дубликаты перед сохранением ---
             unique_items_to_save = []
             seen_ids = set()
             for item in items_to_save_in_db:
@@ -111,7 +114,6 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
             if unique_items_to_save:
                 app.logger.info("scanner", f"Обнаружено {len(unique_items_to_save)} уникальных медиа-элементов для добавления в БД.")
                 app.db.add_or_update_media_items(unique_items_to_save)
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             app.db.set_series_state(series_id, 'waiting', scan_time=datetime.now(timezone.utc))
             _broadcast_series_update(series_id)

@@ -144,7 +144,7 @@ class ParserRule(Base):
     profile_id = Column(Integer, ForeignKey('parser_profiles.id'), nullable=False)
     name = Column(Text, nullable=False)
     priority = Column(Integer, default=0, nullable=False)
-    action_pattern = Column(Text) # Теперь хранит JSON-массив действий
+    action_pattern = Column(Text)
     profile = relationship("ParserProfile", back_populates="rules")
     conditions = relationship("ParserRuleCondition", back_populates="rule", cascade="all, delete-orphan", order_by="ParserRuleCondition.id")
 
@@ -163,6 +163,8 @@ class MediaItem(Base):
     series_id = Column(Integer, ForeignKey('series.id'), nullable=False)
     unique_id = Column(Text, nullable=False, unique=True) 
     
+    # --- ИЗМЕНЕНИЕ: Добавлено поле для хранения сезона ---
+    season = Column(Integer, nullable=True)
     episode_start = Column(Integer, nullable=False)
     episode_end = Column(Integer, nullable=True) 
     
@@ -173,5 +175,7 @@ class MediaItem(Base):
     publication_date = Column(DateTime, nullable=False)
     voiceover_tag = Column(Text)
     file_path = Column(Text)
+
+    is_available = Column(Boolean, default=True, nullable=False)
 
     series = relationship("Series")
