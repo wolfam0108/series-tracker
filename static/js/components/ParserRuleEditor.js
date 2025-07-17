@@ -1,6 +1,5 @@
 const ParserRuleEditor = {
   name: 'ParserRuleEditor',
-  // Локальная регистрация удалена, так как компонент теперь глобальный
   props: {
     profileId: { type: Number, required: true },
     profileName: { type: String, required: true },
@@ -195,30 +194,67 @@ const ParserRuleEditor = {
                 </div>
             </div>
         </div>
+        
         <div class="modern-fieldset">
             <div class="fieldset-header"><h6 class="fieldset-title mb-0">Тестирование профиля: {{ profileName }}</h6></div>
             <div class="fieldset-content">
                 <p class="text-muted small">Вставьте "сырые" названия видео (каждое с новой строки) для проверки работы правил.</p>
-                <div class="row">
-                    <div class="col-md-6">
-                        <textarea v-model="testTitles" class="modern-input" rows="10" placeholder="Название видео 1\nНазвание видео 2"></textarea>
-                    </div>
-                    <div class="col-md-6">
-                        <div v-if="isTesting" class="text-center p-5"><div class="spinner-border" role="status"></div><p>Тестирование...</p></div>
-                        <div v-else class="test-results">
-                            <div v-for="(res, index) in testResults" :key="index" class="test-result-item" :class="getResultClass(res)">
-                                <div class="test-result-title" :title="res.title">{{ res.title }}</div>
-                                <div class="test-result-rule">{{ res.matched_rule_name }}</div>
-                                <div class="test-result-data">{{ formatResultData(res.result) }}</div>
+                <textarea v-model="testTitles" class="modern-input mb-3" rows="8" placeholder="Название видео 1\nНазвание видео 2"></textarea>
+                
+                <div class="text-end mb-3">
+                    <button @click="runTest" class="btn btn-success" :disabled="!testTitles || isTesting">
+                        <span v-if="isTesting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <i v-else class="bi bi-play-circle me-2"></i>
+                        {{ isTesting ? 'Тестирование...' : 'Запустить тест' }}
+                    </button>
+                </div>
+
+                <div v-if="isTesting" class="text-center p-5">
+                    <div class="spinner-border" role="status"></div>
+                </div>
+
+                <transition-group v-else name="list" tag="div" class="test-results-container">
+                    <div v-for="(res, index) in testResults" :key="index" class="list-card mb-3" :class="getResultClass(res)">
+                        <div class="list-card-header">
+                           <div class="test-result-title" :title="res.source_data.title">
+                                <i class="bi me-2" :class="getResultIcon(res)"></i>
+                                <span>{{ res.source_data.title }}</span>
+                           </div>
+                        </div>
+                        <div class="list-card-body">
+                            <div v-if="res.matched_rule_name === 'Нет совпадений'" class="text-muted">
+                                Правило не найдено.
+                            </div>
+                            <div v-else-if="res.result && res.result.action === 'exclude'">
+                                Исключено правилом: <strong>{{ res.matched_rule_name }}</strong>
+                            </div>
+                             <div v-else-if="res.result && res.result.error">
+                                Ошибка обработки: <strong class="text-danger">{{ res.result.error.join(', ') }}</strong>
+                            </div>
+                            <div v-else-if="res.result && res.result.extracted">
+                                <div>Сработавшее правило: <strong>{{ res.matched_rule_name }}</strong></div>
+                                <ul class="list-unstyled mt-2 mb-0" style="font-size: 0.9em;">
+                                    <li v-if="res.result.extracted.season">
+                                        <i class="bi bi-collection-play-fill text-primary me-2"></i>
+                                        <strong>Сезон:</strong> {{ res.result.extracted.season }}
+                                    </li>
+                                    <li v-if="res.result.extracted.episode">
+                                        <i class="bi bi-film text-primary me-2"></i>
+                                        <strong>Серия:</strong> {{ res.result.extracted.episode }}
+                                    </li>
+                                    <li v-if="res.result.extracted.start && res.result.extracted.end">
+                                        <i class="bi bi-collection-fill text-primary me-2"></i>
+                                        <strong>Компиляция:</strong> {{ res.result.extracted.start }} - {{ res.result.extracted.end }}
+                                    </li>
+                                    <li v-if="res.result.extracted.voiceover">
+                                        <i class="bi bi-mic-fill text-primary me-2"></i>
+                                        <strong>Тег:</strong> {{ res.result.extracted.voiceover }}
+                                    </li>
+                                </ul>
                             </div>
                         </div>
                     </div>
-                </div>
-                <div class="text-end mt-3">
-                    <button @click="runTest" class="btn btn-success" :disabled="!testTitles || isTesting">
-                        <i class="bi bi-play-circle me-2"></i>Запустить тест
-                    </button>
-                </div>
+                </transition-group>
             </div>
         </div>
     </div>
@@ -391,7 +427,7 @@ const ParserRuleEditor = {
     getBlockClasses(block) {
         let classes = 'pattern-block';
         if (block.type === 'text') {
-            classes += ' text-input-container';
+            classes += ' block-type-text';
         } else {
             classes += ` block-type-${block.type}`;
         }
@@ -441,21 +477,16 @@ const ParserRuleEditor = {
         finally { this.isTesting = false; }
     },
     getResultClass(result) {
-        if (!result.result) return 'result-no-match';
-        if (result.result.action === 'exclude') return 'result-exclude';
-        if (result.result.error) return 'result-error';
+        if (result.matched_rule_name === 'Нет совпадений') return 'result-no-match';
+        if (result.result && result.result.action === 'exclude') return 'result-exclude';
+        if (result.result && result.result.error) return 'result-error';
         return 'result-success';
     },
-    formatResultData(result) {
-        if (!result) return '-';
-        if (result.action === 'exclude') return 'Исключено';
-        if (result.error) return `Ошибка: ${Array.isArray(result.error) ? result.error.join(', ') : result.error}`;
-        if (result.extracted && Object.keys(result.extracted).length > 0) {
-            return Object.entries(result.extracted)
-                .map(([key, value]) => `${key}: ${value}`)
-                .join('; ');
-        }
-        return 'Совпадение';
+    getResultIcon(result) {
+        if (result.matched_rule_name === 'Нет совпадений') return 'bi-question-circle';
+        if (result.result && result.result.action === 'exclude') return 'bi-x-circle';
+        if (result.result && result.result.error) return 'bi-exclamation-triangle';
+        return 'bi-check-circle';
     },
     async scrapeTestTitles() {
         if (!this.scrapeChannelUrl || !this.scrapeQuery) return;

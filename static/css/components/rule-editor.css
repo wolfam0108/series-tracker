@@ -112,7 +112,7 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     min-height: 38px;
-    align-items: center;
+    align-items: flex-start; /* <-- Исправлено */
     padding: 0.25rem;
     flex-grow: 1;
     position: relative;
@@ -124,8 +124,6 @@
 }
 .block-type-text {
     background-color: #e9ecef;
-    /* ИЗМЕНЕНИЕ: делаем текстовый блок похожим на инпут */
-    padding: 0;
     height: auto;
 }
 .block-type-number { background-color: #cfe2ff; color: #004085; font-weight: bold; }
