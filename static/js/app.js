@@ -276,7 +276,6 @@ const app = createApp({
             this.showToast(error.message, 'danger');
         } finally { this.activeSeriesId = null; }
     },
-    // --- ИЗМЕНЕНИЕ: Логика удаления теперь использует одно окно с чекбоксом ---
     async deleteSeries(id) {
         const seriesToDelete = this.series.find(s => s.id === id);
         if (!seriesToDelete) return;
@@ -287,11 +286,10 @@ const app = createApp({
                 `Вы уверены, что хотите удалить сериал <strong>${seriesToDelete.name}</strong>?`,
                 {
                     text: 'Удалить также записи из qBittorrent (файлы на диске останутся)',
-                    checked: true // Чекбокс включен по умолчанию
+                    checked: true
                 }
             );
 
-            // Если promise разрешился, значит, пользователь нажал "Подтвердить"
             if (result.confirmed) {
                 const deleteFromQb = result.checkboxState;
                 const response = await fetch(`/api/series/${id}?delete_from_qb=${deleteFromQb}`, { method: 'DELETE' });
@@ -301,7 +299,6 @@ const app = createApp({
                 }
             }
         } catch (isCancelled) {
-            // Этот блок сработает, если пользователь нажал "Отмена" или закрыл окно
             if (isCancelled === false) {
                 this.showToast('Удаление отменено.', 'info');
             } else {
@@ -309,7 +306,6 @@ const app = createApp({
             }
         }
     },
-    // --- КОНЕЦ ИЗМЕНЕНИЯ ---
     async toggleAutoScan(id, enabled) {
         try {
             const response = await fetch(`/api/series/${id}/toggle_auto_scan`, {
@@ -339,4 +335,8 @@ const app = createApp({
     }
   }
 });
+
+// Глобальная регистрация компонента vuedraggable
+app.component('draggable', vuedraggable);
+
 app.mount('#app');

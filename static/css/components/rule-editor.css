@@ -3,9 +3,9 @@
 /* ==================================================================== */
 
 .modern-input-group .pattern-constructor {
-    border: none; /* Убираем собственную рамку конструктора */
-    flex-grow: 1; /* Заставляем его растягиваться на всю ширину */
-    border-radius: 0; /* Убираем скругление, т.к. оно теперь у родителя */
+    border: none;
+    flex-grow: 1;
+    border-radius: 0;
 }
 
 .rule-card {
@@ -46,7 +46,6 @@
 .rule-block { margin-bottom: 0.75rem; }
 .rule-block:last-child { margin-bottom: 0; }
 
-/* --- ИЗМЕНЕНИЕ: Новые стили для объединенного хедера --- */
 .condition-header-group {
     margin-bottom: 0.75rem;
 }
@@ -64,8 +63,6 @@
 .then-block .condition-header-group .input-group-text {
     color: #198754;
 }
-/* --- КОНЕЦ ИЗМЕНЕНИЯ --- */
-
 
 .condition-group {
     padding: 0.75rem;
@@ -91,6 +88,15 @@
 
 .action-content { padding-top: 0.5rem; }
 
+.rule-select-compact {
+    padding: 0.3rem 0.6rem !important;
+    height: auto !important;
+    font-size: 0.9em;
+    flex-grow: 1;
+    white-space: normal;
+    line-height: 1.2;
+}
+
 .pattern-constructor {
     flex: 1 1 auto;
     border: 1px solid #ced4da;
@@ -114,28 +120,32 @@
 
 .pattern-block {
     display: inline-flex; align-items: center; padding: 0.25rem 0.5rem; border-radius: 4px;
-    font-size: 0.9rem; font-family: var(--bs-font-monospace); cursor: grab; position: relative; height: 30px;
+    font-size: 0.9rem; font-family: var(--bs-font-monospace); position: relative; height: 30px;
 }
-.block-type-text { background-color: #e9ecef; }
+.block-type-text {
+    background-color: #e9ecef;
+    /* ИЗМЕНЕНИЕ: делаем текстовый блок похожим на инпут */
+    padding: 0;
+    height: auto;
+}
 .block-type-number { background-color: #cfe2ff; color: #004085; font-weight: bold; }
 .block-type-whitespace { background-color: #f8f9fa; border: 1px dashed #ced4da; }
 .block-type-any_text, .block-type-start_of_line, .block-type-end_of_line { background-color: #d1e7dd; color: #0f5132; }
 
 .pattern-block-input {
+    /* ИЗМЕНЕНИЕ: Адаптируем стили под наш дизайн */
     min-width: 1ch;
     max-width: 250px;
     border: none;
     background: transparent;
-    padding: 0 2px;
+    padding: 4px 6px;
     outline: none;
-    height: 100%;
-    white-space: pre;
-    display: inline-block;
+    cursor: text;
 }
-.pattern-block-input:empty:before {
-    content: attr(data-placeholder);
-    color: #6c757d;
-    font-style: italic;
+.pattern-block-input:focus {
+    background-color: #fff;
+    box-shadow: 0 0 0 2px var(--border-color-focus);
+    border-radius: 4px;
 }
 
 .pattern-block-remove {
@@ -207,4 +217,18 @@
 
 .logical-operator-container .modern-select {
     padding: 8px 12px;
+}
+
+/* ИЗМЕНЕНИЕ: Стили для drag-n-drop из нового примера */
+.drag-handle {
+    cursor: grab;
+    color: #9ca3af;
+    padding: 0 4px;
+}
+.drag-handle:active {
+    cursor: grabbing;
+}
+.ghost-block {
+    opacity: 0.5;
+    background: #c8ebfb;
 }

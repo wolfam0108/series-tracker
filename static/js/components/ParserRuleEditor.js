@@ -1,5 +1,6 @@
 const ParserRuleEditor = {
   name: 'ParserRuleEditor',
+  // Локальная регистрация удалена, так как компонент теперь глобальный
   props: {
     profileId: { type: Number, required: true },
     profileName: { type: String, required: true },
@@ -44,40 +45,42 @@ const ParserRuleEditor = {
                                             </div>
                                             <div class="modern-input-group">
                                                 <div class="pattern-constructor">
-                                                    <div class="pattern-blocks-container"
-                                                            @dragover.prevent="dragOver($event, cond._blocks)" 
-                                                            @dragleave.prevent="dragLeave" 
-                                                            @drop="onDrop($event, cond._blocks, dragTarget.index)">
-                                                        <transition-group name="list" tag="div" class="d-inline-flex flex-wrap align-items-center gap-2">
-                                                            <template v-for="(block, b_index) in cond._blocks" :key="block.id">
-                                                                <div class="drop-placeholder" v-if="dragTarget.container === cond._blocks && dragTarget.index === b_index"></div>
-                                                                <div :class="['pattern-block', 'block-type-' + block.type]" 
-                                                                    draggable="true" @dragstart="onDragStart($event, cond._blocks, b_index)">
-                                                                    <span v-if="block.type !== 'text'">{{ getBlockLabel(block, 'if') }}</span>
-                                                                    <span v-if="block.type === 'text'"
-                                                                        class="pattern-block-input"
-                                                                        contenteditable="true"
-                                                                        @input="updateBlockValue($event, block)"
-                                                                        @blur="updateBlockValue($event, block)"
-                                                                        @paste="handlePaste($event)"
-                                                                        :data-placeholder="block.value ? '' : 'Текст...'">{{ block.value }}</span>
-                                                                    <button @click="removePatternBlock(cond._blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                                    <draggable
+                                                        :list="cond._blocks"
+                                                        class="pattern-blocks-container"
+                                                        group="blocks"
+                                                        handle=".drag-handle"
+                                                        item-key="id"
+                                                        ghost-class="ghost-block"
+                                                        animation="200">
+                                                        <template #item="{ element, index }">
+                                                            <div :class="getBlockClasses(element)">
+                                                                <span class="drag-handle">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M7 2a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-3 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg>
+                                                                </span>
+                                                                <div :contenteditable="element.type === 'text'"
+                                                                    @blur="element.type === 'text' ? updateBlockValue(cond._blocks[index], $event.target.innerText) : null"
+                                                                    @keydown.enter.prevent
+                                                                    class="pattern-block-input"
+                                                                    :class="{'focus:ring-2 focus:ring-blue-400 rounded-sm': element.type === 'text'}">{{ element.type === 'text' ? element.value : getBlockLabel(element, 'if') }}</div>
+                                                                <button @click="removePatternBlock(cond._blocks, index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                                            </div>
+                                                        </template>
+                                                    </draggable>
+                                                    <div class="palette-footer">
+                                                        <draggable
+                                                            :list="blockPalette"
+                                                            class="pattern-palette"
+                                                            :group="{ name: 'blocks', pull: 'clone', put: false }"
+                                                            :clone="cloneBlock"
+                                                            item-key="type"
+                                                            :sort="false">
+                                                            <template #item="{ element }">
+                                                                <div :class="['palette-btn', 'block-type-' + element.type]" :title="element.title">
+                                                                    {{ element.label }}
                                                                 </div>
                                                             </template>
-                                                        </transition-group>
-                                                        <div class="drop-placeholder" v-if="dragTarget.container === cond._blocks && dragTarget.index === cond._blocks.length"></div>
-                                                    </div>
-                                                    <div class="palette-footer">
-                                                        <div class="pattern-palette">
-                                                            <div v-for="p_block in blockPalette" :key="p_block.type" 
-                                                                :class="['palette-btn', 'block-type-' + p_block.type]" 
-                                                                :title="p_block.title" 
-                                                                draggable="true"
-                                                                @dragstart="onDragStart($event, null, -1, p_block.type)"
-                                                                @click="addPatternBlock(cond._blocks, p_block.type)">
-                                                                {{ p_block.label }}
-                                                            </div>
-                                                        </div>
+                                                        </draggable>
                                                     </div>
                                                 </div>
                                                 <button @click="addCondition(rule, c_index)" class="btn btn-primary" title="Добавить условие"><i class="bi bi-plus-lg"></i></button>
@@ -110,40 +113,42 @@ const ParserRuleEditor = {
                                         <div class="action-content" v-if="action.action_type !== 'exclude'">
                                             <div v-if="['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)" class="modern-input-group">
                                                 <div class="pattern-constructor">
-                                                    <div class="pattern-blocks-container"
-                                                            @dragover.prevent="dragOver($event, action._action_blocks)" 
-                                                            @dragleave.prevent="dragLeave" 
-                                                            @drop="onDrop($event, action._action_blocks, dragTarget.index)">
-                                                        <transition-group name="list" tag="div" class="d-inline-flex flex-wrap align-items-center gap-2">
-                                                            <template v-for="(block, b_index) in action._action_blocks" :key="block.id">
-                                                                <div class="drop-placeholder" v-if="dragTarget.container === action._action_blocks && dragTarget.index === b_index"></div>
-                                                                <div :class="['pattern-block', 'block-type-' + block.type]" 
-                                                                    draggable="true" @dragstart="onDragStart($event, action._action_blocks, b_index)">
-                                                                    <span v-if="block.type !== 'text'">{{ getBlockLabel(block, 'then', action._action_blocks) }}</span>
-                                                                    <span v-if="block.type === 'text'"
-                                                                        class="pattern-block-input"
-                                                                        contenteditable="true"
-                                                                        @input="updateBlockValue($event, block)"
-                                                                        @blur="updateBlockValue($event, block)"
-                                                                        @paste="handlePaste($event)"
-                                                                        :data-placeholder="block.value ? '' : 'Текст...'">{{ block.value }}</span>
-                                                                    <button @click="removePatternBlock(action._action_blocks, b_index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                                    <draggable
+                                                        :list="action._action_blocks"
+                                                        class="pattern-blocks-container"
+                                                        group="blocks"
+                                                        handle=".drag-handle"
+                                                        item-key="id"
+                                                        ghost-class="ghost-block"
+                                                        animation="200">
+                                                        <template #item="{ element, index }">
+                                                            <div :class="getBlockClasses(element)">
+                                                                <span class="drag-handle">
+                                                                    <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M7 2a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-3 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg>
+                                                                </span>
+                                                                <div :contenteditable="element.type === 'text'"
+                                                                    @blur="element.type === 'text' ? updateBlockValue(action._action_blocks[index], $event.target.innerText) : null"
+                                                                    @keydown.enter.prevent
+                                                                    class="pattern-block-input"
+                                                                    :class="{'focus:ring-2 focus:ring-blue-400 rounded-sm': element.type === 'text'}">{{ element.type === 'text' ? element.value : getBlockLabel(element, 'then', action._action_blocks) }}</div>
+                                                                <button @click="removePatternBlock(action._action_blocks, index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
+                                                            </div>
+                                                        </template>
+                                                    </draggable>
+                                                    <div class="palette-footer">
+                                                         <draggable
+                                                            :list="blockPalette"
+                                                            class="pattern-palette"
+                                                            :group="{ name: 'blocks', pull: 'clone', put: false }"
+                                                            :clone="cloneBlock"
+                                                            item-key="type"
+                                                            :sort="false">
+                                                            <template #item="{ element }">
+                                                                <div :class="['palette-btn', 'block-type-' + element.type]" :title="element.title">
+                                                                    {{ element.label }}
                                                                 </div>
                                                             </template>
-                                                        </transition-group>
-                                                        <div class="drop-placeholder" v-if="dragTarget.container === action._action_blocks && dragTarget.index === action._action_blocks.length"></div>
-                                                    </div>
-                                                    <div class="palette-footer">
-                                                        <div class="pattern-palette">
-                                                            <div v-for="p_block in blockPalette" :key="p_block.type" 
-                                                                :class="['palette-btn', 'block-type-' + p_block.type]" 
-                                                                :title="p_block.title" 
-                                                                draggable="true"
-                                                                @dragstart="onDragStart($event, null, -1, p_block.type)"
-                                                                @click="addPatternBlock(action._action_blocks, p_block.type)">
-                                                                {{ p_block.label }}
-                                                            </div>
-                                                        </div>
+                                                        </draggable>
                                                     </div>
                                                 </div>
                                                 <button v-if="a_index === rule.actions.length - 1" @click="addAction(rule)" class="btn btn-primary" title="Добавить действие"><i class="bi bi-plus-lg"></i></button>
@@ -169,7 +174,6 @@ const ParserRuleEditor = {
                 </div>
             </div>
         </div>
-
         <div class="modern-fieldset mb-4">
             <div class="fieldset-header">
                 <h6 class="fieldset-title mb-0">Получение тестовых данных с VK</h6>
@@ -191,7 +195,6 @@ const ParserRuleEditor = {
                 </div>
             </div>
         </div>
-
         <div class="modern-fieldset">
             <div class="fieldset-header"><h6 class="fieldset-title mb-0">Тестирование профиля: {{ profileName }}</h6></div>
             <div class="fieldset-content">
@@ -240,8 +243,6 @@ const ParserRuleEditor = {
       scrapeQuery: '',
       isScraping: false,
       scrapedItems: [],
-      draggedItem: null,
-      dragTarget: { container: null, index: null },
     };
   },
   emits: ['show-toast', 'reload-rules'],
@@ -278,6 +279,7 @@ const ParserRuleEditor = {
 
                 return {
                     ...rule,
+                    id: rule.id,
                     conditions: rule.conditions.map(c => ({...c, _blocks: this.parsePatternJson(c.pattern)})),
                     actions: actions.map(a => ({...a, _action_blocks: this.parsePatternJson(a.action_pattern)}))
                 }
@@ -333,7 +335,8 @@ const ParserRuleEditor = {
             if (!response.ok) throw new Error(data.error || 'Ошибка сохранения правила');
             this.$emit('show-toast', 'Правило сохранено', 'success');
             if (isNew) {
-                this.$emit('reload-rules');
+                await this.loadRules();
+                this.openRuleId = data.id;
             }
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
     },
@@ -346,7 +349,7 @@ const ParserRuleEditor = {
         try {
             const response = await fetch(`/api/parser-rules/${ruleId}`, { method: 'DELETE' });
             if (!response.ok) throw new Error('Ошибка удаления правила');
-            this.$emit('reload-rules');
+            this.loadRules();
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
     },
     async moveRule(index, direction) {
@@ -358,7 +361,7 @@ const ParserRuleEditor = {
             await fetch('/api/parser-rules/reorder', {
                 method: 'POST', headers: {'Content-Type': 'application/json'}, body: JSON.stringify(orderedIds)
             });
-        } catch (error) { this.$emit('show-toast', 'Ошибка изменения порядка', 'danger'); this.$emit('reload-rules'); }
+        } catch (error) { this.$emit('show-toast', 'Ошибка изменения порядка', 'danger'); this.loadRules(); }
     },
     toggleRule(ruleId) { 
         this.openRuleId = this.openRuleId === ruleId ? null : ruleId;
@@ -370,10 +373,30 @@ const ParserRuleEditor = {
             return Array.isArray(blocks) ? blocks.map(b => ({...b, id: Date.now() + Math.random()})) : [];
         } catch (e) { return []; }
     },
-    addPatternBlock(targetBlocks, blockType) { 
-        targetBlocks.push({ type: blockType, value: blockType === 'text' ? '' : undefined, id: Date.now() }); 
+    cloneBlock(original) {
+        return {
+            id: Date.now() + Math.random(),
+            type: original.type,
+            value: original.type === 'text' ? '' : undefined,
+        };
     },
-    removePatternBlock(targetBlocks, blockIndex) { targetBlocks.splice(blockIndex, 1); },
+    removePatternBlock(targetBlocks, blockIndex) {
+        targetBlocks.splice(blockIndex, 1);
+    },
+    updateBlockValue(block, newText) {
+        if (block) {
+            block.value = newText.trim();
+        }
+    },
+    getBlockClasses(block) {
+        let classes = 'pattern-block';
+        if (block.type === 'text') {
+            classes += ' text-input-container';
+        } else {
+            classes += ` block-type-${block.type}`;
+        }
+        return classes;
+    },
     addCondition(rule, index) {
         const newCondition = { condition_type: 'contains', _blocks: [], logical_operator: 'AND' };
         rule.conditions.splice(index + 1, 0, newCondition);
@@ -384,36 +407,6 @@ const ParserRuleEditor = {
         rule.actions.push({ action_type: 'exclude', action_pattern: '[]', _action_blocks: [] });
     },
     removeAction(rule, index) { rule.actions.splice(index, 1); },
-    onDragStart(event, fromContainer, fromIndex, blockType) {
-        event.dataTransfer.effectAllowed = 'move';
-        this.draggedItem = { fromContainer, fromIndex, blockType };
-    },
-    dragOver(event, targetContainer) {
-        const children = Array.from(event.currentTarget.querySelectorAll('.pattern-block, .drop-placeholder'));
-        let closestIndex = children.length;
-        let closestDist = Infinity;
-        children.forEach((child, index) => {
-            const rect = child.getBoundingClientRect();
-            const dist = event.clientX - (rect.left + rect.width / 2);
-            if (dist < 0 && dist > -closestDist) {
-                closestDist = -dist;
-                closestIndex = index;
-            }
-        });
-        this.dragTarget = { container: targetContainer, index: closestIndex };
-    },
-    dragLeave() { this.dragTarget = { container: null, index: null }; },
-    onDrop(event, targetContainer, dropIndex) {
-        if (!this.draggedItem) return;
-        if (this.draggedItem.blockType) {
-            targetContainer.splice(dropIndex, 0, { type: this.draggedItem.blockType, value: this.draggedItem.blockType === 'text' ? '' : undefined, id: Date.now() });
-        } else if (this.draggedItem.fromContainer) {
-            const item = this.draggedItem.fromContainer.splice(this.draggedItem.fromIndex, 1)[0];
-            targetContainer.splice(dropIndex, 0, item);
-        }
-        this.draggedItem = null;
-        this.dragTarget = { container: null, index: null };
-    },
     onActionTypeChange(action) {
         if (['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)) {
             action.action_pattern = '[]';
@@ -432,14 +425,6 @@ const ParserRuleEditor = {
             return `Число #${captureIndex}`;
         }
         return this.blockPalette.find(p => p.type === block.type)?.label || 'Неизвестный';
-    },
-    updateBlockValue(event, block) {
-      block.value = event.target.innerText;
-    },
-    handlePaste(event) {
-        event.preventDefault();
-        const text = (event.clipboardData || window.clipboardData).getData('text/plain');
-        document.execCommand('insertText', false, text);
     },
     async runTest() {
         if (!this.testTitles || !this.profileId) return;
