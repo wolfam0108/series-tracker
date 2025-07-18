@@ -169,7 +169,7 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
 
                 parsers = {
                     'kinozal.me': KinozalParser(auth_manager, app.db, app.logger),
-                    'aniliberty.top': AnilibriaParser(app.db, app.logger),
+                    'anilibria.top': AnilibriaParser(app.db, app.logger),
                     'anilibria.tv': AnilibriaTvParser(app.db, app.logger),
                     'astar.bz': AstarParser(app.db, app.logger)
                 }

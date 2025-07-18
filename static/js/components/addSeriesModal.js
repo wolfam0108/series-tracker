@@ -105,10 +105,10 @@ const AddSeriesModal = {
                             </div>
                         </div>
                         
-                        <div class="modern-fieldset mt-4" v-if="sourceType === 'torrent' && (site.includes('anilibria') || site.includes('aniliberty') || site.includes('astar'))">
+                        <div class="modern-fieldset mt-4" v-if="sourceType === 'torrent' && (site.includes('anilibria') || site.includes('anilibria') || site.includes('astar'))">
                             <div class="fieldset-header"><h6 class="fieldset-title mb-0">Выбор качества</h6></div>
                             <div class="fieldset-content">
-                                <div v-if="site.includes('anilibria') || site.includes('aniliberty')">
+                                <div v-if="site.includes('anilibria') || site.includes('anilibria')">
                                     <div v-if="isQualityOptionsReady && episodeQualityOptions.all && episodeQualityOptions.all.length > 0" class="modern-input-group">
                                         <span class="input-group-text">Качество</span>
                                         <select v-model="newSeries.qualityByEpisodes.all" class="modern-select" id="quality">
@@ -293,7 +293,7 @@ const AddSeriesModal = {
             Object.keys(this.episodeQualityOptions).forEach(key => delete this.episodeQualityOptions[key]);
             Object.keys(this.newSeries.qualityByEpisodes).forEach(key => delete this.newSeries.qualityByEpisodes[key]);
             
-            if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
+            if (this.site.includes('anilibria') || this.site.includes('anilibria')) {
                 this.episodeQualityOptions.all = [...new Set(data.torrents.filter(t => t.quality).map(t => t.quality))];
                 this.newSeries.qualityByEpisodes.all = this.episodeQualityOptions.all[0] || '';
             } else if (this.site.includes('astar')) {
@@ -339,7 +339,7 @@ const AddSeriesModal = {
                 payload.site = 'vkvideo.ru';
             } else {
                 payload.source_type = 'torrent';
-                if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
+                if (this.site.includes('anilibria') || this.site.includes('anilibria')) {
                     qualityString = this.newSeries.qualityByEpisodes.all;
                 } else if (this.site.includes('astar')) {
                     const qualitiesToSave = this.sortedQualityOptionsKeys

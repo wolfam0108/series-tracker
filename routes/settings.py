@@ -74,7 +74,7 @@ def parse_url():
     auth_manager = AuthManager(app.db, app.logger)
     parsers = {
         'kinozal.me': KinozalParser(auth_manager, app.db, app.logger),
-        'aniliberty.top': AnilibriaParser(app.db, app.logger),
+        'anilibria.top': AnilibriaParser(app.db, app.logger),
         'anilibria.tv': AnilibriaTvParser(app.db, app.logger),
         'astar.bz': AstarParser(app.db, app.logger)
     }
