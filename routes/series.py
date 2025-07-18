@@ -4,8 +4,13 @@ from flask import Blueprint, jsonify, request, current_app as app
 from auth import AuthManager
 from qbittorrent import QBittorrentClient
 from renamer import Renamer
-from scanner import perform_series_scan
+# ИЗМЕНЕНИЕ: импортируем функцию генерации ID
+from scanner import perform_series_scan, generate_media_item_id
 from file_cache import delete_from_cache
+from rule_engine import RuleEngine
+from scrapers.vk_scraper import VKScraper
+from smart_collector import SmartCollector
+
 
 series_bp = Blueprint('series_api', __name__, url_prefix='/api/series')
 
@@ -55,29 +60,47 @@ def get_series_details(series_id):
         series['last_scan_time'] = series['last_scan_time'].isoformat()
     return jsonify(series) if series else (jsonify({"error": "Сериал не найден"}), 404)
 
-# --- ИЗМЕНЕНИЕ: Возвращаем логику "сканировать, затем читать" ---
 @series_bp.route('/<int:series_id>/composition', methods=['GET'])
 def get_series_composition(series_id):
-    app.logger.info("routes.series", f"Запрос на композицию для ID {series_id}, запускаю сканирование...")
-    scan_result = perform_series_scan(series_id)
-    
-    if not scan_result.get('success'):
-        # В случае ошибки сканирования, все равно пытаемся отдать то, что есть в БД
-        app.logger.warning("routes.series", f"Сканирование для ID {series_id} не удалось, будут показаны существующие данные.")
+    """
+    Эндпоинт для построения и получения "умного" плана загрузки для VK-сериалов.
+    """
+    series = app.db.get_series(series_id)
+    if not series:
+        return jsonify({"error": "Сериал не найден"}), 404
 
-    app.logger.info("routes.series", f"Сканирование для ID {series_id} завершено, получаю данные из БД.")
-    items = app.db.get_media_items_for_series(series_id)
-    
-    for item in items:
-        if item.get('publication_date'):
-            item['publication_date'] = item['publication_date'].isoformat()
-    return jsonify(items)
+    if series.get('source_type') != 'vk_video':
+        return jsonify([]), 200
 
-# --- ИЗМЕНЕНИЕ: Этот эндпоинт больше не нужен в упрощенной схеме ---
-@series_bp.route('/<int:series_id>/rescan_composition', methods=['POST'])
-def rescan_series_composition(series_id):
-    return jsonify({"success": False, "error": "Endpoint deprecated"}), 404
+    try:
+        channel_url, query = series['url'].split('|')
+        scraper = VKScraper(app.db, app.logger)
+        scraped_videos = scraper.scrape_video_data(channel_url, query)
 
+        engine = RuleEngine(app.db, app.logger)
+        profile_id = series.get('parser_profile_id')
+        if not profile_id:
+            return jsonify({"error": "Для сериала не назначен профиль правил парсера."}), 400
+        processed_videos = engine.process_videos(profile_id, scraped_videos)
+
+        collector = SmartCollector(app.logger)
+        download_plan = collector.collect(processed_videos)
+        
+        # --- ИЗМЕНЕНИЕ: Добавляем ID и форматируем дату перед отправкой ---
+        for item in download_plan:
+            pub_date = item.get('source_data', {}).get('publication_date')
+            url = item.get('source_data', {}).get('url')
+            
+            if pub_date and url:
+                item['unique_id'] = generate_media_item_id(url, pub_date, series_id)
+                item['source_data']['publication_date'] = pub_date.isoformat()
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        
+        return jsonify(download_plan)
+        
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка при построении композиции для series_id {series_id}: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
 
 @series_bp.route('/<int:series_id>', methods=['POST'])
 def update_series(series_id):

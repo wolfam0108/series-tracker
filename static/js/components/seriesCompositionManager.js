@@ -8,17 +8,14 @@ const SeriesCompositionManager = {
   template: `
     <div class="composition-manager">
         <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="d-flex align-items-center gap-3 legend">
-                <small><b>Легенда:</b></small>
-                <small><span class="legend-box row-new"></span>Н - Новый</small>
-                <small><span class="legend-box row-completed"></span>С - Скачан</small>
-                <small><span class="legend-box row-ignored"></span>П - Пропущен</small>
-                <small><span class="legend-box row-unavailable"></span>У - Устарел (не найден при последнем сканировании)</small>
+            <div class="modern-form-check form-switch m-0">
+                <input class="form-check-input" type="checkbox" role="switch" id="showOnlyPlannedSwitch" v-model="showOnlyPlanned">
+                <label class="modern-form-check-label" for="showOnlyPlannedSwitch">Показывать только запланированные</label>
             </div>
             <button class="btn btn-sm btn-primary" @click="loadComposition" :disabled="isLoading">
                 <span v-if="isLoading" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                 <i v-else class="bi bi-arrow-clockwise"></i>
-                <span class="ms-1">Обновить</span>
+                <span class="ms-1">Обновить план</span>
             </button>
         </div>
         
@@ -27,37 +24,41 @@ const SeriesCompositionManager = {
                 <div v-if="isLoading" class="loading-overlay"></div>
             </transition>
             
-            <div v-if="!mediaItems.length" class="empty-state">Нет данных для отображения. Нажмите "Обновить", чтобы запустить сканирование.</div>
-            <div v-else class="div-table table-composition">
-                <div class="div-table-header">
-                    <div class="div-table-cell" style="flex: 0 0 50px;"></div>
-                    <div class="div-table-cell status-col">Статус</div>
-                    <div class="div-table-cell">S/E</div>
-                    <div class="div-table-cell">UID</div>
-                    <div class="div-table-cell">Тип</div>
-                    <div class="div-table-cell">Доступен</div>
-                    <div class="div-table-cell">Ссылка</div>
-                    <div class="div-table-cell">Тег</div>
-                    <div class="div-table-cell">Дата</div>
-                </div>
-                <div class="div-table-body">
-                    <div v-for="item in sortedMediaItems" :key="item.id || item.unique_id" class="div-table-row" :class="getRowClass(item)">
-                        <div class="div-table-cell" style="flex: 0 0 50px;">
-                            <input type="checkbox" class="form-check-input" 
-                                   :checked="!isEffectivelyIgnored(item)"
-                                   @change="toggleIgnore(item)">
-                        </div>
-                        <div class="div-table-cell status-col">{{ getStatusText(item) }}</div>
-                        <div class="div-table-cell">{{ formatEpisode(item) }}</div>
-                        <div class="div-table-cell uid-col" :title="item.unique_id">{{ item.unique_id }}</div>
-                        <div class="div-table-cell">{{ formatItemType(item) }}</div>
-                        <div class="div-table-cell">{{ formatAvailability(item) }}</div>
-                        <div class="div-table-cell" :title="getLinkFromItem(item)">{{ getLinkFromItem(item) }}</div>
-                        <div class="div-table-cell">{{ getVoiceoverTag(item) }}</div>
-                        <div class="div-table-cell">{{ formatDate(item.publication_date) }}</div>
-                    </div>
-                </div>
+            <div v-if="!sortedMediaItems.length" class="empty-state">
+                Нет данных для отображения. Нажмите "Обновить план".
             </div>
+
+            <transition-group v-else name="list" tag="div" class="composition-cards-container">
+                <div v-for="item in filteredMediaItems" :key="item.unique_id" 
+                     class="test-result-card-compact" 
+                     :class="getCardClass(item)">
+                    
+                    <div class="card-line">
+                        <strong class="card-title" :title="item.source_data.title">{{ item.source_data.title }}</strong>
+                        <div class="form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" 
+                                   :id="'check-' + item.unique_id"
+                                   :checked="isItemInPlan(item)"
+                                   @change="toggleSelection(item)">
+                            <label class="form-check-label" :for="'check-' + item.unique_id"></label>
+                        </div>
+                    </div>
+
+                    <div class="card-line text-muted small">
+                        <span class="card-url" :title="item.source_data.url">{{ item.source_data.url }}</span>
+                        <span>{{ formatDate(item.source_data.publication_date) }}</span>
+                    </div>
+
+                    <div class="card-line small">
+                        <span class="card-episode-info">
+                            <i class="bi me-1" :class="formatItemType(item).icon"></i>
+                            {{ formatEpisode(item) }} ({{ getVoiceoverTag(item) }})
+                        </span>
+                        <span class="card-rule-name" :title="item.unique_id">{{ item.unique_id }}</span>
+                    </div>
+
+                </div>
+            </transition-group>
         </div>
     </div>
   `,
@@ -65,28 +66,41 @@ const SeriesCompositionManager = {
     return {
       isLoading: false,
       mediaItems: [],
+      userSelection: {},
+      showOnlyPlanned: true, // Новый флаг для фильтрации
     };
   },
   emits: ['show-toast'],
   computed: {
     sortedMediaItems() {
-        if (!this.mediaItems) return [];
-        return [...this.mediaItems].sort((a, b) => {
-             const epA = a.episode_start ?? 0;
-             const epB = b.episode_start ?? 0;
-             return epB - epA;
-        });
+      if (!this.mediaItems) return [];
+      return [...this.mediaItems].sort((a, b) => {
+          const epA = a.result?.extracted?.episode ?? a.result?.extracted?.start ?? 0;
+          const epB = b.result?.extracted?.episode ?? b.result?.extracted?.start ?? 0;
+          if (epA !== epB) {
+              return epA - epB;
+          }
+          return new Date(b.source_data.publication_date) - new Date(a.source_data.publication_date);
+      });
+    },
+    filteredMediaItems() {
+        if (!this.showOnlyPlanned) {
+            return this.sortedMediaItems;
+        }
+        return this.sortedMediaItems.filter(item => this.isItemInPlan(item));
     }
   },
   methods: {
     async loadComposition() {
         this.isLoading = true;
-        this.$emit('show-toast', 'Запуск сканирования и получение данных...', 'info');
+        this.userSelection = {};
+        this.showOnlyPlanned = true; // Сбрасываем фильтр при обновлении
+        this.$emit('show-toast', 'Запуск построения плана загрузки...', 'info');
         try {
             const response = await fetch(`/api/series/${this.seriesId}/composition`);
             const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Ошибка загрузки композиции сериала');
-            this.mediaItems = data;
+            if (!response.ok) throw new Error(data.error || 'Ошибка построения плана');
+            this.mediaItems = data.map(item => ({...item, unique_id: this.generateId(item.source_data.url, item.source_data.publication_date)}));
         } catch (error) {
             console.error(error);
             this.$emit('show-toast', error.message, 'danger');
@@ -94,78 +108,60 @@ const SeriesCompositionManager = {
             this.isLoading = false;
         }
     },
-    async toggleIgnore(item) {
-        if (!item.id) {
-            this.$emit('show-toast', 'Элемент еще не сохранен в БД. Пожалуйста, обновите страницу.', 'warning');
-            return;
+    generateId(url, date) {
+        const str = `${url}${date}`;
+        let hash = 0;
+        for (let i = 0; i < str.length; i++) {
+            const char = str.charCodeAt(i);
+            hash = ((hash << 5) - hash) + char;
+            hash |= 0; 
         }
-        const newIgnoreStatus = !item.is_ignored_by_user;
-        try {
-            const response = await fetch(`/api/media-items/${item.id}/ignore`, {
-                method: 'PUT',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ is_ignored: newIgnoreStatus })
-            });
-            if (!response.ok) throw new Error('Ошибка обновления статуса');
-            item.is_ignored_by_user = newIgnoreStatus;
-        } catch (error) {
-             this.$emit('show-toast', error.message, 'danger');
+        return `uid_${Math.abs(hash)}`;
+    },
+    isItemInPlan(item) {
+        if (this.userSelection.hasOwnProperty(item.unique_id)) {
+            return this.userSelection[item.unique_id];
         }
+        return item.status === 'in_plan_single' || item.status === 'in_plan_compilation';
     },
-    getRowClass(item) {
-        if (item.is_available === false) return 'row-unavailable';
-        if (item.is_ignored_by_user) return 'row-ignored';
-        return item.status === 'completed' ? 'row-completed' : 'row-new';
+    toggleSelection(item) {
+        this.userSelection[item.unique_id] = !this.isItemInPlan(item);
     },
-    getStatusText(item) {
-        if (item.is_available === false) return 'У'; // Устарел
-        if (item.is_ignored_by_user) return 'П'; // Пропущен
-        return item.status === 'completed' ? 'С' : 'Н'; // Скачан / Новый
+    getCardClass(item) {
+        return this.isItemInPlan(item) ? 'success' : 'no-match';
     },
-    isEffectivelyIgnored(item) {
-        return item.is_ignored_by_user;
-    },
-    // --- ИЗМЕНЕНИЕ: Логика определения сезона теперь имеет приоритеты ---
     formatEpisode(item) {
-        let seasonNumber = 1; // Значение по умолчанию
-
-        // Приоритет 1: Номер сезона из самого медиа-элемента (если он есть)
-        if (item.season !== null && item.season !== undefined) {
-            seasonNumber = item.season;
-        } 
-        // Приоритет 2: Номер сезона из родительского сериала (если есть)
-        else if (item.series?.season) {
-            const match = item.series.season.match(/\d+/);
-            if (match) {
-                seasonNumber = parseInt(match[0], 10);
-            }
+        if (!item.result || !item.result.extracted) return '-';
+        const extracted = item.result.extracted;
+        const season = String(extracted.season ?? 1).padStart(2, '0');
+        
+        if (extracted.episode !== undefined) {
+             const start = String(extracted.episode).padStart(2, '0');
+             return `s${season}e${start}`;
         }
-        
-        const season = String(seasonNumber).padStart(2, '0');
-        const start = String(item.episode_start ?? 0).padStart(2, '0');
-        
-        if (item.episode_end) {
-             const end = String(item.episode_end).padStart(2, '0');
+        if (extracted.start !== undefined && extracted.end !== undefined) {
+             const start = String(extracted.start).padStart(2, '0');
+             const end = String(extracted.end).padStart(2, '0');
              return `s${season}e${start}-e${end}`;
         }
-        return `s${season}e${start}`;
+        return '-';
     },
     formatItemType(item) {
-        return item.episode_end ? 'Range' : 'Single';
+        if (!item.result || !item.result.extracted) return { icon: 'bi-question-circle', text: '-' };
+        const isRange = item.result.extracted.start !== undefined;
+        return {
+            icon: isRange ? 'bi-collection-fill' : 'bi-film',
+            text: isRange ? 'Range' : 'Single',
+        };
     },
-    formatAvailability(item) {
-        return item.is_available ? 'Да' : 'Нет';
+    getVoiceoverTag(item) {
+        return item.result?.extracted?.voiceover || 'N/A';
     },
     formatDate(isoString) {
         if (!isoString) return '-';
-        return new Date(isoString).toLocaleDateString('ru-RU');
+        const date = new Date(isoString);
+        return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
     },
-    getLinkFromItem(item) {
-        return item.source_url || 'URL не найден';
-    },
-    getVoiceoverTag(item) {
-        return item.voiceover_tag || '-';
-    }
   },
   mounted() {
     this.loadComposition();

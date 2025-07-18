@@ -159,3 +159,41 @@
     background: #dc3545;
     color: white;
 }
+.composition-cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.composition-cards-container .test-result-card-compact.no-match {
+    background-color: #f8f9fa;
+    border-color: #e9ecef;
+    color: #6c757d;
+    opacity: 0.65;
+}
+
+.composition-cards-container .card-title {
+    font-weight: 500;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    padding-right: 1rem;
+}
+
+.composition-cards-container .card-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.composition-cards-container .card-url {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    flex-shrink: 1;
+}
+
+.composition-cards-container .card-episode-info {
+    font-weight: 500;
+}
