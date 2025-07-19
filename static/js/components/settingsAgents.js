@@ -33,11 +33,49 @@ const SettingsAgentsTab = {
                                 <div class="div-table-cell" :title="task.series_id">{{ task.series_id }}</div>
                                 <div class="div-table-cell" :title="task.torrent_id">{{ task.torrent_id }}</div>
                                 <div class="div-table-cell" :title="task.hash" style="word-break: break-all;">{{ task.hash }}</div>
-                                <div class.div-table-cell :title="task.stage">{{ task.stage }}</div>
+                                <div class="div-table-cell" :title="task.stage">{{ task.stage }}</div>
                             </div>
                         </transition-group>
                         <div v-if="!agentQueue.length" class="div-table-row">
                             <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Очередь пуста</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
+        <div class="modern-fieldset mb-4">
+            <div class="fieldset-header d-flex justify-content-between align-items-center">
+                <div>
+                    <i class="bi bi-camera-reels me-2"></i>
+                    <h6 class="fieldset-title mb-0 d-inline-block">Очередь Агента Загрузки (yt-dlp)</h6>
+                </div>
+                <button class="btn btn-sm btn-primary" @click="loadDownloadQueue" :disabled="isLoadingDownloads">
+                    <i class="bi bi-arrow-clockwise"></i>
+                </button>
+            </div>
+            <div class="fieldset-content">
+                 <div class="div-table table-download-queue">
+                    <div class="div-table-header">
+                        <div class="div-table-cell">Сериал</div>
+                        <div class="div-table-cell">Файл</div>
+                        <div class="div-table-cell">Статус</div>
+                        <div class="div-table-cell">Ошибка</div>
+                    </div>
+                    <div class="div-table-body position-relative">
+                        <transition name="fade"><div v-if="isLoadingDownloads" class="loading-overlay"></div></transition>
+                        <transition-group name="list" tag="div">
+                            <div v-for="task in downloadQueue" :key="task.id" class="div-table-row">
+                                <div class="div-table-cell" :title="getSeriesName(task.series_id)">{{ getSeriesName(task.series_id) }}</div>
+                                <div class="div-table-cell" :title="task.save_path">{{ getBaseName(task.save_path) }}</div>
+                                <div class="div-table-cell">
+                                    <span class="badge" :class="getDownloadStatusClass(task.status)">{{ task.status }}</span>
+                                </div>
+                                <div class="div-table-cell error-cell" :title="task.error_message">{{ task.error_message }}</div>
+                            </div>
+                        </transition-group>
+                        <div v-if="!downloadQueue.length && !isLoadingDownloads" class="div-table-row">
+                            <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Очередь загрузок пуста</div>
                         </div>
                     </div>
                 </div>
@@ -85,6 +123,15 @@ const SettingsAgentsTab = {
         </div>
     </div>
   `,
+  data() {
+    return {
+        downloadQueue: [],
+        isLoadingDownloads: false,
+    }
+  },
+  mounted() {
+    this.loadDownloadQueue();
+  },
   computed: {
     flatTorrentStatuses() {
         const statuses = [];
@@ -108,7 +155,38 @@ const SettingsAgentsTab = {
     }
   },
   methods: {
-    // --- ИЗМЕНЕНИЕ: Добавлен метод для раскраски строк ---
+    load() { // Вызывается при открытии вкладки
+        this.loadDownloadQueue();
+    },
+    getSeriesName(seriesId) {
+        const series = this.series.find(s => s.id === seriesId);
+        return series ? series.name : `ID: ${seriesId}`;
+    },
+    getBaseName(path) {
+        if (!path) return '';
+        return path.split(/[\\/]/).pop();
+    },
+    getDownloadStatusClass(status) {
+        const map = {
+            'pending': 'bg-secondary',
+            'downloading': 'bg-primary',
+            'completed': 'bg-success',
+            'error': 'bg-danger',
+        };
+        return map[status] || 'bg-dark';
+    },
+    async loadDownloadQueue() {
+        this.isLoadingDownloads = true;
+        try {
+            const response = await fetch('/api/downloads/queue');
+            if (!response.ok) throw new Error('Ошибка загрузки очереди yt-dlp');
+            this.downloadQueue = await response.json();
+        } catch (error) {
+             this.$emit('show-toast', error.message, 'danger');
+        } finally {
+            this.isLoadingDownloads = false;
+        }
+    },
     getAgentRowClass(stage) {
         const stageToClassMap = {
             'awaiting_metadata': 'row-state-metadata',
@@ -116,12 +194,10 @@ const SettingsAgentsTab = {
             'rechecking': 'row-state-checking',
             'activating': 'row-state-activation',
         };
-        // Упрощенная версия, так как агент обработки не имеет других стадий
         const mappedStage = stageToClassMap[stage];
         if (mappedStage) {
             return mappedStage;
         }
-        // Возвращаем класс для 'metadata' для всех подготовительных стадий
         if (['polling_for_size', 'awaiting_pause_before_rename'].includes(stage)) {
             return 'row-state-metadata';
         }

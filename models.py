@@ -163,7 +163,6 @@ class MediaItem(Base):
     series_id = Column(Integer, ForeignKey('series.id'), nullable=False)
     unique_id = Column(Text, nullable=False, unique=True) 
     
-    # --- ИЗМЕНЕНИЕ: Добавлено поле для хранения сезона ---
     season = Column(Integer, nullable=True)
     episode_start = Column(Integer, nullable=False)
     episode_end = Column(Integer, nullable=True) 
@@ -174,8 +173,22 @@ class MediaItem(Base):
     source_url = Column(Text, nullable=False)
     publication_date = Column(DateTime, nullable=False)
     voiceover_tag = Column(Text)
-    file_path = Column(Text)
+    
+    # --- ИЗМЕНЕНИЕ: Добавлено поле для хранения имени файла ---
+    final_filename = Column(Text, nullable=True)
 
     is_available = Column(Boolean, default=True, nullable=False)
-
     series = relationship("Series")
+
+class DownloadTask(Base):
+    __tablename__ = 'download_tasks'
+    id = Column(Integer, primary_key=True)
+    unique_id = Column(Text, nullable=False, index=True) # ID из MediaItem
+    series_id = Column(Integer, nullable=False)
+    video_url = Column(Text, nullable=False)
+    save_path = Column(Text, nullable=False)
+    status = Column(Text, default='pending', nullable=False) # pending, downloading, completed, error
+    error_message = Column(Text)
+    attempts = Column(Integer, default=0)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))

@@ -1,6 +1,7 @@
 import threading
 import time
 import json
+import os
 from datetime import datetime, timedelta, timezone
 from flask import Flask, current_app as app
 from db import Database
@@ -11,10 +12,6 @@ from auth import AuthManager
 from qbittorrent import QBittorrentClient
 
 class MonitoringAgent(threading.Thread):
-    """
-    Фоновый агент для периодического сканирования и мониторинга
-    статусов активных торрентов.
-    """
     def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent):
         super().__init__(daemon=True)
         self.name = "MonitoringAgent"
@@ -27,7 +24,9 @@ class MonitoringAgent(threading.Thread):
         self.awaiting_tasks_flag = threading.Event()
         self.CHECK_INTERVAL = 10 
         self.STATUS_UPDATE_INTERVAL = 5
+        self.FILE_VERIFY_INTERVAL = 60 # Проверять файлы раз в минуту
         self.last_status_update_time = time.time()
+        self.last_file_verify_time = time.time()
         self.qb_client = None
 
     def _broadcast_scanner_status(self):
@@ -37,7 +36,6 @@ class MonitoringAgent(threading.Thread):
 
     def get_status(self) -> dict:
         next_scan_timestamp_iso = self.db.get_setting('next_scan_timestamp')
-        
         next_scan_time = None
         if next_scan_timestamp_iso:
             try:
@@ -52,6 +50,68 @@ class MonitoringAgent(threading.Thread):
             'is_awaiting_tasks': self.awaiting_tasks_flag.is_set(),
             'next_scan_time': next_scan_time.isoformat() if next_scan_time else None,
         }
+        
+    def _verify_downloaded_files(self):
+        """
+        Проверяет наличие файлов на диске и обновляет статусы в БД.
+        Также агрегирует статусы для главной карточки сериала.
+        """
+        all_series = self.db.get_all_series()
+        series_to_broadcast = set()
+
+        for series in all_series:
+            series_id = series['id']
+            if series['source_type'] != 'vk_video':
+                continue
+
+            media_items_to_check = self.db.get_media_items_with_filename(series_id)
+            changed = False
+            for item in media_items_to_check:
+                if not os.path.exists(item['final_filename']):
+                    self.logger.warning("monitoring_agent", f"Файл {item['final_filename']} для UID {item['unique_id']} не найден на диске. Сброс статуса.")
+                    self.db.update_media_item_filename(item['unique_id'], None) # Стираем имя файла
+                    self.db.update_media_item_download_status(item['unique_id'], 'pending') # Сбрасываем статус
+                    changed = True
+
+            # Агрегация статусов для главной карточки
+            download_statuses = self.db.get_series_download_statuses(series_id)
+            
+            new_state = {}
+            idx = 0
+            if download_statuses.get('downloading', 0) > 0:
+                new_state[str(idx)] = 'downloading'
+                idx += 1
+            
+            # Статус "Готов" показываем, если есть завершенные и нет ожидающих/ошибочных/скачивающихся
+            if download_statuses.get('completed', 0) > 0 and \
+               download_statuses.get('downloading', 0) == 0 and \
+               download_statuses.get('pending', 0) == 0 and \
+               download_statuses.get('error', 0) == 0:
+                new_state[str(idx)] = 'ready'
+                idx += 1
+            
+            # Если ничего не происходит, но есть ожидающие, ставим "Ожидание"
+            if not new_state and download_statuses.get('pending', 0) > 0:
+                new_state[str(idx)] = 'waiting'
+                idx += 1
+            
+            # Если нет задач, статус по умолчанию - ожидание
+            if not new_state and not download_statuses:
+                 new_state[str(idx)] = 'waiting'
+                 idx += 1
+
+            new_state_str = json.dumps(new_state) if new_state else 'waiting'
+
+            # Обновляем, только если состояние изменилось
+            if series['state'] != new_state_str:
+                self.db.set_series_state(series_id, new_state_str)
+                changed = True
+
+            if changed:
+                series_to_broadcast.add(series_id)
+
+        for sid in series_to_broadcast:
+            _broadcast_series_update(sid)
 
     def _update_active_statuses(self):
         if not self.qb_client:
@@ -127,10 +187,28 @@ class MonitoringAgent(threading.Thread):
         with self.app.app_context():
             auth_manager = AuthManager(self.db, self.logger)
             self.qb_client = QBittorrentClient(auth_manager, self.db, self.logger)
+            
+            # --- ИЗМЕНЕНИЕ: Принудительная проверка статусов при запуске ---
+            self.logger.info("monitoring_agent", "Выполнение первоначальной проверки статусов файлов...")
+            self._verify_downloaded_files()
+            self.logger.info("monitoring_agent", "Первоначальная проверка завершена.")
+
             self.handle_startup_scan()
 
         while not self.shutdown_flag.is_set():
             try:
+                now = time.time()
+                # Периодическое обновление статусов торрентов
+                if (now - self.last_status_update_time) >= self.STATUS_UPDATE_INTERVAL:
+                    self._update_active_statuses()
+                    self.last_status_update_time = now
+
+                # --- ИЗМЕНЕНИЕ: Периодическая проверка наличия файлов ---
+                if (now - self.last_file_verify_time) >= self.FILE_VERIFY_INTERVAL:
+                    with self.app.app_context():
+                        self._verify_downloaded_files()
+                    self.last_file_verify_time = now
+
                 self._tick()
             except Exception as e:
                 self.logger.error("monitoring_agent", f"Критическая ошибка в такте MonitoringAgent: {e}", exc_info=True)

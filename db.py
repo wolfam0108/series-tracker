@@ -12,7 +12,7 @@ from models import (
     Base, Auth, Series, RenamingPattern, SeasonPattern, AdvancedRenamingPattern,
     Torrent, Setting, Log, QualityPattern, QualitySearchPattern, ResolutionPattern,
     ResolutionSearchPattern, AgentTask, ScanTask,
-    ParserProfile, ParserRule, ParserRuleCondition, MediaItem
+    ParserProfile, ParserRule, ParserRuleCondition, MediaItem, DownloadTask
 )
 
 class Database:
@@ -728,7 +728,22 @@ class Database:
                 result.append(item_dict)
             return result
 
-    # --- ИЗМЕНЕНИЕ: Полностью переписанный метод с логикой "пометить и обновить/вставить" ---
+    def get_media_item_by_uid(self, unique_id: str) -> Optional[Dict[str, Any]]:
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if not item:
+                return None
+            return {c.name: getattr(item, c.name) for c in item.__table__.columns}
+    
+    def update_media_item_filename(self, unique_id: str, filename: str):
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if item:
+                item.final_filename = filename
+                session.commit()
+            else:
+                self.logger.warning("db", f"Попытка обновить имя файла для несуществующего media_item с UID: {unique_id}")
+
     def add_or_update_media_items(self, items_to_process: List[Dict[str, Any]]):
         if not items_to_process:
             return
@@ -740,43 +755,29 @@ class Database:
 
         with self.Session() as session:
             try:
-                # 1. Помечаем все существующие элементы как неактуальные
-                self.logger.info("db", f"Помечаем все существующие media_items для series_id {series_id_to_update} как неактуальные.")
-                session.query(MediaItem).filter_by(
-                    series_id=series_id_to_update
-                ).update({"is_available": False}, synchronize_session=False)
-
-                # 2. Создаем карту существующих элементов для быстрого доступа
                 existing_items_query = session.query(MediaItem).filter_by(series_id=series_id_to_update).all()
                 existing_items_map = {item.unique_id: item for item in existing_items_query}
                 
                 items_added = 0
                 items_updated = 0
 
-                # 3. Обрабатываем новые/обновленные элементы
                 for item_data in items_to_process:
                     unique_id = item_data.get('unique_id')
-                    if not unique_id:
-                        continue
+                    if not unique_id: continue
 
-                    # Если элемент уже есть в БД
                     if existing_item := existing_items_map.get(unique_id):
-                        existing_item.is_available = True
+                        existing_item.status = item_data.get('status', existing_item.status)
                         existing_item.publication_date = item_data.get('publication_date', existing_item.publication_date)
-                        existing_item.episode_start = item_data.get('episode_start', existing_item.episode_start)
-                        existing_item.episode_end = item_data.get('episode_end', existing_item.episode_end)
-                        existing_item.voiceover_tag = item_data.get('voiceover_tag', existing_item.voiceover_tag)
                         items_updated += 1
-                    # Если элемента нет в БД
                     else:
-                        new_item = MediaItem(**item_data, is_available=True)
+                        new_item = MediaItem(**item_data)
                         session.add(new_item)
                         items_added += 1
 
                 session.commit()
                 self.logger.info("db", f"Сохранение медиа-элементов завершено. Добавлено: {items_added}, Обновлено: {items_updated}.")
             except Exception as e:
-                self.logger.error("db", f"Ошибка в транзакции add_or_update_media_items для series_id {series_id_to_update}. Откат. Ошибка: {e}", exc_info=True)
+                self.logger.error("db", f"Ошибка в транзакции add_or_update_media_items: {e}", exc_info=True)
                 session.rollback()
                 raise
 
@@ -786,3 +787,65 @@ class Database:
             if item:
                 item.is_ignored_by_user = is_ignored
                 session.commit()
+
+    def add_download_task(self, task_data: Dict[str, Any]):
+        with self.Session() as session:
+            new_task = DownloadTask(**task_data, status='pending', attempts=0)
+            session.add(new_task)
+            session.commit()
+
+    def get_download_task(self, task_id: int) -> Optional[Dict[str, Any]]:
+        with self.Session() as session:
+            task = session.query(DownloadTask).filter_by(id=task_id).first()
+            if not task: return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+
+    def get_download_task_by_uid(self, unique_id: str) -> Optional[Dict[str, Any]]:
+        with self.Session() as session:
+            task = session.query(DownloadTask).filter(
+                DownloadTask.unique_id == unique_id,
+                DownloadTask.status.in_(['pending', 'downloading'])
+            ).first()
+            if not task: return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+
+    def get_pending_download_tasks(self, limit: int) -> List[Dict[str, Any]]:
+        with self.Session() as session:
+            tasks = session.query(DownloadTask).filter_by(status='pending').order_by(DownloadTask.created_at).limit(limit).all()
+            return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
+            
+    def update_download_task_status(self, task_id: int, status: str, error_message: str = None):
+        with self.Session() as session:
+            task = session.query(DownloadTask).filter_by(id=task_id).first()
+            if task:
+                task.status = status
+                if status == 'downloading':
+                    task.attempts = (task.attempts or 0) + 1
+                if error_message:
+                    task.error_message = error_message
+                session.commit()
+
+    def requeue_stuck_downloads(self) -> int:
+        with self.Session() as session:
+            stuck_tasks = session.query(DownloadTask).filter_by(status='downloading')
+            count = stuck_tasks.count()
+            if count > 0:
+                stuck_tasks.update({"status": "pending"}, synchronize_session=False)
+                session.commit()
+            return count
+
+    def get_all_download_tasks(self) -> List[Dict[str, Any]]:
+        with self.Session() as session:
+            tasks = session.query(DownloadTask).order_by(DownloadTask.created_at.desc()).all()
+            return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
+
+# Добавьте этот метод в класс Database в файле db.py
+    def clear_download_queue(self) -> int:
+        """Удаляет все задачи, которые не находятся в процессе загрузки."""
+        with self.Session() as session:
+            tasks_to_delete = session.query(DownloadTask).filter(DownloadTask.status.in_(['pending', 'error']))
+            count = tasks_to_delete.count()
+            if count > 0:
+                tasks_to_delete.delete(synchronize_session=False)
+                session.commit()
+            return count

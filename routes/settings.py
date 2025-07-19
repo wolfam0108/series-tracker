@@ -394,3 +394,14 @@ def test_resolution_patterns():
     renamer = Renamer(app.logger, app.db)
     result = renamer._extract_resolution(data.get('filename'))
     return jsonify({"result": result if result else "Не найдено"})
+
+@settings_bp.route('/settings/parallel_downloads', methods=['GET', 'POST'])
+def handle_parallel_downloads():
+    if request.method == 'POST':
+        data = request.get_json()
+        if 'value' in data:
+            app.db.set_setting('max_parallel_downloads', str(data['value']))
+        return jsonify({"success": True})
+    
+    value = app.db.get_setting('max_parallel_downloads', 2)
+    return jsonify({"value": int(value)})

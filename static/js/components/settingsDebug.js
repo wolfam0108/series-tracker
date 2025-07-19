@@ -4,7 +4,7 @@ const SettingsDebugTab = {
         <div class="modern-fieldset mb-4">
             <div class="fieldset-header">
                 <i class="bi bi-robot me-2"></i>
-                <h6 class="fieldset-title mb-0">Агент сканирования</h6>
+                <h6 class="fieldset-title mb-0">Агент сканирования и загрузчики</h6>
             </div>
             <div class="fieldset-content">
                 <div class="row mb-3">
@@ -21,12 +21,20 @@ const SettingsDebugTab = {
                         </div>
                     </div>
                 </div>
+                
+                <div class="row">
+                    <div class="col-md-6">
+                        <label for="scanIntervalInput" class="modern-label">Интервал сканирования (мин)</label>
+                        <input type="number" id="scanIntervalInput" v-model.number="scannerStatus.scan_interval" class="modern-input" min="1" @change="saveScannerSettings">
+                    </div>
+                    <div class="col-md-6">
+                        <label for="parallelDownloadsInput" class="modern-label">Максимум параллельных загрузок (yt-dlp)</label>
+                        <input type="number" id="parallelDownloadsInput" v-model.number="parallelDownloads" class="modern-input" min="1" max="10" @change="saveParallelDownloads">
+                    </div>
+                </div>
                 <hr>
                 <div class="modern-input-group">
-                    <span class="input-group-text">Интервал (мин)</span>
-                    <input type="number" id="scanIntervalInput" v-model.number="scannerStatus.scan_interval" class="modern-input" min="1" @change="saveScannerSettings" style="flex: 0 1 120px;">
-                    
-                    <div class="alert alert-info py-2 px-3 m-0 d-flex align-items-center" role="alert" style="flex: 1 1 auto; border-radius: 0; border-top-width: 0; border-bottom-width: 0; min-width: 200px;">
+                    <div class="alert alert-info py-2 px-3 m-0 d-flex align-items-center" role="alert" style="flex: 1 1 auto; border-radius: 6px 0 0 6px; border-top-width: 0; border-bottom-width: 0; min-width: 200px;">
                         <div v-if="scannerStatus.is_scanning" class="w-100">
                             <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
                             <strong>Сканирование...</strong>
@@ -87,9 +95,15 @@ const SettingsDebugTab = {
                 <h6 class="fieldset-title mb-0">Действия отладки</h6>
             </div>
             <div class="fieldset-content">
-                <div class="d-flex align-items-center gap-3">
-                    <button class="btn btn-warning flex-shrink-0" @click="resetAgentState"><i class="bi bi-arrow-counterclockwise me-2"></i>Сбросить статусы и очередь Агента</button>
-                    <p class="form-text text-muted mb-0">Эта кнопка очистит очередь агента задач и сбросит статус всех сериалов, которые "зависли" в состоянии сканирования или проверки, на 'waiting'.</p>
+                <div class="d-flex flex-column gap-3">
+                    <div class="d-flex align-items-center gap-3">
+                        <button class="btn btn-warning flex-shrink-0" @click="resetAgentState"><i class="bi bi-arrow-counterclockwise me-2"></i>Сбросить агент торрентов</button>
+                        <p class="form-text text-muted mb-0">Очищает очередь агента обработки торрентов и сбрасывает "зависшие" статусы сериалов.</p>
+                    </div>
+                    <div class="d-flex align-items-center gap-3">
+                        <button class="btn btn-danger flex-shrink-0" @click="clearDownloadQueue"><i class="bi bi-x-circle me-2"></i>Очистить очередь загрузок</button>
+                        <p class="form-text text-muted mb-0">Удаляет все ожидающие и ошибочные задачи из очереди загрузчика VK видео.</p>
+                    </div>
                 </div>
             </div>
         </div>
@@ -126,20 +140,13 @@ const SettingsDebugTab = {
           is_awaiting_tasks: false,
           next_scan_time: null,
       },
-      // --- ИЗМЕНЕНИЕ: Добавлены флаги для parser_api и db ---
       debugFlags: {
-            'agent': false,
-            'anilibria_parser': false,
-            'astar_parser': false,
-            'auth': false,
-            'db': false,
-            'kinozal_parser': false,
-            'monitoring_agent': false,
-            'parser_api': false,
-            'qbittorrent': false,
-            'renamer': false,
-            'scanner': false,
+            'agent': false, 'anilibria_parser': false, 'astar_parser': false,
+            'auth': false, 'db': false, 'downloader': false, 'downloader_agent': false,
+            'kinozal_parser': false, 'monitoring_agent': false, 'parser_api': false,
+            'qbittorrent': false, 'renamer': false, 'scanner': false,
       },
+      parallelDownloads: 2,
       debugForceReplace: false,
       debugSaveHtml: false,
       countdownTimer: null,
@@ -147,17 +154,13 @@ const SettingsDebugTab = {
       tableDescriptions: {
         'series': 'Удалить все отслеживаемые сериалы.',
         'torrents': 'Удалить все связанные торренты из базы данных (не из qBittorrent).',
+        'media_items': 'Удалить все найденные медиа-элементы (для VK-сериалов).',
+        'download_tasks': 'Очистить текущую очередь загрузок для VK-видео.',
         'advanced_renaming_patterns': 'Сбросить все продвинутые паттерны переименования.',
         'renaming_patterns': 'Сбросить все паттерны переименования эпизодов.',
         'season_patterns': 'Сбросить все паттерны переименования сезонов.',
-        'quality_patterns': 'Сбросить все стандарты качества.',
-        'quality_search_patterns': 'Удалить все поисковые паттерны для качества.',
-        'resolution_patterns': 'Сбросить все стандарты разрешения.',
-        'resolution_search_patterns': 'Удалить все поисковые паттерны для разрешения.',
-        'settings': 'Удалить все сохраненные настройки, включая SID для qBittorrent и флаги отладки.',
+        'settings': 'Удалить все сохраненные настройки, включая SID и флаги отладки.',
         'logs': 'Очистить все логи приложения.',
-        'scan_tasks': 'Очистить "зависшие" задачи сканирования, если они есть.',
-        'agent_tasks': 'Очистить "зависшие" задачи агента, если они есть.'
       }
     };
   },
@@ -170,6 +173,7 @@ const SettingsDebugTab = {
         this.loadTables();
         this.connectEventSourceForScanner();
         this.startCountdownTimer();
+        this.loadParallelDownloads();
     },
     unload() {
         if (this.eventSource) {
@@ -179,6 +183,41 @@ const SettingsDebugTab = {
         if (this.countdownTimer) {
             clearInterval(this.countdownTimer);
             this.countdownTimer = null;
+        }
+    },
+    async clearDownloadQueue() {
+        if (!confirm('Вы уверены, что хотите очистить очередь загрузок? Это действие не остановит уже идущие процессы.')) return;
+        try {
+            const response = await fetch('/api/downloads/queue/clear', { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok || !data.success) {
+                throw new Error(data.error || 'Ошибка при очистке очереди');
+            }
+            this.$emit('show-toast', data.message || 'Очередь загрузок очищена.', 'success');
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        }
+    },
+    async loadParallelDownloads() {
+        try {
+            const response = await fetch('/api/settings/parallel_downloads');
+            if (!response.ok) throw new Error('Could not fetch parallel downloads setting');
+            const setting = await response.json();
+            this.parallelDownloads = setting.value || 2;
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        }
+    },
+    async saveParallelDownloads() {
+        try {
+            await fetch('/api/settings/parallel_downloads', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ value: this.parallelDownloads })
+            });
+            this.$emit('show-toast', `Лимит параллельных загрузок установлен: ${this.parallelDownloads}`, 'info');
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
         }
     },
     async loadSaveHtmlSetting() {
@@ -212,7 +251,9 @@ const SettingsDebugTab = {
             const allFlags = { ...this.debugFlags, ...flagsFromServer };
             const sortedFlags = {};
             Object.keys(allFlags).sort().forEach(key => {
-                sortedFlags[key] = allFlags[key];
+                if (key !== 'save_parser_html') { // Исключаем этот флаг из общего списка
+                    sortedFlags[key] = allFlags[key];
+                }
             });
             this.debugFlags = sortedFlags;
 

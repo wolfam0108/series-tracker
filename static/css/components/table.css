@@ -157,3 +157,16 @@
     margin-right: 4px;
     border: 1px solid rgba(0,0,0,0.2);
 }
+/* Стили для новой таблицы очереди загрузок */
+.div-table.table-download-queue .div-table-header,
+.div-table.table-download-queue .div-table-row {
+    grid-template-columns: 2.5fr 3.5fr 1fr 3fr;
+}
+
+.div-table.table-download-queue .error-cell {
+    color: #842029;
+    font-size: 0.9em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

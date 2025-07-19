@@ -123,3 +123,21 @@ def scan_all_now():
     
     app.scanner_agent.trigger_scan_all(debug_force_replace=debug_force_replace)
     return jsonify({"success": True, "message": "Сканирование всех сериалов запущено."})
+
+@system_bp.route('/downloads/queue', methods=['GET'])
+def get_download_queue():
+    """Возвращает текущую очередь задач для yt-dlp."""
+    if not hasattr(app, 'db'):
+        return jsonify([])
+    tasks = app.db.get_all_download_tasks()
+    return jsonify(tasks)
+
+@system_bp.route('/downloads/queue/clear', methods=['POST'])
+def clear_download_queue():
+    """Удаляет все задачи в статусе pending и error из очереди загрузок."""
+    try:
+        deleted_count = app.db.clear_download_queue()
+        return jsonify({"success": True, "message": f"Удалено {deleted_count} задач из очереди."})
+    except Exception as e:
+        app.logger.error("system_api", f"Ошибка при очистке очереди загрузок: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
