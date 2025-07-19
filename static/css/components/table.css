@@ -170,3 +170,19 @@
     overflow: hidden;
     text-overflow: ellipsis;
 }
+/* --- Стили для новой таблицы истории MediaItem --- */
+.table-wrapper-scroll-x {
+    overflow-x: auto;
+    width: 100%;
+    scrollbar-width: thin;
+    scrollbar-color: #ced4da #f8f9fa;
+}
+
+.div-table.table-media-item-history {
+    min-width: 1200px; /* Устанавливаем минимальную ширину, чтобы скролл появлялся на небольших экранах */
+}
+
+.div-table.table-media-item-history .div-table-header,
+.div-table.table-media-item-history .div-table-row {
+    grid-template-columns: 1.5fr 3fr 1.5fr 1fr 3fr 1fr 1.5fr;
+}

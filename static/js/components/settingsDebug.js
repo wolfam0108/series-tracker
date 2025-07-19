@@ -22,6 +22,15 @@ const SettingsDebugTab = {
                     </div>
                 </div>
                 
+                <div class="row mb-3">
+                    <div class="col-md-6">
+                        <div class="modern-form-check form-switch" title="Если включено, сканер будет проверять наличие файлов на диске, даже если их нет в БД. Если файл найден, он будет зарегистрирован, а не скачан заново.">
+                            <input class="form-check-input" type="checkbox" role="switch" id="lessStrictSwitch" v-model="lessStrictScan" @change="saveLessStrictScanSetting">
+                            <label class="modern-form-check-label" for="lessStrictSwitch">Менее строгий режим сканирования</label>
+                        </div>
+                    </div>
+                </div>
+                
                 <div class="row">
                     <div class="col-md-6">
                         <label for="scanIntervalInput" class="modern-label">Интервал сканирования (мин)</label>
@@ -149,6 +158,7 @@ const SettingsDebugTab = {
       parallelDownloads: 2,
       debugForceReplace: false,
       debugSaveHtml: false,
+      lessStrictScan: false,
       countdownTimer: null,
       nextScanCountdown: '...',
       tableDescriptions: {
@@ -170,6 +180,7 @@ const SettingsDebugTab = {
         this.loadDebugFlags();
         this.loadForceReplaceSetting();
         this.loadSaveHtmlSetting();
+        this.loadLessStrictScanSetting();
         this.loadTables();
         this.connectEventSourceForScanner();
         this.startCountdownTimer();
@@ -251,7 +262,7 @@ const SettingsDebugTab = {
             const allFlags = { ...this.debugFlags, ...flagsFromServer };
             const sortedFlags = {};
             Object.keys(allFlags).sort().forEach(key => {
-                if (key !== 'save_parser_html') { // Исключаем этот флаг из общего списка
+                if (key !== 'save_parser_html') {
                     sortedFlags[key] = allFlags[key];
                 }
             });
@@ -294,6 +305,28 @@ const SettingsDebugTab = {
                 body: JSON.stringify({ enabled: this.debugForceReplace })
             });
             this.$emit('show-toast', `Режим принудительной замены ${this.debugForceReplace ? 'включен' : 'выключен'}`, 'info');
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        }
+    },
+    async loadLessStrictScanSetting() {
+        try {
+            const response = await fetch('/api/settings/less_strict_scan');
+            if (!response.ok) throw new Error('Не удалось загрузить настройку строгого режима');
+            const setting = await response.json();
+            this.lessStrictScan = setting.enabled || false;
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        }
+    },
+    async saveLessStrictScanSetting() {
+        try {
+            await fetch('/api/settings/less_strict_scan', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: this.lessStrictScan })
+            });
+            this.$emit('show-toast', `Менее строгий режим сканирования ${this.lessStrictScan ? 'включен' : 'выключен'}`, 'info');
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
         }

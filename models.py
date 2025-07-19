@@ -174,8 +174,9 @@ class MediaItem(Base):
     publication_date = Column(DateTime, nullable=False)
     voiceover_tag = Column(Text)
     
-    # --- ИЗМЕНЕНИЕ: Добавлено поле для хранения имени файла ---
     final_filename = Column(Text, nullable=True)
+    
+    chapters = Column(Text, nullable=True) # Поле для хранения глав в формате JSON
 
     is_available = Column(Boolean, default=True, nullable=False)
     series = relationship("Series")

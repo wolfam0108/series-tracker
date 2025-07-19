@@ -1,3 +1,4 @@
+import os
 from datetime import datetime, timezone
 from flask import current_app as app
 from auth import AuthManager
@@ -14,7 +15,6 @@ import hashlib
 import json
 import time
 from filename_formatter import FilenameFormatter
-import os
 
 def generate_torrent_id(link, date_time):
     """Генерирует уникальный ID для торрента на основе его ссылки и даты."""
@@ -62,7 +62,10 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
             _broadcast_series_update(series_id)
             
             try:
-                # 1. Фаза планирования (Scraper -> RuleEngine -> SmartCollector)
+                less_strict_scan_enabled = app.db.get_setting('debug_less_strict_scan', 'false') == 'true'
+                if less_strict_scan_enabled:
+                    app.logger.info("scanner", "Включен 'менее строгий' режим сканирования: будет произведена проверка файлов на диске.")
+
                 app.logger.info("scanner", f"VK-Сериал ID {series_id}: Фаза 1 - Построение плана.")
                 channel_url, query = series['url'].split('|')
                 scraper = VKScraper(app.db, app.logger)
@@ -81,46 +84,9 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                 items_in_plan = [item for item in download_plan if item['status'] in ['in_plan_single', 'in_plan_compilation']]
                 app.logger.info("scanner", f"VK-Сериал ID {series_id}: План построен, {len(items_in_plan)} элементов выбрано для загрузки.")
                 
-                # 2. Фаза фильтрации и постановки в очередь
-                app.logger.info("scanner", f"VK-Сериал ID {series_id}: Фаза 2 - Фильтрация и постановка в очередь.")
-                formatter = FilenameFormatter(app.logger)
-                tasks_created = 0
-
-                for item in items_in_plan:
-                    pub_date = item.get('source_data', {}).get('publication_date')
-                    url = item.get('source_data', {}).get('url')
-                    unique_id = generate_media_item_id(url, pub_date, series_id)
-                    
-                    # Проверяем, был ли этот файл уже скачан
-                    existing_media_item = app.db.get_media_item_by_uid(unique_id)
-                    if existing_media_item and existing_media_item.get('final_filename'):
-                        app.logger.debug(f"scanner: Элемент {unique_id} уже скачан. Пропуск.")
-                        continue
-                    
-                    # Проверяем, нет ли уже активной задачи на скачивание
-                    if app.db.get_download_task_by_uid(unique_id):
-                        app.logger.debug(f"scanner: Задача на скачивание для {unique_id} уже в очереди. Пропуск.")
-                        continue
-
-                    # Генерируем имя файла и путь сохранения
-                    filename = formatter.format_filename(series, item)
-                    save_path = os.path.join(series['save_path'], filename)
-                    
-                    # Ставим задачу в очередь
-                    app.db.add_download_task({
-                        'unique_id': unique_id,
-                        'series_id': series_id,
-                        'video_url': url,
-                        'save_path': save_path,
-                    })
-                    tasks_created += 1
-
-                app.logger.info("scanner", f"VK-Сериал ID {series_id}: Создано {tasks_created} новых задач на загрузку.")
-
-                # 3. Обновляем MediaItems в БД, если их там нет
+                # --- ИЗМЕНЕНИЕ: Сначала создаем/обновляем ВСЕ MediaItem в базе данных ---
                 all_plan_items_to_save = []
                 for item in download_plan:
-                    # Пропускаем элементы, которые не были распознаны (у них нет номера серии)
                     extracted = item.get('result', {}).get('extracted', {})
                     if extracted.get('episode') is None and extracted.get('start') is None:
                         continue
@@ -130,10 +96,8 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                     unique_id = generate_media_item_id(url, pub_date, series_id)
 
                     db_item = {
-                        "series_id": series_id,
-                        "unique_id": unique_id,
-                        "status": item['status'],
-                        "source_url": url,
+                        "series_id": series_id, "unique_id": unique_id,
+                        "status": item['status'], "source_url": url,
                         "publication_date": pub_date,
                     }
                     if 'season' in extracted: db_item['season'] = extracted['season']
@@ -145,12 +109,60 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                     all_plan_items_to_save.append(db_item)
 
                 app.db.add_or_update_media_items(all_plan_items_to_save)
-                
-                # Если были созданы задачи, меняем статус на "Загрузка"
+                # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+                app.logger.info("scanner", f"VK-Сериал ID {series_id}: Фаза 2 - Фильтрация и постановка в очередь.")
+                formatter = FilenameFormatter(app.logger)
+                tasks_created = 0
+
+                for item in items_in_plan:
+                    pub_date = item.get('source_data', {}).get('publication_date')
+                    url = item.get('source_data', {}).get('url')
+                    unique_id = generate_media_item_id(url, pub_date, series_id)
+                    
+                    existing_media_item = app.db.get_media_item_by_uid(unique_id)
+                    has_filename_in_db = existing_media_item and existing_media_item.get('final_filename')
+
+                    should_create_task = True
+
+                    if has_filename_in_db:
+                        if app.debug_manager.is_debug_enabled('scanner'):
+                            app.logger.debug(f"scanner: Элемент {unique_id} уже скачан (запись в БД). Пропуск.")
+                        should_create_task = False
+                    
+                    elif less_strict_scan_enabled:
+                        expected_filename = formatter.format_filename(series, item)
+                        full_path_to_check = os.path.join(series['save_path'], expected_filename)
+
+                        if os.path.exists(full_path_to_check):
+                            app.logger.info("scanner", f"[Отладка] Найден файл на диске: '{expected_filename}'. Обновляю запись в БД.")
+                            # --- ИЗМЕНЕНИЕ: Используем новый метод, который обновляет и статус ---
+                            app.db.register_downloaded_media_item(unique_id, full_path_to_check)
+                            should_create_task = False
+
+                    if not should_create_task:
+                        continue
+                    
+                    if app.db.get_download_task_by_uid(unique_id):
+                        if app.debug_manager.is_debug_enabled('scanner'):
+                            app.logger.debug(f"scanner: Задача на скачивание для {unique_id} уже в очереди. Пропуск.")
+                        continue
+
+                    filename = formatter.format_filename(series, item)
+                    save_path = os.path.join(series['save_path'], filename)
+                    
+                    app.db.add_download_task({
+                        'unique_id': unique_id, 'series_id': series_id,
+                        'video_url': url, 'save_path': save_path,
+                    })
+                    tasks_created += 1
+
+                app.logger.info("scanner", f"VK-Сериал ID {series_id}: Создано {tasks_created} новых задач на загрузку.")
+
                 if tasks_created > 0:
                     app.db.set_series_state(series_id, 'downloading')
                 else:
-                    app.db.set_series_state(series_id, 'waiting') # Если ничего нового, возвращаем в ожидание
+                    app.db.set_series_state(series_id, 'waiting')
                 
                 _broadcast_series_update(series_id)
                 return {"success": True, "message": f"Сканирование завершено. Создано новых задач: {tasks_created}."}

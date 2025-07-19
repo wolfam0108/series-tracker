@@ -934,3 +934,22 @@ class Database:
                 tasks_to_delete.delete(synchronize_session=False)
                 session.commit()
             return count
+
+    def update_media_item_chapters(self, unique_id: str, chapters_json: str):
+        """Сохраняет оглавление для медиа-элемента."""
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if item:
+                item.chapters = chapters_json
+                session.commit()
+
+    def register_downloaded_media_item(self, unique_id: str, filename: str):
+        """Регистрирует медиа-элемент как скачанный, обновляя имя файла и статус."""
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if item:
+                item.final_filename = filename
+                item.status = 'completed'
+                session.commit()
+            else:
+                self.logger.warning("db", f"Попытка зарегистрировать файл для несуществующего media_item с UID: {unique_id}")

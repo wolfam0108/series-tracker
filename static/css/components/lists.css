@@ -203,3 +203,109 @@
     border-color: #ffecb3;
     color: #665000;
 }
+/* --- Стили для менеджера глав (ChapterManager) --- */
+.compilation-cards-container {
+    display: flex;
+    flex-direction: column;
+    gap: 1rem;
+}
+
+.compilation-card .list-card-header {
+    background: var(--bg-light);
+}
+
+.compilation-title {
+    font-weight: 600;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+.compilation-info {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+    flex-wrap: wrap;
+}
+
+.chapter-results .alert {
+    margin-bottom: 12px;
+}
+
+.chapter-list {
+    max-height: 250px;
+    overflow-y: auto;
+    border: 1px solid var(--border-color);
+    border-radius: 6px;
+    background: var(--bg-white);
+}
+
+.chapter-item {
+    display: flex;
+    justify-content: space-between;
+    padding: 8px 12px;
+    font-family: var(--bs-font-monospace);
+    font-size: 14px;
+    border-bottom: 1px solid var(--border-color);
+}
+
+.chapter-item:last-child {
+    border-bottom: none;
+}
+
+/* --- Стили для нового компактного менеджера глав --- */
+.compilation-cards-container.compact-layout {
+    gap: 12px;
+}
+
+.compilation-card-compact {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    padding: 12px;
+    border-left-width: 4px;
+    transition: all 0.3s ease;
+}
+
+.compilation-card-compact.status-yellow { border-left-color: #ffc107; }
+.compilation-card-compact.status-green { border-left-color: #198754; }
+.compilation-card-compact.status-red { border-left-color: #dc3545; }
+
+.compilation-card-compact .card-row {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+    gap: 1rem;
+}
+
+.compilation-card-compact .compilation-title {
+    font-weight: 500;
+}
+
+.compilation-card-compact .control-btn {
+    width: 36px;
+    height: 36px;
+}
+
+.chapter-wrap-container {
+    flex-wrap: wrap; /* Разрешаем перенос элементов */
+    justify-content: flex-start; /* Выравниваем элементы по левому краю */
+    gap: 8px; /* Добавляем отступ между элементами */
+}
+.chapter-pill {
+    display: inline-block;
+    background: var(--bg-light);
+    border: 1px solid var(--border-color);
+    padding: 4px 8px;
+    border-radius: 6px;
+    font-size: 12px;
+    font-family: var(--bs-font-monospace);
+    margin-right: 8px;
+}
+
+.card-footer-status {
+    font-size: 13px;
+    font-weight: 500;
+    color: var(--text-muted);
+}

@@ -2,29 +2,33 @@ const StatusModal = {
   components: {
       'file-tree': FileTree,
       'series-composition-manager': SeriesCompositionManager,
+      'chapter-manager': ChapterManager,
   },
   template: `
     <div class="modal fade" ref="statusModal" tabindex="-1" aria-labelledby="statusModalLabel" aria-hidden="true">
-        <div class="modal-dialog modal-xl">
+        <div class="modal-dialog modal-xl" :class="{'modal-fullscreen': isFullscreen}">
             <div class="modal-content modern-modal" style="max-height: 90vh; display: flex; flex-direction: column;">
                 <div class="modal-header modern-header">
                     <h5 class="modal-title" id="statusModalLabel"><i class="bi bi-info-circle me-2"></i>Статус</h5>
                     
                     <ul class="nav modern-nav-tabs" id="statusTab" role="tablist">
                         <li class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link active" id="status-tab-generic" data-bs-toggle="tab" data-bs-target="#status-tab-pane-generic" type="button" role="tab" @click="activeTab = 'status'"><i class="bi bi-info-circle me-2"></i>Свойства</button>
+                            <button class="nav-link modern-tab-link active" id="status-tab-generic" data-bs-toggle="tab" data-bs-target="#status-tab-pane-generic" type="button" role="tab" @click="setActiveTab('status')"><i class="bi bi-info-circle me-2"></i>Свойства</button>
                         </li>
                         <li v-if="selectedSeries.source_type === 'vk_video'" class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" id="composition-tab-generic" data-bs-toggle="tab" data-bs-target="#composition-tab-pane-generic" type="button" role="tab" @click="activeTab = 'composition'"><i class="bi bi-diagram-3 me-2"></i>Композиция</button>
+                            <button class="nav-link modern-tab-link" id="composition-tab-generic" data-bs-toggle="tab" data-bs-target="#composition-tab-pane-generic" type="button" role="tab" @click="setActiveTab('composition')"><i class="bi bi-diagram-3 me-2"></i>Композиция</button>
+                        </li>
+                        <li v-if="selectedSeries.source_type === 'vk_video'" class="nav-item" role="presentation">
+                            <button class="nav-link modern-tab-link" id="slicing-tab-generic" data-bs-toggle="tab" data-bs-target="#slicing-tab-pane-generic" type="button" role="tab" @click="setActiveTab('slicing')"><i class="bi bi-scissors me-2"></i>Нарезка</button>
                         </li>
                         <li v-if="selectedSeries.source_type !== 'vk_video'" class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" id="qb-torrents-tab-generic" data-bs-toggle="tab" data-bs-target="#qb-torrents-tab-pane-generic" type="button" role="tab" @click="activeTab = 'qb-torrents'"><i class="bi bi-download me-2"></i>Торренты qBit</button>
+                            <button class="nav-link modern-tab-link" id="qb-torrents-tab-generic" data-bs-toggle="tab" data-bs-target="#qb-torrents-tab-pane-generic" type="button" role="tab" @click="setActiveTab('qb-torrents')"><i class="bi bi-download me-2"></i>Торренты qBit</button>
                         </li>
                         <li v-if="selectedSeries.source_type !== 'vk_video'" class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" id="naming-tab-generic" data-bs-toggle="tab" data-bs-target="#naming-tab-pane-generic" type="button" role="tab" @click="onNamingTabClick"><i class="bi bi-tag me-2"></i>Нейминг</button>
+                            <button class="nav-link modern-tab-link" id="naming-tab-generic" data-bs-toggle="tab" data-bs-target="#naming-tab-pane-generic" type="button" role="tab" @click="setActiveTab('naming')"><i class="bi bi-tag me-2"></i>Нейминг</button>
                         </li>
                         <li class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" id="history-tab-generic" data-bs-toggle="tab" data-bs-target="#history-tab-pane-generic" type="button" role="tab" @click="activeTab = 'history'"><i class="bi bi-clock-history me-2"></i>История</button>
+                            <button class="nav-link modern-tab-link" id="history-tab-generic" data-bs-toggle="tab" data-bs-target="#history-tab-pane-generic" type="button" role="tab" @click="setActiveTab('history')"><i class="bi bi-clock-history me-2"></i>История</button>
                         </li>
                     </ul>
                     
@@ -127,7 +131,11 @@ const StatusModal = {
                         </div>
 
                         <div class="tab-pane fade" id="composition-tab-pane-generic" role="tabpanel">
-                            <series-composition-manager v-if="activeTab === 'composition'" :series-id="seriesId" @show-toast="emitToast" />
+                            <series-composition-manager v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'composition'" @show-toast="emitToast" />
+                        </div>
+
+                        <div class="tab-pane fade" id="slicing-tab-pane-generic" role="tabpanel">
+                            <chapter-manager v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'slicing'" @show-toast="emitToast" />
                         </div>
 
                         <div class="tab-pane fade" id="qb-torrents-tab-pane-generic" role="tabpanel">
@@ -172,25 +180,62 @@ const StatusModal = {
                         </div>
                         
                         <div class="tab-pane fade" id="history-tab-pane-generic" role="tabpanel">
-                             <h6>История торрентов в БД</h6>
-                             <div class="position-relative">
-                                <transition name="fade"><div v-if="historyLoading" class="loading-overlay"></div></transition>
-                                 <div class="div-table table-torrents-history">
-                                    <div class="div-table-header">
-                                        <div class="div-table-cell">ID</div><div class="div-table-cell">Ссылка</div><div class="div-table-cell">Дата</div><div class="div-table-cell">Эпизоды</div><div class="div-table-cell">Качество</div><div class="div-table-cell">Активен?</div><div class="div-table-cell">Хеш qBit</div>
-                                    </div>
-                                    <div class="div-table-body">
-                                        <transition-group name="list" tag="div">
-                                            <div v-for="t in torrentHistory" :key="t.id" class="div-table-row">
-                                                <div class="div-table-cell">{{ t.torrent_id }}</div><div class="div-table-cell">{{ t.link }}</div><div class="div-table-cell">{{ t.date_time }}</div><div class="div-table-cell">{{ t.episodes }}</div><div class="div-table-cell">{{ t.quality }}</div><div class="div-table-cell">{{ t.is_active ? 'Да' : 'Нет' }}</div><div class="div-table-cell">{{ t.qb_hash || 'N/A' }}</div>
+                             <div v-if="selectedSeries.source_type === 'vk_video'">
+                                <h6>История медиа-элементов в БД</h6>
+                                <div class="position-relative">
+                                    <transition name="fade"><div v-if="isHistoryLoading" class="loading-overlay"></div></transition>
+                                    <div class="table-wrapper-scroll-x">
+                                        <div class="div-table table-media-item-history">
+                                            <div class="div-table-header">
+                                                <div class="div-table-cell">Unique ID</div>
+                                                <div class="div-table-cell">URL источника</div>
+                                                <div class="div-table-cell">Эпизоды</div>
+                                                <div class="div-table-cell">Статус</div>
+                                                <div class="div-table-cell">Имя файла</div>
+                                                <div class="div-table-cell">Главы</div>
+                                                <div class="div-table-cell">Дата публикации</div>
                                             </div>
-                                        </transition-group>
-                                        <div v-if="!historyLoading && torrentHistory.length === 0" class="div-table-row">
-                                            <div class="div-table-cell text-center" style="grid-column: 1 / -1;">История торрентов пуста.</div>
+                                            <div class="div-table-body">
+                                                <transition-group name="list" tag="div">
+                                                    <div v-for="item in mediaItemHistory" :key="item.id" class="div-table-row">
+                                                        <div class="div-table-cell">{{ item.unique_id }}</div>
+                                                        <div class="div-table-cell"><a :href="item.source_url" target="_blank">{{ item.source_url }}</a></div>
+                                                        <div class="div-table-cell">{{ formatEpisodeInfo(item) }}</div>
+                                                        <div class="div-table-cell">{{ item.status }}</div>
+                                                        <div class="div-table-cell">{{ item.final_filename }}</div>
+                                                        <div class="div-table-cell">{{ formatChapterStatus(item) }}</div>
+                                                        <div class="div-table-cell">{{ formatDate(item.publication_date) }}</div>
+                                                    </div>
+                                                </transition-group>
+                                                <div v-if="!isHistoryLoading && mediaItemHistory.length === 0" class="div-table-row">
+                                                    <div class="div-table-cell text-center" style="grid-column: 1 / -1;">История медиа-элементов пуста.</div>
+                                                </div>
+                                            </div>
                                         </div>
                                     </div>
                                 </div>
-                            </div>
+                             </div>
+                             <div v-else>
+                                <h6>История торрентов в БД</h6>
+                                <div class="position-relative">
+                                    <transition name="fade"><div v-if="historyLoading" class="loading-overlay"></div></transition>
+                                    <div class="div-table table-torrents-history">
+                                        <div class="div-table-header">
+                                            <div class="div-table-cell">ID</div><div class="div-table-cell">Ссылка</div><div class="div-table-cell">Дата</div><div class="div-table-cell">Эпизоды</div><div class="div-table-cell">Качество</div><div class="div-table-cell">Активен?</div><div class="div-table-cell">Хеш qBit</div>
+                                        </div>
+                                        <div class="div-table-body">
+                                            <transition-group name="list" tag="div">
+                                                <div v-for="t in torrentHistory" :key="t.id" class="div-table-row">
+                                                    <div class="div-table-cell">{{ t.torrent_id }}</div><div class="div-table-cell">{{ t.link }}</div><div class="div-table-cell">{{ t.date_time }}</div><div class="div-table-cell">{{ t.episodes }}</div><div class="div-table-cell">{{ t.quality }}</div><div class="div-table-cell">{{ t.is_active ? 'Да' : 'Нет' }}</div><div class="div-table-cell">{{ t.qb_hash || 'N/A' }}</div>
+                                                </div>
+                                            </transition-group>
+                                            <div v-if="!historyLoading && torrentHistory.length === 0" class="div-table-row">
+                                                <div class="div-table-cell text-center" style="grid-column: 1 / -1;">История торрентов пуста.</div>
+                                            </div>
+                                        </div>
+                                    </div>
+                                </div>
+                             </div>
                         </div>
                     </div>
                 </div>
@@ -219,6 +264,9 @@ const StatusModal = {
         episodeQualityOptions: {},
         isSeasonless: false,
         activeTab: 'status',
+        isFullscreen: false,
+        mediaItemHistory: [],
+        isHistoryLoading: false,
     };
   },
   emits: ['series-updated', 'show-toast'],
@@ -270,6 +318,21 @@ const StatusModal = {
     }
   },
   methods: {
+    setActiveTab(tabName) {
+        this.activeTab = tabName;
+        this.isFullscreen = (tabName === 'history');
+
+        if (tabName === 'history') {
+            if (this.selectedSeries.source_type === 'vk_video') {
+                this.loadMediaItemHistory();
+            } else {
+                this.loadTorrentHistory();
+            }
+        }
+        if (tabName === 'naming') {
+            this.loadRenamingPreview();
+        }
+    },
     async open(seriesId) {
         this.seriesId = seriesId;
         this.selectedSeries = { id: null, qualityByEpisodes: {} }; 
@@ -277,6 +340,8 @@ const StatusModal = {
         this.episodeQualityOptions = {};
         this.isSeasonless = false;
         this.activeTab = 'status';
+        this.isFullscreen = false;
+        this.mediaItemHistory = [];
         
         if (!this.modal) this.modal = new bootstrap.Modal(this.$refs.statusModal);
         this.modal.show();
@@ -301,15 +366,63 @@ const StatusModal = {
                 this.refreshSiteTorrents(); 
                 this.refreshQBTorrents();
             }
-            this.loadHistory();
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); this.close(); }
+    },
+    close() {
+        this.isFullscreen = false;
+        this.modal.hide();
+    },
+    async loadTorrentHistory() {
+        this.historyLoading = true;
+        try {
+            const response = await fetch(`/api/series/${this.seriesId}/torrents/history`);
+            if (!response.ok) throw new Error('Ошибка загрузки истории торрентов');
+            this.torrentHistory = await response.json();
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        } finally {
+            this.historyLoading = false;
+        }
+    },
+    async loadMediaItemHistory() {
+        this.isHistoryLoading = true;
+        try {
+            const response = await fetch(`/api/series/${this.seriesId}/media-items`);
+            if (!response.ok) throw new Error('Ошибка загрузки истории медиа-элементов');
+            this.mediaItemHistory = await response.json();
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        } finally {
+            this.isHistoryLoading = false;
+        }
+    },
+    formatEpisodeInfo(item) {
+        let seasonPart = `s${String(item.season || 1).padStart(2, '0')}`;
+        let episodePart = '';
+        if (item.episode_end) {
+            episodePart = `e${String(item.episode_start).padStart(2, '0')}-e${String(item.episode_end).padStart(2, '0')}`;
+        } else {
+            episodePart = `e${String(item.episode_start).padStart(2, '0')}`;
+        }
+        return `${seasonPart}${episodePart}`;
+    },
+    formatChapterStatus(item) {
+        if (!item.chapters) return 'Нет';
+        try {
+            const chapters = JSON.parse(item.chapters);
+            return chapters.length > 0 ? `Да (${chapters.length})` : 'Нет';
+        } catch(e) {
+            return 'Ошибка';
+        }
+    },
+    formatDate(isoString) {
+        if (!isoString) return '-';
+        const date = new Date(isoString);
+        return date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     },
     onNamingTabClick() {
         this.activeTab = 'naming';
         this.loadRenamingPreview();
-    },
-    close() {
-        this.modal.hide();
     },
     isObsolete(qbTorrent) {
         if (this.filteredSiteTorrents.length === 0) return true;
@@ -367,18 +480,6 @@ const StatusModal = {
             else { throw new Error(data.error || 'Ошибка загрузки из qBittorrent'); }
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); } 
         finally { this.qbTorrentsLoading = false; }
-    },
-    async loadHistory() {
-        this.historyLoading = true;
-        try {
-            const response = await fetch(`/api/series/${this.seriesId}/torrents/history`);
-            if (!response.ok) throw new Error('Ошибка загрузки истории торрентов');
-            this.torrentHistory = await response.json();
-        } catch (error) {
-            this.$emit('show-toast', error.message, 'danger');
-        } finally {
-            this.historyLoading = false;
-        }
     },
     async loadRenamingPreview() {
         if (this.qbTorrents.length === 0) return;

@@ -405,3 +405,15 @@ def handle_parallel_downloads():
     
     value = app.db.get_setting('max_parallel_downloads', 2)
     return jsonify({"value": int(value)})
+
+@settings_bp.route('/settings/less_strict_scan', methods=['GET', 'POST'])
+def handle_less_strict_scan_setting():
+    setting_key = 'debug_less_strict_scan'
+    if request.method == 'POST':
+        data = request.get_json()
+        if 'enabled' in data:
+            app.db.set_setting(setting_key, str(data['enabled']).lower())
+        return jsonify({"success": True})
+    
+    enabled = app.db.get_setting(setting_key, 'false') == 'true'
+    return jsonify({"enabled": enabled})

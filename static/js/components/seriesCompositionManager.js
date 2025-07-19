@@ -1,9 +1,7 @@
 const SeriesCompositionManager = {
   props: {
-    seriesId: {
-      type: Number,
-      required: true,
-    },
+    seriesId: { type: Number, required: true },
+    isActive: { type: Boolean, default: false },
   },
   template: `
     <div class="composition-manager">
@@ -12,20 +10,15 @@ const SeriesCompositionManager = {
                 <input class="form-check-input" type="checkbox" role="switch" id="showOnlyPlannedSwitch" v-model="showOnlyPlanned">
                 <label class="modern-form-check-label" for="showOnlyPlannedSwitch">Показывать только запланированные</label>
             </div>
-            <button class="btn btn-sm btn-primary" @click="loadComposition" :disabled="isLoading">
-                <span v-if="isLoading" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                <i v-else class="bi bi-arrow-clockwise"></i>
-                <span class="ms-1">Обновить план</span>
-            </button>
-        </div>
+            </div>
         
         <div class="position-relative">
             <transition name="fade">
                 <div v-if="isLoading" class="loading-overlay"></div>
             </transition>
             
-            <div v-if="!sortedMediaItems.length" class="empty-state">
-                Нет данных для отображения. Нажмите "Обновить план".
+            <div v-if="!sortedMediaItems.length && !isLoading" class="empty-state">
+                Нет данных для отображения.
             </div>
 
             <transition-group v-else name="list" tag="div" class="composition-cards-container">
@@ -56,7 +49,6 @@ const SeriesCompositionManager = {
                         </span>
                         <span class="card-rule-name" :title="item.unique_id">{{ item.unique_id }}</span>
                     </div>
-
                 </div>
             </transition-group>
         </div>
@@ -67,10 +59,17 @@ const SeriesCompositionManager = {
       isLoading: false,
       mediaItems: [],
       userSelection: {},
-      showOnlyPlanned: true, // Новый флаг для фильтрации
+      showOnlyPlanned: true,
     };
   },
   emits: ['show-toast'],
+  watch: {
+    isActive(newVal) {
+      if (newVal) {
+        this.loadComposition();
+      }
+    }
+  },
   computed: {
     sortedMediaItems() {
       if (!this.mediaItems) return [];
@@ -92,31 +91,20 @@ const SeriesCompositionManager = {
   },
   methods: {
     async loadComposition() {
+        if (this.isLoading) return;
         this.isLoading = true;
         this.userSelection = {};
-        this.showOnlyPlanned = true; // Сбрасываем фильтр при обновлении
-        this.$emit('show-toast', 'Запуск построения плана загрузки...', 'info');
         try {
             const response = await fetch(`/api/series/${this.seriesId}/composition`);
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Ошибка построения плана');
-            this.mediaItems = data.map(item => ({...item, unique_id: this.generateId(item.source_data.url, item.source_data.publication_date)}));
+            this.mediaItems = data;
         } catch (error) {
             console.error(error);
             this.$emit('show-toast', error.message, 'danger');
         } finally {
             this.isLoading = false;
         }
-    },
-    generateId(url, date) {
-        const str = `${url}${date}`;
-        let hash = 0;
-        for (let i = 0; i < str.length; i++) {
-            const char = str.charCodeAt(i);
-            hash = ((hash << 5) - hash) + char;
-            hash |= 0; 
-        }
-        return `uid_${Math.abs(hash)}`;
     },
     isItemInPlan(item) {
         if (this.userSelection.hasOwnProperty(item.unique_id)) {
@@ -128,33 +116,23 @@ const SeriesCompositionManager = {
         this.userSelection[item.unique_id] = !this.isItemInPlan(item);
     },
     getCardClass(item) {
-        // Логика для элементов, не входящих в план, остается
         if (!this.isItemInPlan(item)) {
             return 'no-match';
         }
-        
-        // --- НОВАЯ ЛОГИКА ---
-        // Если статус "завершено" - класс 'success' (зеленый)
         if (item.local_status === 'completed') {
             return 'success';
         }
-        
-        // Во всех остальных случаях (pending) - класс 'pending' (желтый)
         return 'pending';
     },
     formatEpisode(item) {
         if (!item.result || !item.result.extracted) return '-';
         const extracted = item.result.extracted;
         const season = String(extracted.season ?? 1).padStart(2, '0');
-        
         if (extracted.episode !== undefined) {
-             const start = String(extracted.episode).padStart(2, '0');
-             return `s${season}e${start}`;
+             return `s${season}e${String(extracted.episode).padStart(2, '0')}`;
         }
         if (extracted.start !== undefined && extracted.end !== undefined) {
-             const start = String(extracted.start).padStart(2, '0');
-             const end = String(extracted.end).padStart(2, '0');
-             return `s${season}e${start}-e${end}`;
+             return `s${season}e${String(extracted.start).padStart(2, '0')}-e${String(extracted.end).padStart(2, '0')}`;
         }
         return '-';
     },
