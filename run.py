@@ -28,7 +28,7 @@ init_all_routes(app)
 agent = Agent(app, app.logger, app.db, app.sse_broadcaster)
 monitoring_agent = MonitoringAgent(app, app.logger, app.db, app.sse_broadcaster)
 # --- ИЗМЕНЕНИЕ: Создаем и запускаем нового агента ---
-downloader_agent = DownloaderAgent(app, app.logger, app.db)
+downloader_agent = DownloaderAgent(app, app.logger, app.db, app.sse_broadcaster)
 
 agent.start()
 monitoring_agent.start()

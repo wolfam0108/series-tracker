@@ -129,7 +129,7 @@ def get_download_queue():
     """Возвращает текущую очередь задач для yt-dlp."""
     if not hasattr(app, 'db'):
         return jsonify([])
-    tasks = app.db.get_all_download_tasks()
+    tasks = app.db.get_active_download_tasks() # <-- Заменяем на новый метод
     return jsonify(tasks)
 
 @system_bp.route('/downloads/queue/clear', methods=['POST'])

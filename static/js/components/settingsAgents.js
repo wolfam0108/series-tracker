@@ -11,6 +11,11 @@ const SettingsAgentsTab = {
       required: true,
       default: () => []
     },
+    downloadQueue: {
+      type: Array,
+      required: true,
+      default: () => []
+    },
   },
   template: `
     <div class="settings-tab-content">
@@ -50,9 +55,6 @@ const SettingsAgentsTab = {
                     <i class="bi bi-camera-reels me-2"></i>
                     <h6 class="fieldset-title mb-0 d-inline-block">Очередь Агента Загрузки (yt-dlp)</h6>
                 </div>
-                <button class="btn btn-sm btn-primary" @click="loadDownloadQueue" :disabled="isLoadingDownloads">
-                    <i class="bi bi-arrow-clockwise"></i>
-                </button>
             </div>
             <div class="fieldset-content">
                  <div class="div-table table-download-queue">
@@ -63,7 +65,6 @@ const SettingsAgentsTab = {
                         <div class="div-table-cell">Ошибка</div>
                     </div>
                     <div class="div-table-body position-relative">
-                        <transition name="fade"><div v-if="isLoadingDownloads" class="loading-overlay"></div></transition>
                         <transition-group name="list" tag="div">
                             <div v-for="task in downloadQueue" :key="task.id" class="div-table-row">
                                 <div class="div-table-cell" :title="getSeriesName(task.series_id)">{{ getSeriesName(task.series_id) }}</div>
@@ -74,7 +75,7 @@ const SettingsAgentsTab = {
                                 <div class="div-table-cell error-cell" :title="task.error_message">{{ task.error_message }}</div>
                             </div>
                         </transition-group>
-                        <div v-if="!downloadQueue.length && !isLoadingDownloads" class="div-table-row">
+                        <div v-if="!downloadQueue.length" class="div-table-row">
                             <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Очередь загрузок пуста</div>
                         </div>
                     </div>
@@ -124,13 +125,7 @@ const SettingsAgentsTab = {
     </div>
   `,
   data() {
-    return {
-        downloadQueue: [],
-        isLoadingDownloads: false,
-    }
-  },
-  mounted() {
-    this.loadDownloadQueue();
+    return {}
   },
   computed: {
     flatTorrentStatuses() {
@@ -155,9 +150,6 @@ const SettingsAgentsTab = {
     }
   },
   methods: {
-    load() { // Вызывается при открытии вкладки
-        this.loadDownloadQueue();
-    },
     getSeriesName(seriesId) {
         const series = this.series.find(s => s.id === seriesId);
         return series ? series.name : `ID: ${seriesId}`;
@@ -174,18 +166,6 @@ const SettingsAgentsTab = {
             'error': 'bg-danger',
         };
         return map[status] || 'bg-dark';
-    },
-    async loadDownloadQueue() {
-        this.isLoadingDownloads = true;
-        try {
-            const response = await fetch('/api/downloads/queue');
-            if (!response.ok) throw new Error('Ошибка загрузки очереди yt-dlp');
-            this.downloadQueue = await response.json();
-        } catch (error) {
-             this.$emit('show-toast', error.message, 'danger');
-        } finally {
-            this.isLoadingDownloads = false;
-        }
     },
     getAgentRowClass(stage) {
         const stageToClassMap = {

@@ -189,7 +189,6 @@ class Database:
                             setattr(series, key, value)
                 session.commit()
 
-    # --- ИЗМЕНЕНИЕ: Метод теперь корректно удаляет все связанные записи ---
     def delete_series(self, series_id: int):
         with self.Session() as session:
             series = session.query(Series).filter_by(id=series_id).first()
@@ -728,6 +727,16 @@ class Database:
                 result.append(item_dict)
             return result
 
+    # --- ДОБАВЛЕННЫЙ МЕТОД ---
+    def get_media_items_with_filename(self, series_id: int) -> List[Dict[str, Any]]:
+        """Возвращает список медиа-элементов для указанного сериала, у которых есть имя файла."""
+        with self.Session() as session:
+            items = session.query(MediaItem).filter(
+                MediaItem.series_id == series_id,
+                MediaItem.final_filename.isnot(None)
+            ).all()
+            return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in items]
+
     def get_media_item_by_uid(self, unique_id: str) -> Optional[Dict[str, Any]]:
         with self.Session() as session:
             item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
@@ -743,6 +752,29 @@ class Database:
                 session.commit()
             else:
                 self.logger.warning("db", f"Попытка обновить имя файла для несуществующего media_item с UID: {unique_id}")
+
+    # --- ДОБАВЛЕННЫЙ МЕТОД ---
+    def update_media_item_download_status(self, unique_id: str, status: str):
+        """Обновляет статус загрузки для медиа-элемента по его unique_id."""
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if item:
+                item.status = status
+                session.commit()
+            else:
+                self.logger.warning("db", f"Попытка обновить статус для несуществующего media_item с UID: {unique_id}")
+
+    # --- ДОБАВЛЕННЫЙ МЕТОД ---
+    def reset_media_item_download_state(self, unique_id: str):
+        """Сбрасывает состояние загрузки для медиа-элемента: удаляет имя файла и ставит статус 'pending'."""
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if item:
+                item.final_filename = None
+                item.status = 'pending'
+                session.commit()
+            else:
+                self.logger.warning("db", f"Попытка сбросить статус для несуществующего media_item с UID: {unique_id}")
 
     def add_or_update_media_items(self, items_to_process: List[Dict[str, Any]]):
         if not items_to_process:
@@ -787,6 +819,15 @@ class Database:
             if item:
                 item.is_ignored_by_user = is_ignored
                 session.commit()
+    
+    # --- ДОБАВЛЕННЫЙ МЕТОД ---
+    def get_series_download_statuses(self, series_id: int) -> Dict[str, int]:
+        """Агрегирует статусы загрузок для указанного сериала по таблице MediaItem."""
+        with self.Session() as session:
+            statuses = session.query(MediaItem.status, func.count(MediaItem.id)).\
+                filter(MediaItem.series_id == series_id).\
+                group_by(MediaItem.status).all()
+            return {status: count for status, count in statuses}
 
     def add_download_task(self, task_data: Dict[str, Any]):
         with self.Session() as session:
@@ -814,6 +855,26 @@ class Database:
             tasks = session.query(DownloadTask).filter_by(status='pending').order_by(DownloadTask.created_at).limit(limit).all()
             return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
             
+    # --- ДОБАВЛЕННЫЙ МЕТОД ---
+    def get_active_download_tasks(self) -> List[Dict[str, Any]]:
+        """Возвращает список задач, находящихся в статусе 'pending' или 'downloading'."""
+        with self.Session() as session:
+            tasks = session.query(DownloadTask).filter(
+                DownloadTask.status.in_(['pending', 'downloading'])
+            ).order_by(DownloadTask.created_at).all()
+
+            result = []
+            for task in tasks:
+                task_dict = {}
+                for c in task.__table__.columns:
+                    value = getattr(task, c.name)
+                    if isinstance(value, datetime):
+                        task_dict[c.name] = value.isoformat()
+                    else:
+                        task_dict[c.name] = value
+                result.append(task_dict)
+            return result
+
     def update_download_task_status(self, task_id: int, status: str, error_message: str = None):
         with self.Session() as session:
             task = session.query(DownloadTask).filter_by(id=task_id).first()
@@ -825,11 +886,25 @@ class Database:
                     task.error_message = error_message
                 session.commit()
 
+    # --- ДОБАВЛЕННЫЙ МЕТОД ---
+    def delete_download_task(self, task_id: int):
+        """Удаляет задачу на загрузку по ее ID."""
+        with self.Session() as session:
+            task = session.query(DownloadTask).filter_by(id=task_id).first()
+            if task:
+                session.delete(task)
+                session.commit()
+
     def requeue_stuck_downloads(self) -> int:
         with self.Session() as session:
-            stuck_tasks = session.query(DownloadTask).filter_by(status='downloading')
+            # --- ИЗМЕНЕНИЕ: Ищем задачи со статусом 'downloading' И 'error' ---
+            stuck_tasks = session.query(DownloadTask).filter(
+                DownloadTask.status.in_(['downloading', 'error'])
+            )
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             count = stuck_tasks.count()
             if count > 0:
+                # Сбрасываем все найденные задачи в статус 'pending'
                 stuck_tasks.update({"status": "pending"}, synchronize_session=False)
                 session.commit()
             return count
@@ -837,9 +912,19 @@ class Database:
     def get_all_download_tasks(self) -> List[Dict[str, Any]]:
         with self.Session() as session:
             tasks = session.query(DownloadTask).order_by(DownloadTask.created_at.desc()).all()
-            return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
 
-# Добавьте этот метод в класс Database в файле db.py
+            result = []
+            for task in tasks:
+                task_dict = {}
+                for c in task.__table__.columns:
+                    value = getattr(task, c.name)
+                    if isinstance(value, datetime):
+                        task_dict[c.name] = value.isoformat()
+                    else:
+                        task_dict[c.name] = value
+                result.append(task_dict)
+            return result
+
     def clear_download_queue(self) -> int:
         """Удаляет все задачи, которые не находятся в процессе загрузки."""
         with self.Session() as session:

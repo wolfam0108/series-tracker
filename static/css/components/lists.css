@@ -197,3 +197,9 @@
 .composition-cards-container .card-episode-info {
     font-weight: 500;
 }
+
+.composition-cards-container .test-result-card-compact.pending {
+    background-color: #fff9e6;
+    border-color: #ffecb3;
+    color: #665000;
+}

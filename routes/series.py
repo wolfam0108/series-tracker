@@ -1,10 +1,10 @@
 import hashlib
+import os
 from flask import Blueprint, jsonify, request, current_app as app
 
 from auth import AuthManager
 from qbittorrent import QBittorrentClient
 from renamer import Renamer
-# ИЗМЕНЕНИЕ: импортируем функцию генерации ID
 from scanner import perform_series_scan, generate_media_item_id
 from file_cache import delete_from_cache
 from rule_engine import RuleEngine
@@ -63,7 +63,8 @@ def get_series_details(series_id):
 @series_bp.route('/<int:series_id>/composition', methods=['GET'])
 def get_series_composition(series_id):
     """
-    Эндпоинт для построения и получения "умного" плана загрузки для VK-сериалов.
+    Эндпоинт для построения и получения "умного" плана загрузки для VK-сериалов,
+    обогащенного локальным статусом каждого файла.
     """
     series = app.db.get_series(series_id)
     if not series:
@@ -86,15 +87,22 @@ def get_series_composition(series_id):
         collector = SmartCollector(app.logger)
         download_plan = collector.collect(processed_videos)
         
-        # --- ИЗМЕНЕНИЕ: Добавляем ID и форматируем дату перед отправкой ---
         for item in download_plan:
             pub_date = item.get('source_data', {}).get('publication_date')
             url = item.get('source_data', {}).get('url')
             
+            item['local_status'] = 'pending'
+
             if pub_date and url:
-                item['unique_id'] = generate_media_item_id(url, pub_date, series_id)
+                unique_id = generate_media_item_id(url, pub_date, series_id)
+                item['unique_id'] = unique_id
+                
+                db_item = app.db.get_media_item_by_uid(unique_id)
+                if db_item and db_item.get('final_filename'):
+                    if os.path.exists(db_item['final_filename']):
+                        item['local_status'] = 'completed'
+                
                 item['source_data']['publication_date'] = pub_date.isoformat()
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         
         return jsonify(download_plan)
         

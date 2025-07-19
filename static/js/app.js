@@ -12,6 +12,7 @@ const app = createApp({
     return {
       series: [],
       agentQueue: [],
+      downloadQueue: [],
       toastMessage: '',
       activeSeriesId: null, 
       isLoading: true,
@@ -139,6 +140,9 @@ const app = createApp({
 
         this.eventSource.addEventListener('agent_queue_update', (event) => {
             this.agentQueue = JSON.parse(event.data);
+        });
+        this.eventSource.addEventListener('download_queue_update', (event) => {
+            this.downloadQueue = JSON.parse(event.data);
         });
         this.eventSource.addEventListener('series_added', (event) => {
             const newSeries = JSON.parse(event.data);

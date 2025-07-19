@@ -11,6 +11,14 @@ from sse import ServerSentEvent
 from auth import AuthManager
 from qbittorrent import QBittorrentClient
 
+def _broadcast_series_update(series_id):
+    """Вспомогательная функция для трансляции обновлений сериала через SSE."""
+    series_data = app.db.get_series(series_id)
+    if series_data:
+        if series_data.get('last_scan_time'):
+            series_data['last_scan_time'] = series_data['last_scan_time'].isoformat()
+        app.sse_broadcaster.broadcast('series_updated', series_data)
+
 class MonitoringAgent(threading.Thread):
     def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent):
         super().__init__(daemon=True)
@@ -69,8 +77,7 @@ class MonitoringAgent(threading.Thread):
             for item in media_items_to_check:
                 if not os.path.exists(item['final_filename']):
                     self.logger.warning("monitoring_agent", f"Файл {item['final_filename']} для UID {item['unique_id']} не найден на диске. Сброс статуса.")
-                    self.db.update_media_item_filename(item['unique_id'], None) # Стираем имя файла
-                    self.db.update_media_item_download_status(item['unique_id'], 'pending') # Сбрасываем статус
+                    self.db.reset_media_item_download_state(item['unique_id'])
                     changed = True
 
             # Агрегация статусов для главной карточки
@@ -188,7 +195,6 @@ class MonitoringAgent(threading.Thread):
             auth_manager = AuthManager(self.db, self.logger)
             self.qb_client = QBittorrentClient(auth_manager, self.db, self.logger)
             
-            # --- ИЗМЕНЕНИЕ: Принудительная проверка статусов при запуске ---
             self.logger.info("monitoring_agent", "Выполнение первоначальной проверки статусов файлов...")
             self._verify_downloaded_files()
             self.logger.info("monitoring_agent", "Первоначальная проверка завершена.")
@@ -198,12 +204,10 @@ class MonitoringAgent(threading.Thread):
         while not self.shutdown_flag.is_set():
             try:
                 now = time.time()
-                # Периодическое обновление статусов торрентов
                 if (now - self.last_status_update_time) >= self.STATUS_UPDATE_INTERVAL:
                     self._update_active_statuses()
                     self.last_status_update_time = now
 
-                # --- ИЗМЕНЕНИЕ: Периодическая проверка наличия файлов ---
                 if (now - self.last_file_verify_time) >= self.FILE_VERIFY_INTERVAL:
                     with self.app.app_context():
                         self._verify_downloaded_files()
@@ -245,9 +249,6 @@ class MonitoringAgent(threading.Thread):
             try:
                 now = time.time()
                 if (now - self.last_status_update_time) >= self.STATUS_UPDATE_INTERVAL:
-                    # --- ИЗМЕНЕНИЕ: этот лог слишком "шумный", он нам больше не нужен, т.к. мы отфильтровали запросы в qb_client ---
-                    # if app.debug_manager.is_debug_enabled('monitoring_agent'):
-                    #     self.logger.debug("monitoring_agent", "Выполняется такт обновления активных статусов.")
                     self._update_active_statuses()
                     self.last_status_update_time = now
             except Exception as e:

@@ -128,7 +128,19 @@ const SeriesCompositionManager = {
         this.userSelection[item.unique_id] = !this.isItemInPlan(item);
     },
     getCardClass(item) {
-        return this.isItemInPlan(item) ? 'success' : 'no-match';
+        // Логика для элементов, не входящих в план, остается
+        if (!this.isItemInPlan(item)) {
+            return 'no-match';
+        }
+        
+        // --- НОВАЯ ЛОГИКА ---
+        // Если статус "завершено" - класс 'success' (зеленый)
+        if (item.local_status === 'completed') {
+            return 'success';
+        }
+        
+        // Во всех остальных случаях (pending) - класс 'pending' (желтый)
+        return 'pending';
     },
     formatEpisode(item) {
         if (!item.result || !item.result.extracted) return '-';
