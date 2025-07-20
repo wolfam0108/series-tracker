@@ -42,7 +42,8 @@ def clear_database():
 def get_db_tables():
     try:
         tables = app.db.get_table_names()
-        safe_tables = [t for t in tables if t != 'auth']
+        excluded_tables = {'auth', 'logs'}
+        safe_tables = [t for t in tables if t not in excluded_tables]
         return jsonify(safe_tables)
     except Exception as e:
         app.logger.error("database_api", f"Ошибка получения списка таблиц: {e}", exc_info=True)
@@ -141,3 +142,20 @@ def clear_download_queue():
     except Exception as e:
         app.logger.error("system_api", f"Ошибка при очистке очереди загрузок: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+    
+@system_bp.route('/database/table/<string:table_name>', methods=['GET'])
+def get_table_content(table_name):
+    # Получаем список разрешенных таблиц для безопасности
+    allowed_tables = app.db.get_table_names()
+    excluded_tables = {'auth', 'logs'}
+    
+    if table_name in excluded_tables or table_name not in allowed_tables:
+        return jsonify({"error": "Доступ к этой таблице запрещен"}), 403
+    
+    try:
+        # Нужен новый метод в db.py для получения сырых данных
+        content = app.db.get_raw_table_content(table_name)
+        return jsonify(content)
+    except Exception as e:
+        app.logger.error("database_api", f"Ошибка получения данных из таблицы '{table_name}': {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500

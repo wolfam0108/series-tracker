@@ -953,3 +953,20 @@ class Database:
                 session.commit()
             else:
                 self.logger.warning("db", f"Попытка зарегистрировать файл для несуществующего media_item с UID: {unique_id}")
+
+    def get_raw_table_content(self, table_name: str) -> List[Dict]:
+        """Возвращает все содержимое таблицы в виде списка словарей."""
+        from datetime import datetime
+        
+        with self.engine.connect() as connection:
+            table = Base.metadata.tables[table_name]
+            result = connection.execute(table.select())
+            
+            rows = []
+            for row in result:
+                row_dict = dict(row._mapping)
+                for key, value in row_dict.items():
+                    if isinstance(value, datetime):
+                        row_dict[key] = value.isoformat()
+                rows.append(row_dict)
+            return rows

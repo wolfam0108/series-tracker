@@ -1,4 +1,8 @@
 const SettingsDebugTab = {
+  // <<< 1. ДОБАВЛЕН НОВЫЙ КОМПОНЕНТ ДЛЯ ПРОСМОТРА БД >>>
+  components: {
+    'database-viewer-modal': DatabaseViewerModal
+  },
   template: `
     <div class="settings-tab-content">
         <div class="modern-fieldset mb-4">
@@ -69,37 +73,6 @@ const SettingsDebugTab = {
         
         <div class="modern-fieldset mb-4">
             <div class="fieldset-header">
-                <i class="bi bi-toggles2 me-2"></i>
-                <h6 class="fieldset-title mb-0">Отладка модулей (DEBUG)</h6>
-            </div>
-            <div class="fieldset-content">
-                <div class="row mb-3">
-                    <div class="col-md-6">
-                        <div class="modern-form-check form-switch" title="Сохранять полученный от парсеров HTML-код в папку parser_dumps для анализа.">
-                            <input class="form-check-input" type="checkbox" role="switch" id="saveHtmlSwitch" v-model="debugSaveHtml" @change="saveSaveHtmlSetting">
-                            <label class="modern-form-check-label" for="saveHtmlSwitch">Сохранять HTML от парсеров</label>
-                        </div>
-                    </div>
-                </div>
-                <div v-if="Object.keys(debugFlags).length === 0" class="text-center text-muted p-3">
-                    Загрузка флагов отладки...
-                </div>
-                <div class="row">
-                    <div v-for="(enabled, module) in debugFlags" :key="module" class="col-md-4">
-                        <div class="modern-form-check form-switch mb-2">
-                            <input class="form-check-input" type="checkbox" role="switch" :id="'debugSwitch_' + module" v-model="debugFlags[module]" @change="saveDebugFlag(module)">
-                            <label class="modern-form-check-label" :for="'debugSwitch_' + module">{{ module.charAt(0).toUpperCase() + module.slice(1).replace(/_/g, ' ') }}</label>
-                        </div>
-                    </div>
-                </div>
-                 <small class="form-text text-muted d-block mt-2">
-                    Включает подробное логирование для конкретного модуля. Изменения применяются мгновенно.
-                </small>
-            </div>
-        </div>
-
-        <div class="modern-fieldset mb-4">
-            <div class="fieldset-header">
                 <i class="bi bi-bug me-2"></i>
                 <h6 class="fieldset-title mb-0">Действия отладки</h6>
             </div>
@@ -112,6 +85,12 @@ const SettingsDebugTab = {
                     <div class="d-flex align-items-center gap-3">
                         <button class="btn btn-danger flex-shrink-0" @click="clearDownloadQueue"><i class="bi bi-x-circle me-2"></i>Очистить очередь загрузок</button>
                         <p class="form-text text-muted mb-0">Удаляет все ожидающие и ошибочные задачи из очереди загрузчика VK видео.</p>
+                    </div>
+                    <div class="d-flex align-items-center gap-3">
+                        <button class="btn btn-info flex-shrink-0" @click="openDbViewer">
+                            <i class="bi bi-database me-2"></i>Просмотр БД
+                        </button>
+                        <p class="form-text text-muted mb-0">Открывает полноэкранное окно для просмотра всех таблиц базы данных.</p>
                     </div>
                 </div>
             </div>
@@ -135,6 +114,8 @@ const SettingsDebugTab = {
                 </div>
             </div>
         </div>
+
+        <database-viewer-modal ref="dbViewer"></database-viewer-modal>
     </div>
   `,
   data() {
@@ -149,12 +130,7 @@ const SettingsDebugTab = {
           is_awaiting_tasks: false,
           next_scan_time: null,
       },
-      debugFlags: {
-            'agent': false, 'anilibria_parser': false, 'astar_parser': false,
-            'auth': false, 'db': false, 'downloader': false, 'downloader_agent': false,
-            'kinozal_parser': false, 'monitoring_agent': false, 'parser_api': false,
-            'qbittorrent': false, 'renamer': false, 'scanner': false,
-      },
+      // <<< СВОЙСТВО debugFlags УДАЛЕНО ОТСЮДА >>>
       parallelDownloads: 2,
       debugForceReplace: false,
       debugSaveHtml: false,
@@ -170,14 +146,17 @@ const SettingsDebugTab = {
         'renaming_patterns': 'Сбросить все паттерны переименования эпизодов.',
         'season_patterns': 'Сбросить все паттерны переименования сезонов.',
         'settings': 'Удалить все сохраненные настройки, включая SID и флаги отладки.',
-        'logs': 'Очистить все логи приложения.',
       }
     };
   },
   emits: ['show-toast', 'reload-series'],
   methods: {
+    // <<< 4. ДОБАВЛЕН МЕТОД ДЛЯ ВЫЗОВА ОКНА >>>
+    openDbViewer() {
+        this.$refs.dbViewer.open();
+    },
     load() {
-        this.loadDebugFlags();
+        // <<< ВЫЗОВ loadDebugFlags() УДАЛЕН ОТСЮДА >>>
         this.loadForceReplaceSetting();
         this.loadSaveHtmlSetting();
         this.loadLessStrictScanSetting();
@@ -253,40 +232,7 @@ const SettingsDebugTab = {
             this.$emit('show-toast', `Ошибка сохранения флага: ${error.message}`, 'danger');
         }
     },
-    async loadDebugFlags() {
-        try {
-            const response = await fetch('/api/settings/debug_flags');
-            if (!response.ok) throw new Error('Could not fetch debug flags');
-            const flagsFromServer = await response.json();
-            
-            const allFlags = { ...this.debugFlags, ...flagsFromServer };
-            const sortedFlags = {};
-            Object.keys(allFlags).sort().forEach(key => {
-                if (key !== 'save_parser_html') {
-                    sortedFlags[key] = allFlags[key];
-                }
-            });
-            this.debugFlags = sortedFlags;
-
-        } catch (error) {
-            this.$emit('show-toast', `Ошибка загрузки флагов отладки: ${error.message}`, 'danger');
-        }
-    },
-    async saveDebugFlag(moduleName) {
-        const enabled = this.debugFlags[moduleName];
-        try {
-            const response = await fetch('/api/settings/debug_flags', {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ module: moduleName, enabled: enabled })
-            });
-            if (!response.ok) throw new Error('Failed to save flag');
-            this.$emit('show-toast', `Отладка для '${moduleName}' ${enabled ? 'включена' : 'выключена'}`, 'info');
-        } catch (error) {
-            this.$emit('show-toast', `Ошибка сохранения флага: ${error.message}`, 'danger');
-            this.debugFlags[moduleName] = !enabled;
-        }
-    },
+    // <<< МЕТОДЫ loadDebugFlags() И saveDebugFlag() УДАЛЕНЫ ОТСЮДА >>>
     async loadForceReplaceSetting() {
         try {
             const response = await fetch('/api/settings/force_replace');

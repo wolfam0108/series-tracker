@@ -85,24 +85,33 @@ class MonitoringAgent(threading.Thread):
             
             new_state = {}
             idx = 0
+
+            # 1. Если есть что-то в процессе загрузки, показываем статус 'downloading'
             if download_statuses.get('downloading', 0) > 0:
                 new_state[str(idx)] = 'downloading'
                 idx += 1
-            
-            # Статус "Готов" показываем, если есть завершенные и нет ожидающих/ошибочных/скачивающихся
-            if download_statuses.get('completed', 0) > 0 and \
-               download_statuses.get('downloading', 0) == 0 and \
-               download_statuses.get('pending', 0) == 0 and \
-               download_statuses.get('error', 0) == 0:
+
+            # 2. Если есть ХОТЯ БЫ ОДИН завершенный файл, показываем статус 'ready'
+            if download_statuses.get('completed', 0) > 0:
                 new_state[str(idx)] = 'ready'
                 idx += 1
             
-            # Если ничего не происходит, но есть ожидающие, ставим "Ожидание"
-            if not new_state and download_statuses.get('pending', 0) > 0:
+            # 3. Если есть задачи с ошибками, показываем статус 'error'
+            if download_statuses.get('error', 0) > 0:
+                new_state[str(idx)] = 'error'
+                idx += 1
+
+            # 4. Статус "Ожидание" показываем, только если нет других активных статусов
+            #    и при этом есть запланированные, но еще не начатые задачи.
+            is_planned = download_statuses.get('in_plan_single', 0) > 0 or \
+                         download_statuses.get('in_plan_compilation', 0) > 0 or \
+                         download_statuses.get('pending', 0) > 0
+
+            if not new_state and is_planned:
                 new_state[str(idx)] = 'waiting'
                 idx += 1
             
-            # Если нет задач, статус по умолчанию - ожидание
+            # 5. Если нет вообще никаких задач, статус по умолчанию - ожидание
             if not new_state and not download_statuses:
                  new_state[str(idx)] = 'waiting'
                  idx += 1
@@ -202,20 +211,20 @@ class MonitoringAgent(threading.Thread):
             self.handle_startup_scan()
 
         while not self.shutdown_flag.is_set():
-            try:
-                now = time.time()
-                if (now - self.last_status_update_time) >= self.STATUS_UPDATE_INTERVAL:
-                    self._update_active_statuses()
-                    self.last_status_update_time = now
+            with self.app.app_context(): # <--- ДОБАВЛЕН КОНТЕКСТ ПРИЛОЖЕНИЯ
+                try:
+                    now = time.time()
+                    if (now - self.last_status_update_time) >= self.STATUS_UPDATE_INTERVAL:
+                        self._update_active_statuses()
+                        self.last_status_update_time = now
 
-                if (now - self.last_file_verify_time) >= self.FILE_VERIFY_INTERVAL:
-                    with self.app.app_context():
-                        self._verify_downloaded_files()
+                    if (now - self.last_file_verify_time) >= self.FILE_VERIFY_INTERVAL:
+                        self._verify_download_files()
                     self.last_file_verify_time = now
 
-                self._tick()
-            except Exception as e:
-                self.logger.error("monitoring_agent", f"Критическая ошибка в такте MonitoringAgent: {e}", exc_info=True)
+                    self._tick()
+                except Exception as e:
+                    self.logger.error("monitoring_agent", f"Критическая ошибка в такте MonitoringAgent: {e}", exc_info=True)
             
             self.shutdown_flag.wait(self.CHECK_INTERVAL)
 

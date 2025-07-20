@@ -1,5 +1,6 @@
 import hashlib
 import re
+import json
 from flask import Blueprint, jsonify, request, current_app as app
 
 from auth import AuthManager
@@ -14,6 +15,36 @@ settings_bp = Blueprint('settings_api', __name__, url_prefix='/api')
 def generate_torrent_id(link, date_time):
     unique_string = f"{link}{date_time or ''}"
     return hashlib.md5(unique_string.encode()).hexdigest()[:16]
+
+# <<< 1. ДОБАВЛЕНА СТРУКТУРА ДЛЯ ОПИСАНИЯ МОДУЛЕЙ ЛОГИРОВАНИЯ >>>
+LOGGING_MODULES = {
+    "Ядро и Утилиты": [
+        {'name': 'db', 'description': 'Операции с базой данных (миграции, ошибки).'},
+        {'name': 'auth', 'description': 'Этапы аутентификации в qBittorrent и на сайтах.'},
+        {'name': 'qbittorrent', 'description': 'Все взаимодействия с qBittorrent API.'},
+        {'name': 'file_cache', 'description': 'Операции с кэшем .torrent файлов.'},
+        {'name': 'chapter_parser', 'description': 'Процесс получения глав из видео через yt-dlp.'},
+    ],
+    "Агенты и Сканер": [
+        {'name': 'scanner', 'description': 'Каждый этап сканирования сериала.'},
+        {'name': 'agent', 'description': 'Жизненный цикл обработки торрента.'},
+        {'name': 'monitoring_agent', 'description': 'Работа в фоновом режиме (плановые сканы, обновления).'},
+        {'name': 'downloader_agent', 'description': 'Управление очередью и загрузкой видео.'},
+    ],
+    "API и Обработка запросов": [
+        {'name': 'series_api', 'description': 'Запросы на добавление/изменение сериалов.'},
+        {'name': 'parser_api', 'description': 'Работа API правил парсера и скрапинга VK.'},
+        {'name': 'media_api', 'description': 'Ошибки при получении медиа-элементов и глав.'},
+    ],
+    "Парсеры и Обработчики данных": [
+        {'name': 'vk_scraper', 'description': 'Получение данных из VK (ID канала, поиск видео).'},
+        {'name': 'kinozal_parser', 'description': 'Парсинг Kinozal.'},
+        {'name': 'anilibria_parser', 'description': 'Парсинг Anilibria.'},
+        {'name': 'anilibria_tv_parser', 'description': 'Парсинг Anilibria.TV.'},
+        {'name': 'astar_parser', 'description': 'Парсинг Astar.'},
+        {'name': 'renamer', 'description': 'Процесс переименования файлов.'},
+    ]
+}
 
 @settings_bp.route('/auth', methods=['GET'])
 def get_all_auth():
@@ -93,6 +124,7 @@ def parse_url():
     
     return jsonify({"success": True, **result})
 
+# <<< 2. ЗАМЕНЕНА ВСЯ ФУНКЦИЯ `handle_debug_flags` >>>
 @settings_bp.route('/settings/debug_flags', methods=['GET', 'POST'])
 def handle_debug_flags():
     if request.method == 'POST':
@@ -104,15 +136,20 @@ def handle_debug_flags():
         
         key = f"debug_enabled_{module_name}"
         app.db.set_setting(key, str(enabled).lower())
-        app.debug_manager._refresh_cache()
+        app.debug_manager._refresh_cache() # Обновляем кэш в реальном времени
         return jsonify({"success": True})
     
-    flags = app.db.get_settings_by_prefix('debug_enabled_')
-    processed_flags = {
-        key.replace('debug_enabled_', ''): value == 'true'
-        for key, value in flags.items()
-    }
-    return jsonify(processed_flags)
+    # GET-запрос теперь возвращает структурированные данные
+    saved_flags = app.db.get_settings_by_prefix('debug_enabled_')
+    
+    # Создаем копию структуры и заполняем её текущими значениями
+    result_structure = json.loads(json.dumps(LOGGING_MODULES))
+    for group in result_structure:
+        for module in result_structure[group]:
+            key = f"debug_enabled_{module['name']}"
+            module['enabled'] = saved_flags.get(key, 'false') == 'true'
+    
+    return jsonify(result_structure)
 
 @settings_bp.route('/settings/force_replace', methods=['GET', 'POST'])
 def handle_force_replace_setting():

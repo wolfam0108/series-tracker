@@ -59,7 +59,7 @@ const ChapterManager = {
         const rawMediaItems = await response.json();
         
         this.compilationItems = rawMediaItems
-          .filter(item => item.episode_end && item.episode_end > item.episode_start && item.status === 'in_plan_compilation')
+          .filter(item => item.episode_end && item.episode_end > item.episode_start && item.status === 'completed')
           .map(item => ({
             ...item,
             chapters: item.chapters ? JSON.parse(item.chapters) : null,
@@ -87,11 +87,19 @@ const ChapterManager = {
         }
     },
     getCardClass(item) {
-        if (!item.chapters || item.chapters.length === 0) return 'status-yellow';
-        if (item.chapters.length === this.getExpectedCount(item)) {
-            return 'status-green';
-        }
-        return 'status-red';
+      // Если проверка еще не проводилась, статус "Не проверено" (желтый)
+      if (item.chapters === null) return 'status-yellow';
+
+      // Если проверка была, но главы не найдены (пустой массив), статус "Ошибка" (красный)
+      if (item.chapters.length === 0) return 'status-red';
+
+      // Если количество глав совпадает, статус "Соответствует" (зеленый)
+      if (item.chapters.length === this.getExpectedCount(item)) {
+        return 'status-green';
+      }
+
+      // В остальных случаях (несоответствие количества) - статус "Ошибка" (красный)
+      return 'status-red';
     },
     getChapterCountText(item) {
         const found = item.chapters ? item.chapters.length : 0;

@@ -130,13 +130,14 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                             app.logger.debug(f"scanner: Элемент {unique_id} уже скачан (запись в БД). Пропуск.")
                         should_create_task = False
                     
-                    elif less_strict_scan_enabled:
+                    # ПРОВЕРКА НА ДИСКЕ ВЫНЕСЕНА В ОТДЕЛЬНЫЙ БЛОК 'IF'
+                    if less_strict_scan_enabled:
                         expected_filename = formatter.format_filename(series, item)
                         full_path_to_check = os.path.join(series['save_path'], expected_filename)
 
                         if os.path.exists(full_path_to_check):
+                            # Если файл найден, обновляем БД и отменяем создание задачи
                             app.logger.info("scanner", f"[Отладка] Найден файл на диске: '{expected_filename}'. Обновляю запись в БД.")
-                            # --- ИЗМЕНЕНИЕ: Используем новый метод, который обновляет и статус ---
                             app.db.register_downloaded_media_item(unique_id, full_path_to_check)
                             should_create_task = False
 
