@@ -61,64 +61,53 @@ class MonitoringAgent(threading.Thread):
         
     def _verify_downloaded_files(self):
         """
-        Проверяет наличие файлов на диске и обновляет статусы в БД.
-        Также агрегирует статусы для главной карточки сериала.
+        Проверяет наличие файлов на диске (как компиляций, так и нарезанных),
+        восстанавливает состояние в случае утери файлов и агрегирует статусы для UI.
         """
         all_series = self.db.get_all_series()
         series_to_broadcast = set()
 
         for series in all_series:
-            series_id = series['id']
             if series['source_type'] != 'vk_video':
                 continue
-
-            media_items_to_check = self.db.get_media_items_with_filename(series_id)
+            
+            series_id = series['id']
             changed = False
-            for item in media_items_to_check:
-                if not os.path.exists(item['final_filename']):
-                    self.logger.warning("monitoring_agent", f"Файл {item['final_filename']} для UID {item['unique_id']} не найден на диске. Сброс статуса.")
-                    self.db.reset_media_item_download_state(item['unique_id'])
-                    changed = True
+            media_items_in_series = self.db.get_media_items_for_series(series_id)
 
-            # Агрегация статусов для главной карточки
+            for item in media_items_in_series:
+                unique_id = item['unique_id']
+                
+                # --- НОВАЯ ЛОГИКА ВЕРИФИКАЦИИ ---
+                if item['slicing_status'] == 'completed':
+                    # Если нарезка завершена, проверяем наличие нарезанных файлов
+                    sliced_files = self.db.get_sliced_files_for_source(unique_id)
+                    if not sliced_files:
+                        # Если в БД нет записей о файлах, но статус completed - это ошибка. Восстанавливаем.
+                        self.logger.warning("monitoring_agent", f"Статус нарезки 'completed', но в БД нет нарезанных файлов для {unique_id}. Запуск восстановления.")
+                        self._trigger_slicing_recovery(unique_id)
+                        changed = True
+                        continue
+
+                    # Проверяем каждый файл на диске
+                    all_files_exist = all(os.path.exists(f['file_path']) for f in sliced_files)
+                    if not all_files_exist:
+                        self.logger.warning("monitoring_agent", f"Один или несколько нарезанных файлов для {unique_id} отсутствуют. Запуск восстановления.")
+                        self._trigger_slicing_recovery(unique_id)
+                        changed = True
+
+                elif item.get('final_filename'):
+                    # Стандартная проверка для еще не нарезанных компиляций
+                    if not os.path.exists(item['final_filename']):
+                        self.logger.warning("monitoring_agent", f"Файл {item['final_filename']} для UID {unique_id} не найден. Сброс статуса загрузки.")
+                        self.db.reset_media_item_download_state(unique_id)
+                        changed = True
+                # ------------------------------------
+
+            # Агрегация статусов для главной карточки (остается без изменений)
             download_statuses = self.db.get_series_download_statuses(series_id)
-            
-            new_state = {}
-            idx = 0
+            new_state_str = self._aggregate_statuses_to_state_str(download_statuses)
 
-            # 1. Если есть что-то в процессе загрузки, показываем статус 'downloading'
-            if download_statuses.get('downloading', 0) > 0:
-                new_state[str(idx)] = 'downloading'
-                idx += 1
-
-            # 2. Если есть ХОТЯ БЫ ОДИН завершенный файл, показываем статус 'ready'
-            if download_statuses.get('completed', 0) > 0:
-                new_state[str(idx)] = 'ready'
-                idx += 1
-            
-            # 3. Если есть задачи с ошибками, показываем статус 'error'
-            if download_statuses.get('error', 0) > 0:
-                new_state[str(idx)] = 'error'
-                idx += 1
-
-            # 4. Статус "Ожидание" показываем, только если нет других активных статусов
-            #    и при этом есть запланированные, но еще не начатые задачи.
-            is_planned = download_statuses.get('in_plan_single', 0) > 0 or \
-                         download_statuses.get('in_plan_compilation', 0) > 0 or \
-                         download_statuses.get('pending', 0) > 0
-
-            if not new_state and is_planned:
-                new_state[str(idx)] = 'waiting'
-                idx += 1
-            
-            # 5. Если нет вообще никаких задач, статус по умолчанию - ожидание
-            if not new_state and not download_statuses:
-                 new_state[str(idx)] = 'waiting'
-                 idx += 1
-
-            new_state_str = json.dumps(new_state) if new_state else 'waiting'
-
-            # Обновляем, только если состояние изменилось
             if series['state'] != new_state_str:
                 self.db.set_series_state(series_id, new_state_str)
                 changed = True
@@ -128,6 +117,31 @@ class MonitoringAgent(threading.Thread):
 
         for sid in series_to_broadcast:
             _broadcast_series_update(sid)
+
+    def _trigger_slicing_recovery(self, unique_id: str):
+        """Выполняет полный сброс состояния нарезки для медиа-элемента."""
+        self.db.delete_sliced_files_for_source(unique_id)
+        self.db.update_media_item_slicing_status(unique_id, 'none')
+        self.db.set_media_item_ignored_status_by_uid(unique_id, False) # Снимаем игнорирование
+
+    def _aggregate_statuses_to_state_str(self, download_statuses: dict) -> str:
+        """Вспомогательная функция для сборки JSON-строки статуса из словаря."""
+        new_state = {}
+        idx = 0
+        if download_statuses.get('downloading', 0) > 0:
+            new_state[str(idx)] = 'downloading'; idx += 1
+        if download_statuses.get('completed', 0) > 0:
+            new_state[str(idx)] = 'ready'; idx += 1
+        if download_statuses.get('error', 0) > 0:
+            new_state[str(idx)] = 'error'; idx += 1
+        
+        is_planned = any(download_statuses.get(st, 0) > 0 for st in ['in_plan_single', 'in_plan_compilation', 'pending'])
+        if not new_state and is_planned:
+            new_state[str(idx)] = 'waiting'; idx += 1
+        if not new_state and not download_statuses:
+             new_state[str(idx)] = 'waiting'; idx += 1
+        
+        return json.dumps(new_state) if new_state else 'waiting'
 
     def _update_active_statuses(self):
         if not self.qb_client:

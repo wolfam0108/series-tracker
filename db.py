@@ -12,7 +12,8 @@ from models import (
     Base, Auth, Series, RenamingPattern, SeasonPattern, AdvancedRenamingPattern,
     Torrent, Setting, Log, QualityPattern, QualitySearchPattern, ResolutionPattern,
     ResolutionSearchPattern, AgentTask, ScanTask,
-    ParserProfile, ParserRule, ParserRuleCondition, MediaItem, DownloadTask
+    ParserProfile, ParserRule, ParserRuleCondition, MediaItem, DownloadTask,
+    SlicingTask, SlicedFile
 )
 
 class Database:
@@ -986,3 +987,97 @@ class Database:
             if series:
                 series.ignored_seasons = json.dumps(seasons)
                 session.commit()
+
+    def update_media_item_slicing_status(self, unique_id: str, status: str):
+        """Обновляет статус нарезки для медиа-элемента."""
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if item:
+                item.slicing_status = status
+                session.commit()
+
+    def create_slicing_task(self, unique_id: str, series_id: int) -> int:
+        """Создает новую задачу на нарезку в очереди."""
+        with self.Session() as session:
+            new_task = SlicingTask(media_item_unique_id=unique_id, series_id=series_id, status='pending')
+            session.add(new_task)
+            session.commit()
+            return new_task.id
+
+    def get_pending_slicing_task(self) -> Optional[Dict[str, Any]]:
+        """Извлекает одну ожидающую задачу на нарезку."""
+        with self.Session() as session:
+            task = session.query(SlicingTask).filter_by(status='pending').order_by(SlicingTask.created_at).first()
+            if not task:
+                return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+
+    def update_slicing_task(self, task_id: int, updates: Dict[str, Any]):
+        """Обновляет данные задачи на нарезку (статус, прогресс и т.д.)."""
+        with self.Session() as session:
+            task = session.query(SlicingTask).filter_by(id=task_id).first()
+            if task:
+                for key, value in updates.items():
+                    setattr(task, key, value)
+                session.commit()
+
+    def delete_slicing_task(self, task_id: int):
+        """Удаляет завершенную задачу на нарезку."""
+        with self.Session() as session:
+            task = session.query(SlicingTask).filter_by(id=task_id).first()
+            if task:
+                session.delete(task)
+                session.commit()
+
+    def add_sliced_file(self, series_id: int, source_unique_id: str, episode_number: int, file_path: str):
+        """Добавляет запись о новом нарезанном файле."""
+        with self.Session() as session:
+            new_file = SlicedFile(
+                series_id=series_id,
+                source_media_item_unique_id=source_unique_id,
+                episode_number=episode_number,
+                file_path=file_path
+            )
+            session.add(new_file)
+            session.commit()
+
+    def get_sliced_files_for_source(self, source_unique_id: str) -> List[Dict[str, Any]]:
+        """Возвращает все нарезанные файлы для указанной компиляции."""
+        with self.Session() as session:
+            items = session.query(SlicedFile).filter_by(source_media_item_unique_id=source_unique_id).all()
+            return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in items]
+
+    def requeue_stuck_slicing_tasks(self) -> int:
+        """Восстанавливает 'зависшие' задачи нарезки после перезапуска."""
+        with self.Session() as session:
+            stuck_tasks = session.query(SlicingTask).filter_by(status='slicing')
+            count = stuck_tasks.count()
+            if count > 0:
+                stuck_tasks.update({"status": "pending"}, synchronize_session=False)
+                session.commit()
+            return count
+        
+    def get_all_slicing_tasks(self) -> List[Dict[str, Any]]:
+        """Возвращает все активные задачи на нарезку."""
+        with self.Session() as session:
+            tasks = session.query(SlicingTask).order_by(SlicingTask.created_at).all()
+            result = []
+            for task in tasks:
+                task_dict = {c.name: getattr(task, c.name) for c in task.__table__.columns}
+                if task_dict.get('created_at'):
+                    task_dict['created_at'] = task_dict['created_at'].isoformat()
+                result.append(task_dict)
+            return result
+
+    def delete_sliced_files_for_source(self, source_unique_id: str) -> int:
+        """Удаляет все записи о нарезанных файлах для указанной компиляции."""
+        with self.Session() as session:
+            deleted_count = session.query(SlicedFile).filter_by(source_media_item_unique_id=source_unique_id).delete(synchronize_session=False)
+            session.commit()
+            return deleted_count
+
+    def get_all_sliced_files_for_series(self, series_id: int) -> List[Dict[str, Any]]:
+        """Возвращает все нарезанные файлы для указанного сериала."""
+        with self.Session() as session:
+            items = session.query(SlicedFile).filter_by(series_id=series_id).all()
+            return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in items]

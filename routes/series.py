@@ -249,3 +249,13 @@ def update_ignored_seasons(series_id):
     except Exception as e:
         app.logger.error("series_api", f"Ошибка обновления игнорируемых сезонов для series_id {series_id}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+    
+@series_bp.route('/<int:series_id>/sliced-files', methods=['GET'])
+def get_sliced_files_for_series(series_id):
+    """Возвращает все нарезанные файлы для указанного сериала."""
+    try:
+        items = app.db.get_all_sliced_files_for_series(series_id)
+        return jsonify(items)
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка получения sliced_files для series_id {series_id}: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500

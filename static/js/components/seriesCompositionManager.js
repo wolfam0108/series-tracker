@@ -17,7 +17,7 @@ const SeriesCompositionManager = {
                 <div v-if="isLoading" class="loading-overlay"></div>
             </transition>
             
-            <div v-if="!mediaItems.length && !isLoading" class="empty-state">
+            <div v-if="!displayItems.length && !isLoading" class="empty-state">
                 Нет данных для отображения.
             </div>
 
@@ -37,34 +37,47 @@ const SeriesCompositionManager = {
                     </h5>
                     
                     <transition-group name="list" tag="div" class="composition-cards-container">
-                        <div v-for="item in filteredGroupedItems[seasonNumber]" :key="item.unique_id"
-                             class="test-result-card-compact"
-                             :class="getCardClass(item)">
+                        <div v-for="item in filteredGroupedItems[seasonNumber]" :key="item.unique_id">
                             
-                            <div class="card-line">
-                                <strong class="card-title" :title="item.source_data.title">{{ item.source_data.title }}</strong>
-                                <div class="form-check form-switch">
-                                    <input class="form-check-input" type="checkbox" role="switch"
-                                           :id="'check-' + item.unique_id"
-                                           :checked="isItemInPlan(item)"
-                                           :disabled="isSeasonIgnored(seasonNumber)"
-                                           @change="toggleItemIgnored(item)">
-                                    <label class="form-check-label" :for="'check-' + item.unique_id"></label>
+                            <div v-if="item.type === 'compilation'"
+                                 class="test-result-card-compact"
+                                 :class="getCardClass(item)">
+                                
+                                <div class="card-line">
+                                    <strong class="card-title" :title="item.source_data.title">{{ item.source_data.title }}</strong>
+                                    <div class="form-check form-switch">
+                                        <input class="form-check-input" type="checkbox" role="switch"
+                                               :id="'check-' + item.unique_id"
+                                               :checked="isItemInPlan(item)"
+                                               :disabled="isSeasonIgnored(seasonNumber) || item.is_ignored_by_user"
+                                               @change="toggleItemIgnored(item)">
+                                        <label class="form-check-label" :for="'check-' + item.unique_id"></label>
+                                    </div>
+                                </div>
+                                <div class="card-line text-muted small">
+                                    <span class="card-url" :title="item.source_data.url">{{ item.source_data.url }}</span>
+                                    <span>{{ formatDate(item.source_data.publication_date) }}</span>
+                                </div>
+                                <div class="card-line small">
+                                    <span class="card-episode-info">
+                                        <i class="bi me-1" :class="formatItemType(item).icon"></i>
+                                        {{ formatEpisode(item) }} ({{ getVoiceoverTag(item) }})
+                                    </span>
+                                    <span class="card-rule-name" :title="item.unique_id">{{ item.unique_id }}</span>
                                 </div>
                             </div>
 
-                            <div class="card-line text-muted small">
-                                <span class="card-url" :title="item.source_data.url">{{ item.source_data.url }}</span>
-                                <span>{{ formatDate(item.source_data.publication_date) }}</span>
+                            <div v-if="item.type === 'sliced'"
+                                 class="test-result-card-compact sliced-file-card">
+                                <div class="card-line">
+                                    <strong class="card-title" :title="item.file_path">{{ getBaseName(item.file_path) }}</strong>
+                                    <span class="badge bg-primary"><i class="bi bi-check-circle-fill me-1"></i>Нарезан</span>
+                                </div>
+                                <div class="card-line text-muted small">
+                                    <span>Источник: {{ getBaseName(item.parent_filename) }}</span>
+                                </div>
                             </div>
 
-                            <div class="card-line small">
-                                <span class="card-episode-info">
-                                    <i class="bi me-1" :class="formatItemType(item).icon"></i>
-                                    {{ formatEpisode(item) }} ({{ getVoiceoverTag(item) }})
-                                </span>
-                                <span class="card-rule-name" :title="item.unique_id">{{ item.unique_id }}</span>
-                            </div>
                         </div>
                     </transition-group>
                 </div>
@@ -76,8 +89,8 @@ const SeriesCompositionManager = {
     return {
       isLoading: false,
       mediaItems: [],
+      slicedFiles: [],
       showOnlyPlanned: true,
-      // НОВОЕ ПОЛЕ: для хранения списка игнорируемых сезонов
       ignoredSeasons: [], 
     };
   },
@@ -90,42 +103,68 @@ const SeriesCompositionManager = {
     }
   },
   computed: {
-    // НОВЫЙ КОМПОНЕНТ: Группирует все видео по сезонам
+    displayItems() {
+        const items = [];
+
+        this.mediaItems.forEach(item => {
+            items.push({
+                ...item,
+                type: 'compilation',
+            });
+        });
+
+        this.slicedFiles.forEach(file => {
+            const parentItem = this.mediaItems.find(mi => mi.unique_id === file.source_media_item_unique_id);
+            items.push({
+                type: 'sliced',
+                unique_id: `sliced-${file.id}`,
+                season: parentItem ? (parentItem.result?.extracted?.season ?? 'undefined') : 'undefined',
+                episode_start: file.episode_number,
+                file_path: file.file_path,
+                parent_filename: parentItem ? parentItem.final_filename : 'Неизвестно',
+            });
+        });
+
+        return items;
+    },
     groupedItems() {
-        if (!this.mediaItems) return {};
-        
-        const groups = this.mediaItems.reduce((acc, item) => {
-            // Учитываем, что сезон может быть 0, null или undefined
-            let season = item.result?.extracted?.season;
+        const groups = this.displayItems.reduce((acc, item) => {
+            let season = (item.type === 'compilation')
+                ? (item.result?.extracted?.season)
+                : item.season;
+
             if (season === null || season === undefined) {
                 season = 'undefined';
             }
             
-            if (!acc[season]) {
-                acc[season] = [];
-            }
+            if (!acc[season]) acc[season] = [];
             acc[season].push(item);
             return acc;
         }, {});
 
+        for (const season in groups) {
+            groups[season].sort((a, b) => a.episode_start - b.episode_start);
+        }
+
         return groups;
     },
-    // НОВЫЙ КОМПОНЕНТ: Фильтрует сгруппированные видео по переключателю "Показывать только запланированные"
     filteredGroupedItems() {
         if (!this.showOnlyPlanned) {
             return this.groupedItems;
         }
-
         const filtered = {};
         for (const season in this.groupedItems) {
-            const itemsInSeason = this.groupedItems[season].filter(item => this.isItemInPlan(item));
+            const itemsInSeason = this.groupedItems[season].filter(item => {
+                if (item.type === 'sliced') return true;
+                if (item.is_ignored_by_user && item.slicing_status === 'completed') return true; // Показываем архивные
+                return this.isItemInPlan(item);
+            });
             if (itemsInSeason.length > 0) {
                 filtered[season] = itemsInSeason;
             }
         }
         return filtered;
     },
-    // НОВЫЙ КОМПОНЕНТ: Сортирует сезоны для корректного отображения (0, 1, 2, ..., 'undefined')
     sortedSeasons() {
         return Object.keys(this.filteredGroupedItems).sort((a, b) => {
             if (a === 'undefined') return 1;
@@ -135,22 +174,25 @@ const SeriesCompositionManager = {
     },
   },
   methods: {
-    // ИЗМЕНЕНИЕ: Теперь загружаем не только композицию, но и список игнорируемых сезонов
     async loadComposition() {
         if (this.isLoading) return;
         this.isLoading = true;
+        this.mediaItems = [];
+        this.slicedFiles = [];
+        this.ignoredSeasons = [];
         try {
-            // Запрос 1: Получаем композицию
-            const compositionResponse = await fetch(`/api/series/${this.seriesId}/composition`);
-            const compositionData = await compositionResponse.json();
-            if (!compositionResponse.ok) throw new Error(compositionData.error || 'Ошибка построения плана');
-            this.mediaItems = compositionData;
+            const compResponse = await fetch(`/api/series/${this.seriesId}/composition`);
+            if (!compResponse.ok) throw new Error('Ошибка построения плана композиции');
+            this.mediaItems = await compResponse.json();
 
-            // Запрос 2: Получаем данные о самом сериале (включая игнорируемые сезоны)
             const seriesResponse = await fetch(`/api/series/${this.seriesId}`);
+            if (!seriesResponse.ok) throw new Error('Ошибка загрузки данных сериала');
             const seriesData = await seriesResponse.json();
-            if (!seriesResponse.ok) throw new Error(seriesData.error || 'Ошибка загрузки данных сериала');
             this.ignoredSeasons = seriesData.ignored_seasons ? JSON.parse(seriesData.ignored_seasons) : [];
+
+            const slicedResponse = await fetch(`/api/series/${this.seriesId}/sliced-files`);
+            if (!slicedResponse.ok) throw new Error('Ошибка загрузки нарезанных файлов');
+            this.slicedFiles = await slicedResponse.json();
 
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
@@ -158,12 +200,10 @@ const SeriesCompositionManager = {
             this.isLoading = false;
         }
     },
-    // НОВЫЙ МЕТОД: Сохраняет состояние чекбокса для отдельного видео
     async toggleItemIgnored(item) {
         const isCurrentlyIgnored = item.is_ignored_by_user;
         const newIgnoredState = !isCurrentlyIgnored;
         
-        // Оптимистичное обновление UI
         item.is_ignored_by_user = newIgnoredState;
 
         try {
@@ -175,11 +215,9 @@ const SeriesCompositionManager = {
             if (!response.ok) throw new Error('Ошибка сохранения');
         } catch(error) {
             this.$emit('show-toast', error.message, 'danger');
-            // Откатываем изменение в UI в случае ошибки
             item.is_ignored_by_user = isCurrentlyIgnored;
         }
     },
-    // НОВЫЙ МЕТОД: Сохраняет состояние чекбокса для целого сезона
     async toggleSeasonIgnored(seasonNumber) {
         seasonNumber = parseInt(seasonNumber, 10);
         const isCurrentlyIgnored = this.ignoredSeasons.includes(seasonNumber);
@@ -191,7 +229,6 @@ const SeriesCompositionManager = {
             newIgnoredSeasons.push(seasonNumber);
         }
         
-        // Оптимистичное обновление UI
         this.ignoredSeasons = newIgnoredSeasons;
 
         try {
@@ -203,7 +240,6 @@ const SeriesCompositionManager = {
             if (!response.ok) throw new Error('Ошибка сохранения настроек сезона');
         } catch(error) {
             this.$emit('show-toast', error.message, 'danger');
-            // Откатываем изменение в UI
             this.ignoredSeasons = this.ignoredSeasons.filter(s => s !== seasonNumber);
         }
     },
@@ -212,24 +248,18 @@ const SeriesCompositionManager = {
         return this.ignoredSeasons.includes(parseInt(seasonNumber, 10));
     },
     isItemInPlan(item) {
-        // Элемент считается "в плане", если он не игнорирован ни индивидуально, ни на уровне сезона
-        // И при этом он был выбран "умным сборщиком"
+        if (item.type !== 'compilation') return false;
         const seasonNumber = item.result?.extracted?.season ?? 'undefined';
-        if (this.isSeasonIgnored(seasonNumber)) {
-            return false;
-        }
-        if (item.is_ignored_by_user) {
-            return false;
-        }
+        if (this.isSeasonIgnored(seasonNumber)) return false;
+        if (item.is_ignored_by_user) return false;
         return item.status === 'in_plan_single' || item.status === 'in_plan_compilation';
     },
     getCardClass(item) {
-        if (!this.isItemInPlan(item)) {
-            return 'no-match';
+        if (item.is_ignored_by_user && item.slicing_status === 'completed') {
+            return 'archived';
         }
-        if (item.local_status === 'completed') {
-            return 'success';
-        }
+        if (!this.isItemInPlan(item)) return 'no-match';
+        if (item.local_status === 'completed') return 'success';
         return 'pending';
     },
     getSeasonTitle(seasonNumber) {
@@ -265,6 +295,10 @@ const SeriesCompositionManager = {
         if (!isoString) return '-';
         const date = new Date(isoString);
         return date.toLocaleDateString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric' });
+    },
+    getBaseName(path) {
+        if (!path) return '';
+        return path.split(/[\\/]/).pop();
     },
   },
   mounted() {

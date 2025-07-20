@@ -7,8 +7,8 @@ from logger import Logger, set_db_for_logging
 from sse import sse_broadcaster
 from agents.agent import Agent
 from agents.monitoring_agent import MonitoringAgent
-# --- ИЗМЕНЕНИЕ: Импортируем нового агента ---
 from agents.downloader_agent import DownloaderAgent
+from agents.slicing_agent import SlicingAgent
 from routes import init_all_routes
 from debug_manager import DebugManager
 
@@ -27,25 +27,26 @@ init_all_routes(app)
 
 agent = Agent(app, app.logger, app.db, app.sse_broadcaster)
 monitoring_agent = MonitoringAgent(app, app.logger, app.db, app.sse_broadcaster)
-# --- ИЗМЕНЕНИЕ: Создаем и запускаем нового агента ---
 downloader_agent = DownloaderAgent(app, app.logger, app.db, app.sse_broadcaster)
+slicing_agent = SlicingAgent(app, app.logger, app.db, app.sse_broadcaster)
 
 agent.start()
 monitoring_agent.start()
 downloader_agent.start()
+slicing_agent.start()
 
 def shutdown_agents():
     agent.shutdown()
     monitoring_agent.shutdown()
-    # --- ИЗМЕНЕНИЕ: Добавляем остановку нового агента ---
     downloader_agent.shutdown()
+    slicing_agent.shutdown()
 
 atexit.register(shutdown_agents)
 
 app.agent = agent
 app.scanner_agent = monitoring_agent
-# --- ИЗМЕНЕНИЕ: Добавляем ссылку на нового агента в приложение ---
 app.downloader_agent = downloader_agent
+app.slicing_agent = slicing_agent
 
 
 if __name__ == "__main__":

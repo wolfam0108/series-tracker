@@ -1,5 +1,4 @@
 const SettingsDebugTab = {
-  // <<< 1. ДОБАВЛЕН НОВЫЙ КОМПОНЕНТ ДЛЯ ПРОСМОТРА БД >>>
   components: {
     'database-viewer-modal': DatabaseViewerModal
   },
@@ -31,6 +30,12 @@ const SettingsDebugTab = {
                         <div class="modern-form-check form-switch" title="Если включено, сканер будет проверять наличие файлов на диске, даже если их нет в БД. Если файл найден, он будет зарегистрирован, а не скачан заново.">
                             <input class="form-check-input" type="checkbox" role="switch" id="lessStrictSwitch" v-model="lessStrictScan" @change="saveLessStrictScanSetting">
                             <label class="modern-form-check-label" for="lessStrictSwitch">Менее строгий режим сканирования</label>
+                        </div>
+                    </div>
+                    <div class="col-md-6">
+                        <div class="modern-form-check form-switch" title="Если включено, агент нарезки удалит исходный файл-компиляцию после успешного завершения.">
+                            <input class="form-check-input" type="checkbox" role="switch" id="slicingDeleteSwitch" v-model="slicingDeleteSource" @change="saveSlicingDeleteSourceSetting">
+                            <label class="modern-form-check-label" for="slicingDeleteSwitch">Удалять исходник после нарезки</label>
                         </div>
                     </div>
                 </div>
@@ -130,11 +135,11 @@ const SettingsDebugTab = {
           is_awaiting_tasks: false,
           next_scan_time: null,
       },
-      // <<< СВОЙСТВО debugFlags УДАЛЕНО ОТСЮДА >>>
       parallelDownloads: 2,
       debugForceReplace: false,
       debugSaveHtml: false,
       lessStrictScan: false,
+      slicingDeleteSource: false,
       countdownTimer: null,
       nextScanCountdown: '...',
       tableDescriptions: {
@@ -142,6 +147,8 @@ const SettingsDebugTab = {
         'torrents': 'Удалить все связанные торренты из базы данных (не из qBittorrent).',
         'media_items': 'Удалить все найденные медиа-элементы (для VK-сериалов).',
         'download_tasks': 'Очистить текущую очередь загрузок для VK-видео.',
+        'slicing_tasks': 'Очистить очередь задач на нарезку видео.',
+        'sliced_files': 'Удалить все записи о нарезанных файлах.',
         'advanced_renaming_patterns': 'Сбросить все продвинутые паттерны переименования.',
         'renaming_patterns': 'Сбросить все паттерны переименования эпизодов.',
         'season_patterns': 'Сбросить все паттерны переименования сезонов.',
@@ -151,15 +158,14 @@ const SettingsDebugTab = {
   },
   emits: ['show-toast', 'reload-series'],
   methods: {
-    // <<< 4. ДОБАВЛЕН МЕТОД ДЛЯ ВЫЗОВА ОКНА >>>
     openDbViewer() {
         this.$refs.dbViewer.open();
     },
     load() {
-        // <<< ВЫЗОВ loadDebugFlags() УДАЛЕН ОТСЮДА >>>
         this.loadForceReplaceSetting();
         this.loadSaveHtmlSetting();
         this.loadLessStrictScanSetting();
+        this.loadSlicingDeleteSourceSetting();
         this.loadTables();
         this.connectEventSourceForScanner();
         this.startCountdownTimer();
@@ -232,7 +238,6 @@ const SettingsDebugTab = {
             this.$emit('show-toast', `Ошибка сохранения флага: ${error.message}`, 'danger');
         }
     },
-    // <<< МЕТОДЫ loadDebugFlags() И saveDebugFlag() УДАЛЕНЫ ОТСЮДА >>>
     async loadForceReplaceSetting() {
         try {
             const response = await fetch('/api/settings/force_replace');
@@ -273,6 +278,28 @@ const SettingsDebugTab = {
                 body: JSON.stringify({ enabled: this.lessStrictScan })
             });
             this.$emit('show-toast', `Менее строгий режим сканирования ${this.lessStrictScan ? 'включен' : 'выключен'}`, 'info');
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        }
+    },
+    async loadSlicingDeleteSourceSetting() {
+        try {
+            const response = await fetch('/api/settings/slicing_delete_source');
+            if (!response.ok) throw new Error('Не удалось загрузить настройку удаления');
+            const setting = await response.json();
+            this.slicingDeleteSource = setting.enabled || false;
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        }
+    },
+    async saveSlicingDeleteSourceSetting() {
+        try {
+            await fetch('/api/settings/slicing_delete_source', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ enabled: this.slicingDeleteSource })
+            });
+            this.$emit('show-toast', `Удаление исходника после нарезки ${this.slicingDeleteSource ? 'включено' : 'выключено'}`, 'info');
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
         }

@@ -178,7 +178,7 @@ class MediaItem(Base):
     final_filename = Column(Text, nullable=True)
     
     chapters = Column(Text, nullable=True) # Поле для хранения глав в формате JSON
-
+    slicing_status = Column(Text, default='none', nullable=False) # none, pending, slicing, completed, error
     is_available = Column(Boolean, default=True, nullable=False)
     series = relationship("Series")
 
@@ -194,3 +194,22 @@ class DownloadTask(Base):
     attempts = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+class SlicingTask(Base):
+    __tablename__ = 'slicing_tasks'
+    id = Column(Integer, primary_key=True)
+    media_item_unique_id = Column(Text, nullable=False, index=True)
+    series_id = Column(Integer, nullable=False)
+    status = Column(Text, default='pending', nullable=False)
+    progress_chapters = Column(Text, default='{}')
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+class SlicedFile(Base):
+    __tablename__ = 'sliced_files'
+    id = Column(Integer, primary_key=True)
+    series_id = Column(Integer, ForeignKey('series.id'), nullable=False)
+    source_media_item_unique_id = Column(Text, nullable=False, index=True)
+    episode_number = Column(Integer, nullable=False)
+    file_path = Column(Text, nullable=False)
+    series = relationship("Series")

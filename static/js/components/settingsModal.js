@@ -9,7 +9,8 @@ const SettingsModal = {
   props: {
     series: { type: Array, required: true },
     agentQueue: { type: Array, required: true },
-    downloadQueue: { type: Array, required: true }
+    downloadQueue: { type: Array, required: true },
+    slicingQueue: { type: Array, required: true }
   },
   template: `
     <div class="modal fade" ref="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
@@ -73,7 +74,7 @@ const SettingsModal = {
                            <settings-parser-tab ref="parserTab" @show-toast="emitToast"></settings-parser-tab>
                         </div>
                         <div class="tab-pane fade" id="agents-tab-pane" role="tabpanel">
-                           <settings-agents-tab ref="agentsTab" :series="series" :agentQueue="agentQueue" :downloadQueue="downloadQueue"></settings-agents-tab>
+                           <settings-agents-tab ref="agentsTab" :series="series" :agentQueue="agentQueue" :downloadQueue="downloadQueue" :slicing-queue="slicingQueue"></settings-agents-tab>
                         </div>
                         <div class="tab-pane fade" id="debug-tab-pane" role="tabpanel">
                            <settings-debug-tab ref="debugTab" @show-toast="emitToast" @reload-series="emitReload"></settings-debug-tab>

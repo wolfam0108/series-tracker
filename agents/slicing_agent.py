@@ -1,0 +1,167 @@
+import threading
+import time
+import json
+import os
+import subprocess
+from flask import Flask
+from datetime import datetime
+from db import Database
+from logger import Logger
+from sse import ServerSentEvent
+from filename_formatter import FilenameFormatter
+
+class SlicingAgent(threading.Thread):
+    def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent):
+        super().__init__(daemon=True)
+        self.name = "SlicingAgent"
+        self.app = app
+        self.logger = logger
+        self.db = db
+        self.broadcaster = broadcaster
+        self.shutdown_flag = threading.Event()
+        self.CHECK_INTERVAL = 5 # Проверять наличие новых задач каждые 5 секунд
+
+    def recover_tasks(self):
+        """Восстанавливает прерванные задачи при старте."""
+        with self.app.app_context():
+            # Изменяем стартовое сообщение для ясности
+            self.logger.info("slicing_agent", "Проверка на наличие незавершенных задач нарезки...")
+            requeued_count = self.db.requeue_stuck_slicing_tasks()
+
+            if requeued_count > 0:
+                self.logger.info("slicing_agent", f"Возвращено в очередь {requeued_count} 'зависших' задач на нарезку.")
+                self._broadcast_queue_update()
+            else:
+                # <<< ВОТ ЭТО НОВОЕ СООБЩЕНИЕ >>>
+                self.logger.info("slicing_agent", "Незавершенных задач нарезки не найдено. Всё в порядке.")
+
+    def _process_task(self, task):
+        """Основная логика обработки одной задачи нарезки."""
+        unique_id = task['media_item_unique_id']
+        task_id = task['id']
+        
+        with self.app.app_context():
+            try:
+                self.db.update_slicing_task(task_id, {'status': 'slicing'})
+                self.db.update_media_item_slicing_status(unique_id, 'slicing')
+                self._broadcast_queue_update()
+
+                media_item = self.db.get_media_item_by_uid(unique_id)
+                series = self.db.get_series(media_item['series_id'])
+                source_file = media_item['final_filename']
+                chapters = json.loads(media_item['chapters'])
+                
+                if not os.path.exists(source_file):
+                    raise FileNotFoundError(f"Исходный файл не найден: {source_file}")
+
+                progress = json.loads(task['progress_chapters']) if task['progress_chapters'] and task['progress_chapters'] != '{}' else {}
+                formatter = FilenameFormatter(self.logger)
+                
+                # ---> НОВАЯ ЛОГИКА: "Умная" инициализация прогресса <---
+                if not progress:
+                    self.logger.info("slicing_agent", "Первый запуск задачи. Проверка существующих файлов...")
+                    # Сначала создаем "чистый" прогресс
+                    for i in range(len(chapters)):
+                        episode_number = media_item['episode_start'] + i
+                        progress[str(episode_number)] = 'pending'
+                    
+                    # Затем проверяем, какие файлы уже есть на диске (для "ремонта")
+                    for i, chapter in enumerate(chapters):
+                        episode_number = media_item['episode_start'] + i
+                        temp_media_item_data = { 'result': { 'extracted': { 'season': media_item['season'], 'episode': episode_number } } }
+                        expected_filename = formatter.format_filename(series, temp_media_item_data)
+                        expected_path = os.path.join(os.path.dirname(source_file), expected_filename)
+                        if os.path.exists(expected_path):
+                            self.logger.info("slicing_agent", f"Найден существующий файл для эпизода {episode_number}. Помечаем как выполненный.")
+                            progress[str(episode_number)] = 'completed'
+                            # Добавляем запись в БД, если ее там нет
+                            self.db.add_sliced_file(series['id'], unique_id, episode_number, expected_path)
+                    
+                    self.db.update_slicing_task(task_id, {'progress_chapters': json.dumps(progress)})
+                    self._broadcast_queue_update()
+                # --------------------------------------------------------
+
+                for i, chapter in enumerate(chapters):
+                    episode_number = media_item['episode_start'] + i
+                    if progress.get(str(episode_number)) == 'completed':
+                        self.logger.info("slicing_agent", f"Эпизод {episode_number} уже нарезан, пропуск.")
+                        continue
+
+                    start_time = chapter['time']
+                    end_time_str = chapters[i+1]['time'] if i + 1 < len(chapters) else None
+                    FMT = '%H:%M:%S'
+                    start_dt = datetime.strptime(start_time, FMT)
+                    command = ['ffmpeg', '-y', '-ss', start_time, '-i', source_file]
+                    if end_time_str:
+                        end_dt = datetime.strptime(end_time_str, FMT)
+                        duration = end_dt - start_dt
+                        command.extend(['-t', str(duration)])
+                    command.extend(['-c', 'copy'])
+                    
+                    temp_media_item_data = { 'result': { 'extracted': { 'season': media_item['season'], 'episode': episode_number } } }
+                    output_filename = formatter.format_filename(series, temp_media_item_data)
+                    output_path = os.path.join(os.path.dirname(source_file), output_filename)
+                    command.append(output_path)
+                    
+                    self.logger.info("slicing_agent", f"Запуск ffmpeg для эпизода {episode_number}: {' '.join(command)}")
+                    result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8')
+                    
+                    if result.returncode != 0:
+                        raise Exception(f"Ошибка ffmpeg для эпизода {episode_number}: {result.stderr}")
+
+                    self.db.add_sliced_file(series['id'], unique_id, episode_number, output_path)
+                    progress[str(episode_number)] = 'completed'
+                    self.db.update_slicing_task(task_id, {'progress_chapters': json.dumps(progress)})
+                    self._broadcast_queue_update()
+
+                self.logger.info("slicing_agent", f"Нарезка для UID {unique_id} успешно завершена.")
+                
+                # ---> НОВАЯ ЛОГИКА: "Архивация" компиляции и удаление исходника <---
+                self.db.update_media_item_slicing_status(unique_id, 'completed')
+                self.db.set_media_item_ignored_status_by_uid(unique_id, True) # Игнорируем, чтобы не скачать заново
+                self.logger.info("slicing_agent", f"Компиляция {unique_id} помечена как обработанная и игнорируемая.")
+
+                delete_source_enabled = self.db.get_setting('slicing_delete_source_file', 'false') == 'true'
+                if delete_source_enabled:
+                    try:
+                        os.remove(source_file)
+                        self.logger.info("slicing_agent", f"Исходный файл {source_file} удален согласно настройке.")
+                    except OSError as e:
+                        self.logger.error("slicing_agent", f"Не удалось удалить исходный файл {source_file}: {e}")
+                # -------------------------------------------------------------
+
+                self.db.delete_slicing_task(task_id)
+
+            except Exception as e:
+                self.logger.error("slicing_agent", f"Ошибка при обработке задачи нарезки ID {task_id}: {e}", exc_info=True)
+                self.db.update_slicing_task(task_id, {'status': 'error', 'error_message': str(e)})
+                self.db.update_media_item_slicing_status(unique_id, 'error')
+            finally:
+                self._broadcast_queue_update()
+
+    def run(self):
+        self.logger.info(f"{self.name} запущен.")
+        time.sleep(10) # Даем время основному приложению запуститься
+        self.recover_tasks()
+
+        while not self.shutdown_flag.is_set():
+            with self.app.app_context():
+                task = self.db.get_pending_slicing_task()
+            
+            if task:
+                self.logger.info("slicing_agent", f"Взята в работу задача на нарезку ID: {task['id']}")
+                self._process_task(task)
+            
+            self.shutdown_flag.wait(self.CHECK_INTERVAL)
+        
+        self.logger.info(f"{self.name} был остановлен.")
+
+    def shutdown(self):
+        self.logger.info(f"{self.name}: получен сигнал на остановку.")
+        self.shutdown_flag.set()
+    
+    def _broadcast_queue_update(self):
+        """Собирает активные задачи нарезки и транслирует их через SSE."""
+        with self.app.app_context():
+            active_tasks = self.db.get_all_slicing_tasks()
+            self.broadcaster.broadcast('slicing_queue_update', active_tasks)

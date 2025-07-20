@@ -16,6 +16,11 @@ const SettingsAgentsTab = {
       required: true,
       default: () => []
     },
+    slicingQueue: {
+        type: Array,
+        required: true,
+        default: () => []
+    },
   },
   template: `
     <div class="settings-tab-content">
@@ -77,6 +82,40 @@ const SettingsAgentsTab = {
                         </transition-group>
                         <div v-if="!downloadQueue.length" class="div-table-row">
                             <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Очередь загрузок пуста</div>
+                        </div>
+                    </div>
+                </div>
+            </div>
+        </div>
+        
+        <div class="modern-fieldset mb-4">
+            <div class="fieldset-header">
+                <i class="bi bi-scissors me-2"></i>
+                <h6 class="fieldset-title mb-0">Очередь Агента Нарезки (ffmpeg)</h6>
+            </div>
+            <div class="fieldset-content">
+                 <div class="div-table table-slicing-queue">
+                    <div class="div-table-header">
+                        <div class="div-table-cell">Сериал</div>
+                        <div class="div-table-cell">Статус</div>
+                        <div class="div-table-cell">Прогресс</div>
+                        <div class="div-table-cell">Ошибка</div>
+                    </div>
+                    <div class="div-table-body position-relative">
+                        <transition-group name="list" tag="div">
+                            <div v-for="task in slicingQueue" :key="task.id" class="div-table-row">
+                                <div class="div-table-cell">{{ getSeriesName(task.series_id) }}</div>
+                                <div class="div-table-cell">
+                                    <span class="badge" :class="getDownloadStatusClass(task.status)">{{ task.status }}</span>
+                                </div>
+                                <div class="div-table-cell">
+                                    <span class="fw-bold">{{ formatSlicingProgress(task) }}</span>
+                                </div>
+                                <div class="div-table-cell error-cell" :title="task.error_message">{{ task.error_message }}</div>
+                            </div>
+                        </transition-group>
+                        <div v-if="!slicingQueue.length" class="div-table-row">
+                            <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Очередь нарезки пуста</div>
                         </div>
                     </div>
                 </div>
@@ -150,6 +189,20 @@ const SettingsAgentsTab = {
     }
   },
   methods: {
+    formatSlicingProgress(task) {
+        try {
+            const progress = JSON.parse(task.progress_chapters || '{}');
+            const total = Object.keys(progress).length;
+            if (total === 0) {
+                // Если прогресса еще нет, пытаемся посчитать по главам из media_item (может быть неточно)
+                return '0 / ?';
+            }
+            const completed = Object.values(progress).filter(s => s === 'completed').length;
+            return `${completed} / ${total}`;
+        } catch(e) {
+            return 'Ошибка';
+        }
+    },
     getSeriesName(seriesId) {
         const series = this.series.find(s => s.id === seriesId);
         return series ? series.name : `ID: ${seriesId}`;
@@ -162,6 +215,7 @@ const SettingsAgentsTab = {
         const map = {
             'pending': 'bg-secondary',
             'downloading': 'bg-primary',
+            'slicing': 'bg-info',
             'completed': 'bg-success',
             'error': 'bg-danger',
         };

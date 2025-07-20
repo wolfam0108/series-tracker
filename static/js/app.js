@@ -13,6 +13,7 @@ const app = createApp({
       series: [],
       agentQueue: [],
       downloadQueue: [],
+      slicingQueue: [],
       toastMessage: '',
       activeSeriesId: null, 
       isLoading: true,
@@ -144,6 +145,11 @@ const app = createApp({
         this.eventSource.addEventListener('download_queue_update', (event) => {
             this.downloadQueue = JSON.parse(event.data);
         });
+
+        this.eventSource.addEventListener('slicing_queue_update', (event) => {
+            this.slicingQueue = JSON.parse(event.data);
+        });
+
         this.eventSource.addEventListener('series_added', (event) => {
             const newSeries = JSON.parse(event.data);
             this.series.push(newSeries);

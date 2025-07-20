@@ -72,3 +72,26 @@ def set_item_ignored_status_by_uid(unique_id):
     except Exception as e:
         app.logger.error("media_api", f"Ошибка обновления статуса игнорирования для UID {unique_id}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+    
+@media_bp.route('/media-items/<string:unique_id>/slice', methods=['POST'])
+def create_slice_task(unique_id):
+    """Создает задачу на нарезку для указанного медиа-элемента."""
+    try:
+        item = app.db.get_media_item_by_uid(unique_id)
+        if not item:
+            return jsonify({"success": False, "error": "Медиа-элемент не найден"}), 404
+        
+        # Проверяем, что задача еще не создана
+        if item.get('slicing_status') != 'none':
+            return jsonify({"success": False, "error": "Задача на нарезку уже существует или завершена"}), 409
+
+        # Создаем задачу в очереди и обновляем статус
+        app.db.create_slicing_task(unique_id, item['series_id'])
+        app.db.update_media_item_slicing_status(unique_id, 'pending')
+        
+        # TODO: Транслировать обновление очереди SlicingAgent через SSE
+        
+        return jsonify({"success": True, "message": "Задача на нарезку успешно создана."})
+    except Exception as e:
+        app.logger.error("media_api", f"Ошибка создания задачи на нарезку для UID {unique_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500

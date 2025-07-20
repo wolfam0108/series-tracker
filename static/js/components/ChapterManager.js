@@ -17,10 +17,20 @@ const ChapterManager = {
                     <strong class="compilation-title" :title="item.source_url">
                         {{ getBaseName(item.final_filename) || 'Компиляция ' + item.episode_start + '-' + item.episode_end }}
                     </strong>
-                    <button class="control-btn" @click="fetchChapters(item)" :disabled="item.isLoadingChapters" title="Проверить оглавление">
-                        <span v-if="item.isLoadingChapters" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                        <i v-else class="bi bi-search"></i>
-                    </button>
+                    <div class="d-flex gap-2">
+                        <button class="control-btn" @click="fetchChapters(item)" :disabled="item.isLoadingChapters" title="Проверить оглавление">
+                            <span v-if="item.isLoadingChapters" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                            <i v-else class="bi bi-search"></i>
+                        </button>
+                        <button 
+                            v-if="canSlice(item)"
+                            class="control-btn text-primary" 
+                            @click="createSlicingTask(item)" 
+                            :disabled="isSliceButtonDisabled(item)"
+                            :title="getSliceButtonTitle(item)">
+                                <i class="bi bi-scissors"></i>
+                        </button>
+                    </div>
                 </div>
                 <div v-if="item.chapters && item.chapters.length" class="card-row chapter-wrap-container">
                     <span v-for="(chapter, index) in item.chapters" :key="index" class="chapter-pill">
@@ -54,27 +64,23 @@ const ChapterManager = {
       if (this.isLoading) return;
       this.isLoading = true;
       try {
-        // Шаг 1: Получаем список всех медиа-элементов для сериала
         const mediaItemsResponse = await fetch(`/api/series/${this.seriesId}/media-items`);
         if (!mediaItemsResponse.ok) throw new Error('Ошибка загрузки медиа-элементов');
         const rawMediaItems = await mediaItemsResponse.json();
-    
-        // <<< НОВОЕ ИЗМЕНЕНИЕ: Загружаем данные о самом сериале, чтобы получить список игнорируемых сезонов >>>
+        
         const seriesResponse = await fetch(`/api/series/${this.seriesId}`);
         if (!seriesResponse.ok) throw new Error('Ошибка загрузки данных сериала');
         const seriesData = await seriesResponse.json();
         const ignoredSeasons = seriesData.ignored_seasons ? JSON.parse(seriesData.ignored_seasons) : [];
 
-        // <<< НОВОЕ ИЗМЕНЕНИЕ: Добавлены две новые проверки в фильтр >>>
         this.compilationItems = rawMediaItems
           .filter(item => {
-            const season = item.season ?? 1; // Сезон по умолчанию 1, если не определен
-
-            return item.episode_end &&                         // 1. Это должна быть компиляция
+            const season = item.season ?? 1;
+            return item.episode_end &&
                    item.episode_end > item.episode_start &&
-                   item.status === 'completed' &&             // 2. Файл должен быть скачан
-                   !item.is_ignored_by_user &&                // 3. Файл не игнорирован индивидуально
-                   !ignoredSeasons.includes(season);          // 4. Сезон файла не игнорирован
+                   item.status === 'completed' &&
+                   !item.is_ignored_by_user &&
+                   !ignoredSeasons.includes(season);
           })
           .map(item => ({
             ...item,
@@ -102,19 +108,45 @@ const ChapterManager = {
             item.isLoadingChapters = false;
         }
     },
+    canSlice(item) {
+        return item.chapters && item.chapters.length > 0;
+    },
+    isSliceButtonDisabled(item) {
+        return item.slicing_status !== 'none';
+    },
+    getSliceButtonTitle(item) {
+        const statusMap = {
+            'none': 'Начать нарезку на эпизоды',
+            'pending': 'В очереди на нарезку',
+            'slicing': 'В процессе нарезки...',
+            'completed': 'Нарезка успешно завершена',
+            'error': 'Ошибка при нарезке',
+        };
+        return statusMap[item.slicing_status] || 'Начать нарезку';
+    },
+    async createSlicingTask(item) {
+        if (!confirm(`Вы уверены, что хотите запустить нарезку для файла "${this.getBaseName(item.final_filename)}"?`)) return;
+        
+        item.slicing_status = 'pending';
+        
+        try {
+            const response = await fetch(`/api/media-items/${item.unique_id}/slice`, {
+                method: 'POST'
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Ошибка создания задачи');
+            this.$emit('show-toast', 'Задача на нарезку успешно создана.', 'success');
+        } catch(error) {
+            this.$emit('show-toast', error.message, 'danger');
+            item.slicing_status = 'none';
+        }
+    },
     getCardClass(item) {
-      // Если проверка еще не проводилась, статус "Не проверено" (желтый)
       if (item.chapters === null) return 'status-yellow';
-
-      // Если проверка была, но главы не найдены (пустой массив), статус "Ошибка" (красный)
       if (item.chapters.length === 0) return 'status-red';
-
-      // Если количество глав совпадает, статус "Соответствует" (зеленый)
       if (item.chapters.length === this.getExpectedCount(item)) {
         return 'status-green';
       }
-
-      // В остальных случаях (несоответствие количества) - статус "Ошибка" (красный)
       return 'status-red';
     },
     getChapterCountText(item) {
@@ -123,7 +155,7 @@ const ChapterManager = {
         return `${found} из ${expected} глав`;
     },
     getStatusText(item) {
-        if (!item.chapters) return 'Не проверено';
+        if (item.chapters === null) return 'Не проверено';
         if (item.chapters.length === 0) return 'Оглавление не найдено';
         if (item.chapters.length === this.getExpectedCount(item)) return 'Соответствует';
         return 'Несоответствие';

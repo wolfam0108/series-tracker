@@ -454,3 +454,15 @@ def handle_less_strict_scan_setting():
     
     enabled = app.db.get_setting(setting_key, 'false') == 'true'
     return jsonify({"enabled": enabled})
+
+@settings_bp.route('/settings/slicing_delete_source', methods=['GET', 'POST'])
+def handle_slicing_delete_source():
+    setting_key = 'slicing_delete_source_file'
+    if request.method == 'POST':
+        data = request.get_json()
+        if 'enabled' in data:
+            app.db.set_setting(setting_key, str(data['enabled']).lower())
+        return jsonify({"success": True})
+    
+    enabled = app.db.get_setting(setting_key, 'false') == 'true'
+    return jsonify({"enabled": enabled})
