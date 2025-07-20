@@ -28,78 +28,84 @@ const LogsModal = {
 
                     <button type="button" class="btn-close modern-close" @click="close" aria-label="Close"></button>
                 </div>
+
                 <div class="modal-body modern-body" style="display: flex; flex-direction: column; overflow: hidden; flex-grow: 1;">
-                    <div class="tab-content modern-tab-content" id="logsTabContent" style="flex-grow: 1; display: flex; flex-direction: column;">
-                        <div class="tab-pane fade show active" id="viewer-tab-pane" role="tabpanel" style="display: flex; flex-direction: column; flex-grow: 1;">
-                            <div class="row mb-3">
-                                <div class="col-md-4">
-                                    <label for="logGroupFilter" class="modern-label">Фильтр по группе</label>
-                                    <select v-model="logFilter.group" class="modern-select" @change="loadLogs">
-                                        <option value="">Все группы</option>
-                                        <option value="agent">agent</option>
-                                        <option value="anilibria_parser">anilibria_parser</option>
-                                        <option value="astar_parser">astar_parser</option>
-                                        <option value="auth">auth</option>
-                                        <option value="auth_api">auth_api</option>
-                                        <option value="database">database</option>
-                                        <option value="database_api">database_api</option>
-                                        <option value="flask_internal">flask_internal</option>
-                                        <option value="kinozal_parser">kinozal_parser</option>
-                                        <option value="main">main</option>
-                                        <option value="monitoring_agent">monitoring_agent</option>
-                                        <option value="qbittorrent">qbittorrent</option>
-                                        <option value="renamer">renamer</option>
-                                        <option value="routes">routes</option>
-                                        <option value="scanner">scanner</option>
-                                        <option value="series_api">series_api</option>
-                                    </select>
+                    
+                    <div class="tab-content modern-tab-content" id="logsTabContent" style="flex-grow: 1;">
+                        
+                        <div class="tab-pane fade show active" id="viewer-tab-pane" role="tabpanel">
+                            <div style="display: flex; flex-direction: column; height: 100%;">
+                                <div class="row mb-3">
+                                    <div class="col-md-4">
+                                        <label for="logGroupFilter" class="modern-label">Фильтр по группе</label>
+                                        <select v-model="logFilter.group" class="modern-select" @change="loadLogs">
+                                            <option value="">Все группы</option>
+                                            <option value="agent">agent</option>
+                                            <option value="anilibria_parser">anilibria_parser</option>
+                                            <option value="astar_parser">astar_parser</option>
+                                            <option value="auth">auth</option>
+                                            <option value="auth_api">auth_api</option>
+                                            <option value="database">database</option>
+                                            <option value="database_api">database_api</option>
+                                            <option value="flask_internal">flask_internal</option>
+                                            <option value="kinozal_parser">kinozal_parser</option>
+                                            <option value="main">main</option>
+                                            <option value="monitoring_agent">monitoring_agent</option>
+                                            <option value="qbittorrent">qbittorrent</option>
+                                            <option value="renamer">renamer</option>
+                                            <option value="routes">routes</option>
+                                            <option value="scanner">scanner</option>
+                                            <option value="series_api">series_api</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="logLevelFilter" class="modern-label">Фильтр по уровню</label>
+                                        <select v-model="logFilter.level" class="modern-select" @change="loadLogs">
+                                            <option value="">Все уровни</option>
+                                            <option value="INFO">INFO</option>
+                                            <option value="DEBUG">DEBUG</option>
+                                            <option value="WARNING">WARNING</option>
+                                            <option value="ERROR">ERROR</option>
+                                        </select>
+                                    </div>
+                                    <div class="col-md-4">
+                                        <label for="logLimitInput" class="modern-label">Лимит записей</label>
+                                        <input type="number" id="logLimitInput" v-model.lazy="editableLogLimit" class="modern-input" min="100" max="10000" step="100">
+                                    </div>
                                 </div>
-                                <div class="col-md-4">
-                                    <label for="logLevelFilter" class="modern-label">Фильтр по уровню</label>
-                                    <select v-model="logFilter.level" class="modern-select" @change="loadLogs">
-                                        <option value="">Все уровни</option>
-                                        <option value="INFO">INFO</option>
-                                        <option value="DEBUG">DEBUG</option>
-                                        <option value="WARNING">WARNING</option>
-                                        <option value="ERROR">ERROR</option>
-                                    </select>
-                                </div>
-                                <div class="col-md-4">
-                                    <label for="logLimitInput" class="modern-label">Лимит записей</label>
-                                    <input type="number" id="logLimitInput" v-model.lazy="editableLogLimit" class="modern-input" min="100" max="10000" step="100">
-                                </div>
-                            </div>
-                            
-                            <div class="div-table-wrapper" style="flex-grow: 1; overflow-y: auto; position: relative;">
-                                <div class="position-relative">
-                                    <transition name="fade">
-                                        <div v-if="isLoading" class="loading-overlay"></div>
-                                    </transition>
-                                    <div class="div-table table-logs">
-                                        <div class="div-table-header">
-                                            <div class="div-table-cell">Время</div>
-                                            <div class="div-table-cell">Группа</div>
-                                            <div class="div-table-cell">Уровень</div>
-                                            <div class="div-table-cell">Сообщение</div>
-                                        </div>
-                                        <div class="div-table-body">
-                                            <transition-group name="list" tag="div">
-                                                <div v-for="log in paginatedLogs" :key="log.id" class="div-table-row" :class="getLogRowClass(log.level)">
-                                                    <div class="div-table-cell">{{ formatTimestamp(log.timestamp) }}</div>
-                                                    <div class="div-table-cell">{{ log.group }}</div>
-                                                    <div class="div-table-cell">{{ log.level }}</div>
-                                                    <div class="div-table-cell">{{ log.message }}</div>
+                                
+                                <div class="div-table-wrapper" style="flex-grow: 1; overflow-y: auto; position: relative;">
+                                    <div class="position-relative">
+                                        <transition name="fade">
+                                            <div v-if="isLoading" class="loading-overlay"></div>
+                                        </transition>
+                                        <div class="div-table table-logs">
+                                            <div class="div-table-header">
+                                                <div class="div-table-cell">Время</div>
+                                                <div class="div-table-cell">Группа</div>
+                                                <div class="div-table-cell">Уровень</div>
+                                                <div class="div-table-cell">Сообщение</div>
+                                            </div>
+                                            <div class="div-table-body">
+                                                <transition-group name="list" tag="div">
+                                                    <div v-for="log in paginatedLogs" :key="log.id" class="div-table-row" :class="getLogRowClass(log.level)">
+                                                        <div class="div-table-cell">{{ formatTimestamp(log.timestamp) }}</div>
+                                                        <div class="div-table-cell">{{ log.group }}</div>
+                                                        <div class="div-table-cell">{{ log.level }}</div>
+                                                        <div class="div-table-cell">{{ log.message }}</div>
+                                                    </div>
+                                                </transition-group>
+                                                <div class="div-table-row" v-if="!logs.length && !isLoading">
+                                                    <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Логи не найдены.</div>
                                                 </div>
-                                            </transition-group>
-                                            <div class="div-table-row" v-if="!logs.length && !isLoading">
-                                                <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Логи не найдены.</div>
                                             </div>
                                         </div>
                                     </div>
                                 </div>
+                                <small v-if="logs.length > logLimit" class="text-muted mt-2 pt-2 border-top">Отображаются последние {{ logLimit }} из {{ logs.length }} записей.</small>
                             </div>
-                            <small v-if="logs.length > logLimit" class="text-muted mt-2 pt-2 border-top">Отображаются последние {{ logLimit }} из {{ logs.length }} записей.</small>
                         </div>
+
                         <div class="tab-pane fade" id="settings-tab-pane" role="tabpanel">
                             <settings-logging-tab v-if="activeTab === 'settings'" @show-toast="emitToast" ref="loggingTab"></settings-logging-tab>
                         </div>
@@ -117,6 +123,7 @@ const LogsModal = {
         </div>
     </div>
   `,
+  // ...остальная часть компонента (data, methods) остается без изменений
   data() {
     return {
       modal: null,

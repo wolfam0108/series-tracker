@@ -29,6 +29,7 @@ class Series(Base):
     resolution_override = Column(Text, nullable=True)
     source_type = Column(Text, default='torrent', nullable=False)
     parser_profile_id = Column(Integer, ForeignKey('parser_profiles.id'), nullable=True)
+    ignored_seasons = Column(Text, default='[]')
 
 class RenamingPattern(Base):
     __tablename__ = 'renaming_patterns'

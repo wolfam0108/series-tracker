@@ -54,12 +54,28 @@ const ChapterManager = {
       if (this.isLoading) return;
       this.isLoading = true;
       try {
-        const response = await fetch(`/api/series/${this.seriesId}/media-items`);
-        if (!response.ok) throw new Error('Ошибка загрузки медиа-элементов');
-        const rawMediaItems = await response.json();
-        
+        // Шаг 1: Получаем список всех медиа-элементов для сериала
+        const mediaItemsResponse = await fetch(`/api/series/${this.seriesId}/media-items`);
+        if (!mediaItemsResponse.ok) throw new Error('Ошибка загрузки медиа-элементов');
+        const rawMediaItems = await mediaItemsResponse.json();
+    
+        // <<< НОВОЕ ИЗМЕНЕНИЕ: Загружаем данные о самом сериале, чтобы получить список игнорируемых сезонов >>>
+        const seriesResponse = await fetch(`/api/series/${this.seriesId}`);
+        if (!seriesResponse.ok) throw new Error('Ошибка загрузки данных сериала');
+        const seriesData = await seriesResponse.json();
+        const ignoredSeasons = seriesData.ignored_seasons ? JSON.parse(seriesData.ignored_seasons) : [];
+
+        // <<< НОВОЕ ИЗМЕНЕНИЕ: Добавлены две новые проверки в фильтр >>>
         this.compilationItems = rawMediaItems
-          .filter(item => item.episode_end && item.episode_end > item.episode_start && item.status === 'completed')
+          .filter(item => {
+            const season = item.season ?? 1; // Сезон по умолчанию 1, если не определен
+
+            return item.episode_end &&                         // 1. Это должна быть компиляция
+                   item.episode_end > item.episode_start &&
+                   item.status === 'completed' &&             // 2. Файл должен быть скачан
+                   !item.is_ignored_by_user &&                // 3. Файл не игнорирован индивидуально
+                   !ignoredSeasons.includes(season);          // 4. Сезон файла не игнорирован
+          })
           .map(item => ({
             ...item,
             chapters: item.chapters ? JSON.parse(item.chapters) : null,

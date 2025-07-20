@@ -57,3 +57,18 @@ def set_item_ignored_status(item_id):
     except Exception as e:
         app.logger.error("media_api", f"Ошибка обновления статуса игнорирования для item_id {item_id}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+    
+@media_bp.route('/media-items/<string:unique_id>/ignore', methods=['PUT'])
+def set_item_ignored_status_by_uid(unique_id):
+    data = request.get_json()
+    is_ignored = data.get('is_ignored')
+
+    if is_ignored is None:
+        return jsonify({"success": False, "error": "Параметр is_ignored не указан"}), 400
+
+    try:
+        app.db.set_media_item_ignored_status_by_uid(unique_id, is_ignored)
+        return jsonify({"success": True})
+    except Exception as e:
+        app.logger.error("media_api", f"Ошибка обновления статуса игнорирования для UID {unique_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500

@@ -970,3 +970,19 @@ class Database:
                         row_dict[key] = value.isoformat()
                 rows.append(row_dict)
             return rows
+
+    def set_media_item_ignored_status_by_uid(self, unique_id: str, is_ignored: bool):
+        """Обновляет статус игнорирования для одного медиа-элемента по его unique_id."""
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if item:
+                item.is_ignored_by_user = is_ignored
+                session.commit()
+
+    def update_series_ignored_seasons(self, series_id: int, seasons: list):
+        """Обновляет список игнорируемых сезонов для сериала."""
+        with self.Session() as session:
+            series = session.query(Series).filter_by(id=series_id).first()
+            if series:
+                series.ignored_seasons = json.dumps(seasons)
+                session.commit()

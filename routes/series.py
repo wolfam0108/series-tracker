@@ -235,3 +235,17 @@ def rename_torrent_files(series_id, qb_hash):
         return jsonify({"success": False, "error": f"Переименовано {success_count} файлов. Ошибки: {'; '.join(errors)}"}), 500
         
     return jsonify({"success": True, "message": f"Успешно переименовано {success_count} файлов."})
+
+@series_bp.route('/<int:series_id>/ignored-seasons', methods=['POST'])
+def update_ignored_seasons(series_id):
+    data = request.get_json()
+    seasons = data.get('seasons')
+    if seasons is None:
+        return jsonify({"success": False, "error": "Параметр 'seasons' не указан"}), 400
+
+    try:
+        app.db.update_series_ignored_seasons(series_id, seasons)
+        return jsonify({"success": True})
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка обновления игнорируемых сезонов для series_id {series_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500

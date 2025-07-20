@@ -77,6 +77,28 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                     raise ValueError("Для сериала не назначен профиль правил парсера.")
                 
                 processed_videos = engine.process_videos(profile_id, scraped_videos)
+                # Получаем и парсим список игнорируемых сезонов
+                try:
+                    ignored_seasons_json = series.get('ignored_seasons', '[]')
+                    ignored_seasons = set(json.loads(ignored_seasons_json))
+                    app.logger.info("scanner", f"Сезоны для игнорирования: {ignored_seasons}")
+                except (json.JSONDecodeError, TypeError):
+                    ignored_seasons = set()
+
+                if ignored_seasons:
+                    # Фильтруем видео, убирая те, что попали в игнорируемые сезоны
+                    final_videos_to_process = []
+                    for video in processed_videos:
+                        season = video.get('result', {}).get('extracted', {}).get('season')
+                        # Сезон по умолчанию 1, если не найден
+                        if season is None:
+                            season = 1
+
+                        if season not in ignored_seasons:
+                            final_videos_to_process.append(video)
+
+                    app.logger.info("scanner", f"После фильтрации по сезонам осталось {len(final_videos_to_process)} из {len(processed_videos)} видео.")
+                    processed_videos = final_videos_to_process
 
                 collector = SmartCollector(app.logger)
                 download_plan = collector.collect(processed_videos)
