@@ -324,3 +324,26 @@
     border-color: #b8daff;
     color: #004085;
 }
+
+.composition-cards-container .test-result-card-compact.pending {
+    background-color: #fff9e6;
+    border-color: #ffecb3;
+    color: #665000;
+}
+
+/* ---> ДОБАВЛЕН НОВЫЙ СТИЛЬ <--- */
+.composition-cards-container .test-result-card-compact.archived {
+    background-color: #e9ecef;
+    border-color: #dee2e6;
+    opacity: 0.7;
+}
+
+.composition-cards-container .test-result-card-compact.archived .card-title {
+    text-decoration: line-through;
+}
+
+.sliced-file-card.status-error {
+    background-color: #f8d7da; /* Светло-красный фон */
+    border-color: #f5c2c7;
+    color: #842029;
+}

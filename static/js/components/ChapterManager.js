@@ -76,11 +76,18 @@ const ChapterManager = {
         this.compilationItems = rawMediaItems
           .filter(item => {
             const season = item.season ?? 1;
-            return item.episode_end &&
-                   item.episode_end > item.episode_start &&
-                   item.status === 'completed' &&
-                   !item.is_ignored_by_user &&
-                   !ignoredSeasons.includes(season);
+            const isCompilation = item.episode_end && item.episode_end > item.episode_start;
+            const isDownloaded = item.status === 'completed';
+            const isIgnoredBySeason = ignoredSeasons.includes(season);
+            
+            // Показываем, если:
+            // 1. Это скачанная компиляция, которую пользователь НЕ игнорировал И сезон НЕ игнорируется.
+            // ИЛИ
+            // 2. Это компиляция, у которой нарезка уже завершена (даже если она помечена как "игнорируемая системой").
+            const showBecauseActive = isDownloaded && !item.is_ignored_by_user && !isIgnoredBySeason;
+            const showBecauseCompletedSlicing = ['completed', 'completed_with_errors'].includes(item.slicing_status);
+
+            return isCompilation && (showBecauseActive || showBecauseCompletedSlicing);
           })
           .map(item => ({
             ...item,
@@ -112,11 +119,14 @@ const ChapterManager = {
         return item.chapters && item.chapters.length > 0;
     },
     isSliceButtonDisabled(item) {
-        return item.slicing_status !== 'none';
+        // Кнопка активна, если статус "none" ИЛИ "completed_with_errors"
+        const allowed_statuses = ['none', 'completed_with_errors'];
+        return !allowed_statuses.includes(item.slicing_status);
     },
     getSliceButtonTitle(item) {
         const statusMap = {
             'none': 'Начать нарезку на эпизоды',
+            'completed_with_errors': 'Восстановить недостающие файлы',
             'pending': 'В очереди на нарезку',
             'slicing': 'В процессе нарезки...',
             'completed': 'Нарезка успешно завершена',

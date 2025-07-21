@@ -91,16 +91,28 @@ def get_series_composition(series_id):
             pub_date = item.get('source_data', {}).get('publication_date')
             url = item.get('source_data', {}).get('url')
             
+            # Статус по умолчанию
             item['local_status'] = 'pending'
+            # ---> НАЧАЛО ИСПРАВЛЕНИЯ <---
+            item['slicing_status'] = 'none'
+            item['is_ignored_by_user'] = False
+            # ---> КОНЕЦ ИСПРАВЛЕНИЯ <---
+
 
             if pub_date and url:
                 unique_id = generate_media_item_id(url, pub_date, series_id)
                 item['unique_id'] = unique_id
                 
                 db_item = app.db.get_media_item_by_uid(unique_id)
-                if db_item and db_item.get('final_filename'):
-                    if os.path.exists(db_item['final_filename']):
+                if db_item:
+                    # Проверяем, скачан ли файл
+                    if db_item.get('final_filename') and os.path.exists(db_item['final_filename']):
                         item['local_status'] = 'completed'
+                    
+                    item['slicing_status'] = db_item.get('slicing_status', 'none')
+                    item['is_ignored_by_user'] = db_item.get('is_ignored_by_user', False)
+                    item['season'] = db_item.get('season')
+                    item['episode_start'] = db_item.get('episode_start')
                 
                 item['source_data']['publication_date'] = pub_date.isoformat()
         
@@ -255,6 +267,25 @@ def get_sliced_files_for_series(series_id):
     """Возвращает все нарезанные файлы для указанного сериала."""
     try:
         items = app.db.get_all_sliced_files_for_series(series_id)
+        
+        # ---> НАЧАЛО ИСПРАВЛЕНИЯ <---
+        # Кэшируем родительские элементы, чтобы не делать лишних запросов к БД в цикле
+        media_items_cache = {}
+        for item in items:
+            uid = item.get('source_media_item_unique_id')
+            if uid not in media_items_cache:
+                media_items_cache[uid] = app.db.get_media_item_by_uid(uid)
+            
+            parent_item = media_items_cache.get(uid)
+            if parent_item:
+                # Добавляем в ответ имя родительского файла и сезон
+                item['parent_filename'] = parent_item.get('final_filename', 'Источник не найден')
+                item['season'] = parent_item.get('season', 1)
+            else:
+                item['parent_filename'] = 'Источник не найден'
+                item['season'] = 1
+        # ---> КОНЕЦ ИСПРАВЛЕНИЯ <---
+        
         return jsonify(items)
     except Exception as e:
         app.logger.error("series_api", f"Ошибка получения sliced_files для series_id {series_id}: {e}", exc_info=True)

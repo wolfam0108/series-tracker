@@ -1,3 +1,4 @@
+import os
 from flask import Blueprint, jsonify, request, current_app as app
 import json
 from utils.chapter_parser import get_chapters # Импортируем новый парсер
@@ -81,17 +82,65 @@ def create_slice_task(unique_id):
         if not item:
             return jsonify({"success": False, "error": "Медиа-элемент не найден"}), 404
         
-        # Проверяем, что задача еще не создана
-        if item.get('slicing_status') != 'none':
-            return jsonify({"success": False, "error": "Задача на нарезку уже существует или завершена"}), 409
+        # ---> НАЧАЛО ИСПРАВЛЕНИЯ <---
+        
+        # 1. Проверяем, что задача еще не в процессе выполнения
+        allowed_statuses = ['none', 'completed_with_errors']
+        if item.get('slicing_status') not in allowed_statuses:
+            return jsonify({"success": False, "error": "Задача на нарезку уже в очереди или была успешно завершена без ошибок."}), 409
+
+        # 2. Удаляем старые записи о нарезанных файлах для чистого старта
+        deleted_count = app.db.delete_sliced_files_for_source(unique_id)
+        if deleted_count > 0:
+            app.logger.info("media_api", f"Удалено {deleted_count} старых записей о нарезанных файлах для UID {unique_id} перед повторной нарезкой.")
+
+        # ---> КОНЕЦ ИСПРАВЛЕНИЯ <---
 
         # Создаем задачу в очереди и обновляем статус
         app.db.create_slicing_task(unique_id, item['series_id'])
         app.db.update_media_item_slicing_status(unique_id, 'pending')
         
-        # TODO: Транслировать обновление очереди SlicingAgent через SSE
+        # Транслируем обновление очереди SlicingAgent через SSE
+        app.slicing_agent._broadcast_queue_update()
         
         return jsonify({"success": True, "message": "Задача на нарезку успешно создана."})
     except Exception as e:
         app.logger.error("media_api", f"Ошибка создания задачи на нарезку для UID {unique_id}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+    
+@media_bp.route('/media-items/<string:unique_id>/verify-sliced-files', methods=['POST'])
+def verify_sliced_files(unique_id):
+    """
+    Проверяет наличие нарезанных файлов на диске, обновляет их статусы в БД
+    и статус родительского media_item.
+    """
+    app.logger.info("media_api", f"Запуск верификации нарезанных файлов для UID {unique_id}")
+    try:
+        sliced_files = app.db.get_sliced_files_for_source(unique_id)
+        if not sliced_files:
+            # Если файлов в БД нет, но проверка вызвана, значит что-то не так. Сбрасываем.
+            app.db.update_media_item_slicing_status_by_uid(unique_id, 'none')
+            return jsonify({"status": "none", "message": "Записи о нарезанных файлах не найдены, статус сброшен."})
+
+        has_missing_files = False
+        for file_record in sliced_files:
+            file_exists = os.path.exists(file_record['file_path'])
+            
+            if file_exists and file_record['status'] == 'missing':
+                app.db.update_sliced_file_status(file_record['id'], 'completed')
+            elif not file_exists and file_record['status'] == 'completed':
+                app.db.update_sliced_file_status(file_record['id'], 'missing')
+                has_missing_files = True
+            elif not file_exists:
+                has_missing_files = True
+
+        # Обновляем статус родительского элемента
+        final_status = 'completed_with_errors' if has_missing_files else 'completed'
+        app.db.update_media_item_slicing_status_by_uid(unique_id, final_status)
+        
+        app.logger.info("media_api", f"Верификация для UID {unique_id} завершена. Итоговый статус: {final_status}")
+        return jsonify({"status": final_status, "has_missing_files": has_missing_files})
+
+    except Exception as e:
+        app.logger.error("media_api", f"Ошибка верификации файлов для UID {unique_id}: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500

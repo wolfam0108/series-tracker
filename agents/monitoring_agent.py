@@ -78,31 +78,61 @@ class MonitoringAgent(threading.Thread):
             for item in media_items_in_series:
                 unique_id = item['unique_id']
                 
-                # --- НОВАЯ ЛОГИКА ВЕРИФИКАЦИИ ---
-                if item['slicing_status'] == 'completed':
-                    # Если нарезка завершена, проверяем наличие нарезанных файлов
+                # ---> НАЧАЛО ИЗМЕНЕНИЙ <---
+                
+                # Логика для компиляций, которые уже проходили нарезку
+                if item['slicing_status'] in ['completed', 'completed_with_errors']:
                     sliced_files = self.db.get_sliced_files_for_source(unique_id)
+                    
                     if not sliced_files:
-                        # Если в БД нет записей о файлах, но статус completed - это ошибка. Восстанавливаем.
-                        self.logger.warning("monitoring_agent", f"Статус нарезки 'completed', но в БД нет нарезанных файлов для {unique_id}. Запуск восстановления.")
+                        self.logger.warning(f"Неконсистентное состояние для {unique_id}: статус '{item['slicing_status']}', но нет записей о нарезанных файлах. Запуск восстановления.")
                         self._trigger_slicing_recovery(unique_id)
                         changed = True
                         continue
 
-                    # Проверяем каждый файл на диске
-                    all_files_exist = all(os.path.exists(f['file_path']) for f in sliced_files)
-                    if not all_files_exist:
-                        self.logger.warning("monitoring_agent", f"Один или несколько нарезанных файлов для {unique_id} отсутствуют. Запуск восстановления.")
-                        self._trigger_slicing_recovery(unique_id)
-                        changed = True
+                    has_missing_files = False
+                    for file_record in sliced_files:
+                        if not os.path.exists(file_record['file_path']):
+                            has_missing_files = True
+                            if file_record['status'] != 'missing':
+                                self.db.update_sliced_file_status(file_record['id'], 'missing')
+                                self.logger.warning(f"Мониторинг: нарезанный файл помечен как отсутствующий: {file_record['file_path']}")
+                                changed = True
+                        elif file_record['status'] != 'completed':
+                            self.db.update_sliced_file_status(file_record['id'], 'completed')
+                            self.logger.info(f"Мониторинг: восстановлен статус для найденного файла: {file_record['file_path']}")
+                            changed = True
 
+                    # Обновляем статус родительского элемента на основе проверки
+                    if has_missing_files:
+                        if item['slicing_status'] != 'completed_with_errors':
+                            self.db.update_media_item_slicing_status_by_uid(unique_id, 'completed_with_errors')
+                            changed = True
+                        
+                        # КЛЮЧЕВОЙ МОМЕНТ: РЕАКТИВАЦИЯ
+                        # Если файлы отсутствуют, а компиляция была помечена как игнорируемая,
+                        # снимаем флаг, чтобы она снова могла быть скачана.
+                        if item['is_ignored_by_user']:
+                            self.db.set_media_item_ignored_status_by_uid(unique_id, False)
+                            self.logger.warning(f"РЕАКТИВАЦИЯ: Компиляция {unique_id} возвращена в активное состояние, так как ее нарезанные файлы отсутствуют.")
+                            changed = True
+                    else: # Если все файлы на месте
+                        if item['slicing_status'] != 'completed':
+                            self.db.update_media_item_slicing_status_by_uid(unique_id, 'completed')
+                            changed = True
+                        # Убеждаемся, что успешная компиляция заархивирована
+                        if not item['is_ignored_by_user']:
+                            self.db.set_media_item_ignored_status_by_uid(unique_id, True)
+                            changed = True
+
+                # Стандартная проверка для еще не нарезанных компиляций
                 elif item.get('final_filename'):
-                    # Стандартная проверка для еще не нарезанных компиляций
                     if not os.path.exists(item['final_filename']):
-                        self.logger.warning("monitoring_agent", f"Файл {item['final_filename']} для UID {unique_id} не найден. Сброс статуса загрузки.")
+                        self.logger.warning(f"Файл {item['final_filename']} для UID {unique_id} не найден. Сброс статуса загрузки.")
                         self.db.reset_media_item_download_state(unique_id)
                         changed = True
-                # ------------------------------------
+                
+                # ---> КОНЕЦ ИЗМЕНЕНИЙ <---
 
             # Агрегация статусов для главной карточки (остается без изменений)
             download_statuses = self.db.get_series_download_statuses(series_id)

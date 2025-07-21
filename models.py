@@ -212,4 +212,5 @@ class SlicedFile(Base):
     source_media_item_unique_id = Column(Text, nullable=False, index=True)
     episode_number = Column(Integer, nullable=False)
     file_path = Column(Text, nullable=False)
+    status = Column(Text, default='completed', nullable=False) # completed | missing
     series = relationship("Series")

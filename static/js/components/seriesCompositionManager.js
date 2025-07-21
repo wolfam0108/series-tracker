@@ -49,7 +49,7 @@ const SeriesCompositionManager = {
                                         <input class="form-check-input" type="checkbox" role="switch"
                                                :id="'check-' + item.unique_id"
                                                :checked="isItemInPlan(item)"
-                                               :disabled="isSeasonIgnored(seasonNumber) || item.is_ignored_by_user"
+                                               :disabled="isSeasonIgnored(seasonNumber) || item.is_ignored_by_user || item.slicing_status === 'completed'"
                                                @change="toggleItemIgnored(item)">
                                         <label class="form-check-label" :for="'check-' + item.unique_id"></label>
                                     </div>
@@ -68,10 +68,14 @@ const SeriesCompositionManager = {
                             </div>
 
                             <div v-if="item.type === 'sliced'"
-                                 class="test-result-card-compact sliced-file-card">
+                                 class="test-result-card-compact sliced-file-card"
+                                 :class="{'status-error': item.status === 'missing'}">
                                 <div class="card-line">
-                                    <strong class="card-title" :title="item.file_path">{{ getBaseName(item.file_path) }}</strong>
-                                    <span class="badge bg-primary"><i class="bi bi-check-circle-fill me-1"></i>Нарезан</span>
+                                    <strong class="card-title d-flex align-items-center" :title="item.file_path">
+                                        <i class="bi bi-file-earmark-check-fill me-2"></i> <span>{{ getBaseName(item.file_path) }}</span>
+                                    </strong>
+                                    <span v-if="item.status === 'completed'" class="badge bg-primary"><i class="bi bi-check-circle-fill me-1"></i>Нарезан</span>
+                                    <span v-else-if="item.status === 'missing'" class="badge bg-danger"><i class="bi bi-exclamation-triangle-fill me-1"></i>Файл отсутствует</span>
                                 </div>
                                 <div class="card-line text-muted small">
                                     <span>Источник: {{ getBaseName(item.parent_filename) }}</span>
@@ -114,38 +118,45 @@ const SeriesCompositionManager = {
         });
 
         this.slicedFiles.forEach(file => {
-            const parentItem = this.mediaItems.find(mi => mi.unique_id === file.source_media_item_unique_id);
             items.push({
                 type: 'sliced',
                 unique_id: `sliced-${file.id}`,
-                season: parentItem ? (parentItem.result?.extracted?.season ?? 'undefined') : 'undefined',
+                season: file.season, // Теперь это поле приходит с сервера
                 episode_start: file.episode_number,
                 file_path: file.file_path,
-                parent_filename: parentItem ? parentItem.final_filename : 'Неизвестно',
+                parent_filename: file.parent_filename, // И это тоже
+                status: file.status,
             });
         });
 
         return items;
     },
     groupedItems() {
+        // ---> НАЧАЛО ИЗМЕНЕНИЙ <---
+        // 1. Группируем все элементы по номеру сезона.
         const groups = this.displayItems.reduce((acc, item) => {
-            let season = (item.type === 'compilation')
-                ? (item.result?.extracted?.season)
-                : item.season;
-
-            if (season === null || season === undefined) {
-                season = 'undefined';
-            }
+            // Используем свойство 'season', которое теперь надежно приходит с сервера для всех типов.
+            // Если сезон не определен, помещаем в специальную группу 'undefined'.
+            const season = item.season ?? 'undefined';
             
-            if (!acc[season]) acc[season] = [];
+            if (!acc[season]) {
+                acc[season] = [];
+            }
             acc[season].push(item);
             return acc;
         }, {});
 
+        // 2. Сортируем элементы ВНУТРИ каждой сезонной группы по номеру эпизода.
         for (const season in groups) {
-            groups[season].sort((a, b) => a.episode_start - b.episode_start);
+            groups[season].sort((a, b) => {
+                // Используем 'episode_start' для всех типов карточек.
+                // Если по какой-то причине номер эпизода отсутствует, отправляем такой элемент в конец.
+                const epA = a.episode_start ?? Infinity;
+                const epB = b.episode_start ?? Infinity;
+                return epA - epB;
+            });
         }
-
+        // ---> КОНЕЦ ИЗМЕНЕНИЙ <---
         return groups;
     },
     filteredGroupedItems() {
@@ -156,7 +167,7 @@ const SeriesCompositionManager = {
         for (const season in this.groupedItems) {
             const itemsInSeason = this.groupedItems[season].filter(item => {
                 if (item.type === 'sliced') return true;
-                if (item.is_ignored_by_user && item.slicing_status === 'completed') return true; // Показываем архивные
+                if (item.is_ignored_by_user && item.slicing_status === 'completed') return true;
                 return this.isItemInPlan(item);
             });
             if (itemsInSeason.length > 0) {
@@ -193,6 +204,19 @@ const SeriesCompositionManager = {
             const slicedResponse = await fetch(`/api/series/${this.seriesId}/sliced-files`);
             if (!slicedResponse.ok) throw new Error('Ошибка загрузки нарезанных файлов');
             this.slicedFiles = await slicedResponse.json();
+
+            const uniqueCompilationIds = [...new Set(this.slicedFiles.map(f => f.source_media_item_unique_id))];
+            for (const uid of uniqueCompilationIds) {
+                try {
+                    await fetch(`/api/media-items/${uid}/verify-sliced-files`, { method: 'POST' });
+                } catch (verifyError) {
+                    console.warn(`Не удалось проверить файлы для компиляции ${uid}:`, verifyError);
+                }
+            }
+            if (uniqueCompilationIds.length > 0) {
+                 const refreshedSlicedResponse = await fetch(`/api/series/${this.seriesId}/sliced-files`);
+                 this.slicedFiles = await refreshedSlicedResponse.json();
+            }
 
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
@@ -255,12 +279,27 @@ const SeriesCompositionManager = {
         return item.status === 'in_plan_single' || item.status === 'in_plan_compilation';
     },
     getCardClass(item) {
-        if (item.is_ignored_by_user && item.slicing_status === 'completed') {
-            return 'archived';
+        // 1. Самый высокий приоритет: Элемент "архивный", если его нарезка завершена.
+        // Это не зависит от того, скачан ли он или входит ли в план.
+        if (item.slicing_status === 'completed') {
+            return 'archived'; // Серый цвет
         }
-        if (!this.isItemInPlan(item)) return 'no-match';
-        if (item.local_status === 'completed') return 'success';
-        return 'pending';
+
+        // 2. Следующий приоритет: Элемент игнорируется пользователем или настройками сезона.
+        const season = item.result?.extracted?.season ?? 1;
+        if (item.is_ignored_by_user || this.isSeasonIgnored(season)) {
+            return 'no-match'; // Тусклый цвет
+        }
+
+        // 3. Если он не архивный и не игнорируется, проверяем, входит ли он в план загрузки.
+        const isPlanned = ['in_plan_single', 'in_plan_compilation'].includes(item.status);
+        if (isPlanned) {
+            // Если да, то он либо скачан (зеленый), либо ожидает (желтый).
+            return item.local_status === 'completed' ? 'success' : 'pending';
+        }
+        
+        // 4. Если ничего из вышеперечисленного не подошло, значит элемент избыточен (redundant/replaced).
+        return 'no-match';
     },
     getSeasonTitle(seasonNumber) {
         if (seasonNumber === 'undefined') {

@@ -1081,3 +1081,19 @@ class Database:
         with self.Session() as session:
             items = session.query(SlicedFile).filter_by(series_id=series_id).all()
             return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in items]
+        
+    def update_sliced_file_status(self, file_id: int, status: str):
+        """Обновляет статус для одного нарезанного файла по его ID."""
+        with self.Session() as session:
+            item = session.query(SlicedFile).filter_by(id=file_id).first()
+            if item:
+                item.status = status
+                session.commit()
+
+    def update_media_item_slicing_status_by_uid(self, unique_id: str, status: str):
+        """Обновляет статус нарезки для медиа-элемента по его unique_id."""
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if item:
+                item.slicing_status = status
+                session.commit()
