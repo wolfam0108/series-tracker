@@ -1097,3 +1097,11 @@ class Database:
             if item:
                 item.slicing_status = status
                 session.commit()
+
+    def get_series_slicing_statuses(self, series_id: int) -> Dict[str, int]:
+        """Агрегирует статусы нарезки для указанного сериала по таблице MediaItem."""
+        with self.Session() as session:
+            statuses = session.query(MediaItem.slicing_status, func.count(MediaItem.id)).\
+                filter(MediaItem.series_id == series_id).\
+                group_by(MediaItem.slicing_status).all()
+            return {status: count for status, count in statuses}

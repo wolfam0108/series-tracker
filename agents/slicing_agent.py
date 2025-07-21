@@ -145,6 +145,7 @@ class SlicingAgent(threading.Thread):
         self.recover_tasks()
 
         while not self.shutdown_flag.is_set():
+            self.broadcaster.broadcast('agent_heartbeat', {'name': 'slicing'})
             with self.app.app_context():
                 task = self.db.get_pending_slicing_task()
             

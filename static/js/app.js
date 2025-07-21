@@ -15,9 +15,17 @@ const app = createApp({
       downloadQueue: [],
       slicingQueue: [],
       toastMessage: '',
-      activeSeriesId: null, 
+      activeSeriesId: null,
       isLoading: true,
       eventSource: null,
+      
+      agentIndicators: {
+          monitoring: { color: 'bg-secondary', pulse: false, timeoutId: null },
+          downloader: { color: 'bg-secondary', pulse: false, timeoutId: null },
+          slicing: { color: 'bg-secondary', pulse: false, timeoutId: null },
+      },
+      scannerStatus: {},
+
       stateConfig: {
         'waiting':    { title: 'Ожидание',       icon: 'bi-clock' },
         'viewing':    { title: 'Просмотр',       icon: 'bi-eye' },
@@ -74,8 +82,17 @@ const app = createApp({
         
         let uniqueStates = [...new Set(displayStates)];
 
-        if (uniqueStates.length > 1 && uniqueStates.includes('waiting')) {
-            uniqueStates = uniqueStates.filter(state => state !== 'waiting');
+        const hasReady = uniqueStates.includes('ready');
+        const hasWaiting = uniqueStates.includes('waiting');
+
+        if (s.source_type === 'vk_video') {
+            if (uniqueStates.length > 1 && hasWaiting && !hasReady) {
+                uniqueStates = uniqueStates.filter(state => state !== 'waiting');
+            }
+        } else {
+            if (hasReady && hasWaiting) {
+                uniqueStates = uniqueStates.filter(state => state !== 'waiting');
+            }
         }
         
         const activeLayers = this.layerHierarchy.filter(l => uniqueStates.includes(l));
@@ -114,6 +131,22 @@ const app = createApp({
     }
   },
   methods: {
+    _updateIndicatorState(name, isActive) {
+        const indicator = this.agentIndicators[name];
+        if (!indicator) return;
+        
+        clearTimeout(indicator.timeoutId);
+
+        if (isActive) {
+            indicator.color = 'bg-success';
+            indicator.pulse = true;
+        } else {
+            indicator.timeoutId = setTimeout(() => {
+                indicator.color = 'bg-secondary';
+                indicator.pulse = false;
+            }, 1000);
+        }
+    },
     async loadInitialSeries() {
       this.isLoading = true;
       try {
@@ -142,12 +175,74 @@ const app = createApp({
         this.eventSource.addEventListener('agent_queue_update', (event) => {
             this.agentQueue = JSON.parse(event.data);
         });
+
+        // ---> НАЧАЛО ИЗМЕНЕНИЙ В ЛОГИКЕ ИНДИКАТОРОВ <---
+
         this.eventSource.addEventListener('download_queue_update', (event) => {
             this.downloadQueue = JSON.parse(event.data);
+            const indicator = this.agentIndicators.downloader;
+            const isActive = this.downloadQueue.length > 0;
+            
+            clearTimeout(indicator.timeoutId); // Отменяем любой таймер от heartbeat
+            indicator.color = isActive ? 'bg-primary' : 'bg-secondary'; // Синий, если активен
+            indicator.pulse = isActive;
         });
-
+        
         this.eventSource.addEventListener('slicing_queue_update', (event) => {
             this.slicingQueue = JSON.parse(event.data);
+            const indicator = this.agentIndicators.slicing;
+            const isActive = this.slicingQueue.length > 0;
+
+            clearTimeout(indicator.timeoutId); // Отменяем любой таймер от heartbeat
+            indicator.color = isActive ? 'bg-primary' : 'bg-secondary'; // Синий, если активен
+            indicator.pulse = isActive;
+        });
+        
+        this.eventSource.addEventListener('scanner_status_update', (event) => {
+            this.scannerStatus = JSON.parse(event.data);
+            const indicator = this.agentIndicators.monitoring;
+            
+            clearTimeout(indicator.timeoutId);
+
+            if (this.scannerStatus.is_scanning || this.scannerStatus.is_awaiting_tasks) {
+                indicator.color = 'bg-primary';
+                indicator.pulse = true;
+            } else {
+                indicator.color = 'bg-secondary';
+                indicator.pulse = false;
+            }
+        });
+        
+        this.eventSource.addEventListener('agent_heartbeat', (event) => {
+            const data = JSON.parse(event.data);
+            const indicatorName = data.name === 'torrents' ? 'monitoring' : data.name; // 'torrents' это тоже 'monitoring'
+            const indicator = this.agentIndicators[indicatorName];
+            if (!indicator) return;
+
+            // Если индикатор уже горит синим (активная работа), не перебиваем его зеленым heartbeat'ом
+            if (indicator.color === 'bg-primary') return;
+
+            clearTimeout(indicator.timeoutId);
+            
+            let pulseColor = 'bg-success'; // Зеленый для heartbeat по умолчанию
+            if (indicatorName === 'monitoring') {
+                 if (data.activity === 'qbit_check') pulseColor = 'bg-success';
+                 else if (data.activity === 'file_verify') pulseColor = 'bg-info';
+            }
+            
+            indicator.color = pulseColor;
+            indicator.pulse = true;
+            
+            indicator.timeoutId = setTimeout(() => {
+                // Возвращаемся к базовому состоянию (серому или синему, если идет скан)
+                if (indicatorName === 'monitoring' && (this.scannerStatus.is_scanning || this.scannerStatus.is_awaiting_tasks)) {
+                    indicator.color = 'bg-primary';
+                    indicator.pulse = true;
+                } else {
+                    indicator.color = 'bg-secondary';
+                    indicator.pulse = false;
+                }
+            }, 1000);
         });
 
         this.eventSource.addEventListener('series_added', (event) => {
@@ -192,10 +287,18 @@ const app = createApp({
     },
     getAnimationClass(series) {
         const states = series.displayStates;
+        const hasReady = states.includes('ready');
+        const hasWaiting = states.includes('waiting');
+
+        if (hasReady && hasWaiting) {
+            return 'stripes-stopped';
+        }
+
         if (states.length === 1) {
             if (['error', 'ready'].includes(states[0])) return 'stripes-stopped';
             if (['waiting', 'viewing'].includes(states[0])) return 'stripes-slow';
         }
+
         return 'stripes-normal';
     },
     async openStatusModal(id) {
@@ -343,10 +446,33 @@ const app = createApp({
       toastEl.className = `toast align-items-center text-bg-${type} border-0`;
       toast.show();
     }
+  },
+  watch: {
+    'agentIndicators': {
+      handler(newIndicators) {
+        const monitorEl = document.getElementById('indicator-monitoring');
+        if (monitorEl) {
+          monitorEl.className = newIndicators.monitoring.pulse ? 'indicator-pulse' : '';
+          monitorEl.style.backgroundColor = `var(--bs-${newIndicators.monitoring.color.replace('bg-', '')})`;
+        }
+        
+        const downloaderEl = document.getElementById('indicator-downloader');
+        if (downloaderEl) {
+          downloaderEl.className = newIndicators.downloader.pulse ? 'indicator-pulse' : '';
+          downloaderEl.style.backgroundColor = `var(--bs-${newIndicators.downloader.color.replace('bg-', '')})`;
+        }
+        
+        const slicerEl = document.getElementById('indicator-slicing');
+        if (slicerEl) {
+          slicerEl.className = newIndicators.slicing.pulse ? 'indicator-pulse' : '';
+          slicerEl.style.backgroundColor = `var(--bs-${newIndicators.slicing.color.replace('bg-', '')})`;
+        }
+      },
+      deep: true
+    }
   }
 });
 
-// Глобальная регистрация компонента vuedraggable
 app.component('draggable', vuedraggable);
 
 app.mount('#app');

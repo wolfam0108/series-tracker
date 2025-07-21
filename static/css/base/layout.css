@@ -76,3 +76,47 @@
 .btn-group { 
     white-space: nowrap; 
 }
+
+/* --- Стили для индикаторов активности агентов --- */
+.page-title-container {
+    display: flex;
+    align-items: center;
+    gap: 16px;
+}
+
+.agent-indicators {
+    display: flex;
+    align-items: center;
+    gap: 10px;
+    padding-left: 4px; /* Небольшой отступ от заголовка */
+}
+
+/* Общий стиль для всех индикаторов */
+#indicator-monitoring,
+#indicator-downloader,
+#indicator-slicing {
+    border-radius: 50%;
+    transition: all 300ms ease-in-out;
+    box-shadow: 0 0 8px 2px rgba(0, 0, 0, 0.1);
+}
+
+/* Размеры */
+#indicator-monitoring {
+    width: 24px;
+    height: 24px;
+}
+#indicator-downloader,
+#indicator-slicing {
+    width: 18px; /* примерно на 30% меньше */
+    height: 18px;
+}
+
+/* Анимация пульсации */
+@keyframes indicatorPulse {
+    0%, 100% { transform: scale(1); opacity: 0.9; }
+    50% { transform: scale(1.25); opacity: 1; }
+}
+
+.indicator-pulse {
+    animation: indicatorPulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite;
+}

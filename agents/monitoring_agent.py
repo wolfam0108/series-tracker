@@ -158,6 +158,7 @@ class MonitoringAgent(threading.Thread):
         """Вспомогательная функция для сборки JSON-строки статуса из словаря."""
         new_state = {}
         idx = 0
+        # ---> ИСПРАВЛЕНИЕ: 'statuses' заменено на 'download_statuses' <---
         if download_statuses.get('downloading', 0) > 0:
             new_state[str(idx)] = 'downloading'; idx += 1
         if download_statuses.get('completed', 0) > 0:
@@ -165,10 +166,10 @@ class MonitoringAgent(threading.Thread):
         if download_statuses.get('error', 0) > 0:
             new_state[str(idx)] = 'error'; idx += 1
         
-        is_planned = any(download_statuses.get(st, 0) > 0 for st in ['in_plan_single', 'in_plan_compilation', 'pending'])
-        if not new_state and is_planned:
+        if download_statuses.get('pending', 0) > 0:
             new_state[str(idx)] = 'waiting'; idx += 1
-        if not new_state and not download_statuses:
+        
+        if not new_state:
              new_state[str(idx)] = 'waiting'; idx += 1
         
         return json.dumps(new_state) if new_state else 'waiting'
@@ -255,16 +256,20 @@ class MonitoringAgent(threading.Thread):
             self.handle_startup_scan()
 
         while not self.shutdown_flag.is_set():
-            with self.app.app_context(): # <--- ДОБАВЛЕН КОНТЕКСТ ПРИЛОЖЕНИЯ
+            with self.app.app_context():
                 try:
                     now = time.time()
                     if (now - self.last_status_update_time) >= self.STATUS_UPDATE_INTERVAL:
                         self._update_active_statuses()
                         self.last_status_update_time = now
+                        # ---> ДОБАВЛЕНО: Отправляем сигнал о проверке qBit <---
+                        self.broadcaster.broadcast('agent_heartbeat', {'name': 'monitoring', 'activity': 'qbit_check'})
 
                     if (now - self.last_file_verify_time) >= self.FILE_VERIFY_INTERVAL:
-                        self._verify_download_files()
-                    self.last_file_verify_time = now
+                        self._verify_downloaded_files()
+                        self.last_file_verify_time = now
+                        # ---> ДОБАВЛЕНО: Отправляем сигнал о проверке файлов <---
+                        self.broadcaster.broadcast('agent_heartbeat', {'name': 'monitoring', 'activity': 'file_verify'})
 
                     self._tick()
                 except Exception as e:
@@ -367,20 +372,44 @@ class MonitoringAgent(threading.Thread):
                     self.logger.warning("monitoring_agent", "Получен сигнал остановки во время цикла сканирования. Прерывание.")
                     break
                 
-                current_series_data = self.db.get_series(series['id'])
-                current_state_str = current_series_data.get('state', 'waiting')
+                series_id = series['id']
+                current_state_str = series.get('state', 'waiting')
+                source_type = series.get('source_type')
 
                 is_busy = False
-                try:
-                    json.loads(current_state_str)
-                    is_busy = True
-                except (json.JSONDecodeError, TypeError):
-                    if current_state_str.startswith('scanning'):
-                        is_busy = True
+                busy_reason = ""
+
+                # ---> НАЧАЛО НОВОЙ ЛОГИКИ ПРОВЕРКИ <---
+                if source_type == 'vk_video':
+                    try:
+                        state_obj = json.loads(current_state_str)
+                        current_states = set(state_obj.values())
+                        if 'downloading' in current_states:
+                            is_busy = True
+                            busy_reason = "идет загрузка"
+                        
+                        if not is_busy:
+                            slicing_statuses = self.db.get_series_slicing_statuses(series_id)
+                            if slicing_statuses.get('pending', 0) > 0 or slicing_statuses.get('slicing', 0) > 0:
+                                is_busy = True
+                                busy_reason = "идет нарезка"
+
+                    except (json.JSONDecodeError, TypeError):
+                        pass # Если статус не JSON, значит, загрузки нет
+                else:  # Логика для торрент-сериалов (остается прежней)
+                    try:
+                        json.loads(current_state_str)
+                        is_busy = True 
+                        busy_reason = "активна задача агента"
+                    except (json.JSONDecodeError, TypeError):
+                        if current_state_str.startswith('scanning'):
+                            is_busy = True
+                            busy_reason = "идет сканирование"
+                # ---> КОНЕЦ НОВОЙ ЛОГИКИ ПРОВЕРКИ <---
                 
                 if is_busy:
                     if app.debug_manager.is_debug_enabled('monitoring_agent'):
-                        self.logger.debug("monitoring_agent", f"Пропуск сканирования для '{series['name']}' (ID: {series['id']}) из-за активного статуса: {current_state_str}")
+                        self.logger.debug("monitoring_agent", f"Пропуск сканирования для '{series['name']}' (ID: {series_id}) из-за активного состояния: {busy_reason}")
                     continue
                 
                 if app.debug_manager.is_debug_enabled('monitoring_agent'):

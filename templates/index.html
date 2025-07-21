@@ -41,7 +41,14 @@
         </div>
 
         <div class="page-header">
-            <h1 class="page-title">Трекер сериалов</h1>
+            <div class="page-title-container">
+                <h1 class="page-title">WOLFRAM TS</h1>
+                <div class="agent-indicators">
+                    <div id="indicator-monitoring" title="Статус агента мониторинга"></div>
+                    <div id="indicator-downloader" title="Статус агента загрузки (VK)"></div>
+                    <div id="indicator-slicing" title="Статус агента нарезки (VK)"></div>
+                </div>
+            </div>
             <div class="header-actions">
                 <button class="btn btn-primary" @click="openAddModal">
                     <i class="bi bi-plus-lg"></i>
