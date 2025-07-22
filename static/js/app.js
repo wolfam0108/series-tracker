@@ -82,18 +82,22 @@ const app = createApp({
         
         let uniqueStates = [...new Set(displayStates)];
 
+        // ---> НАЧАЛО ИЗМЕНЕНИЙ В ЛОГИКЕ ФИЛЬТРАЦИИ <---
         const hasReady = uniqueStates.includes('ready');
         const hasWaiting = uniqueStates.includes('waiting');
 
         if (s.source_type === 'vk_video') {
+            // Для VK-сериалов: оставляем сложную логику для индикации проблем.
             if (uniqueStates.length > 1 && hasWaiting && !hasReady) {
                 uniqueStates = uniqueStates.filter(state => state !== 'waiting');
             }
         } else {
-            if (hasReady && hasWaiting) {
+            // Для торрент-сериалов: если есть любой другой статус, 'waiting' всегда скрывается.
+            if (uniqueStates.length > 1 && hasWaiting) {
                 uniqueStates = uniqueStates.filter(state => state !== 'waiting');
             }
         }
+        // ---> КОНЕЦ ИЗМЕНЕНИЙ <---
         
         const activeLayers = this.layerHierarchy.filter(l => uniqueStates.includes(l));
         const priorityLayers = [...activeLayers].reverse();

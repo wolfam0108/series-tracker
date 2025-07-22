@@ -63,11 +63,13 @@ class MonitoringAgent(threading.Thread):
         """
         Проверяет наличие файлов на диске (как компиляций, так и нарезанных),
         восстанавливает состояние в случае утери файлов и агрегирует статусы для UI.
+        ВАЖНО: Эта логика предназначена ТОЛЬКО для vk_video.
         """
         all_series = self.db.get_all_series()
         series_to_broadcast = set()
 
         for series in all_series:
+            # ---> ГЛАВНОЕ ИСПРАВЛЕНИЕ: Пропускаем все, что не является VK-сериалом <---
             if series['source_type'] != 'vk_video':
                 continue
             
@@ -78,9 +80,6 @@ class MonitoringAgent(threading.Thread):
             for item in media_items_in_series:
                 unique_id = item['unique_id']
                 
-                # ---> НАЧАЛО ИЗМЕНЕНИЙ <---
-                
-                # Логика для компиляций, которые уже проходили нарезку
                 if item['slicing_status'] in ['completed', 'completed_with_errors']:
                     sliced_files = self.db.get_sliced_files_for_source(unique_id)
                     
@@ -103,38 +102,30 @@ class MonitoringAgent(threading.Thread):
                             self.logger.info(f"Мониторинг: восстановлен статус для найденного файла: {file_record['file_path']}")
                             changed = True
 
-                    # Обновляем статус родительского элемента на основе проверки
                     if has_missing_files:
                         if item['slicing_status'] != 'completed_with_errors':
                             self.db.update_media_item_slicing_status_by_uid(unique_id, 'completed_with_errors')
                             changed = True
                         
-                        # КЛЮЧЕВОЙ МОМЕНТ: РЕАКТИВАЦИЯ
-                        # Если файлы отсутствуют, а компиляция была помечена как игнорируемая,
-                        # снимаем флаг, чтобы она снова могла быть скачана.
                         if item['is_ignored_by_user']:
                             self.db.set_media_item_ignored_status_by_uid(unique_id, False)
                             self.logger.warning(f"РЕАКТИВАЦИЯ: Компиляция {unique_id} возвращена в активное состояние, так как ее нарезанные файлы отсутствуют.")
                             changed = True
-                    else: # Если все файлы на месте
+                    else:
                         if item['slicing_status'] != 'completed':
                             self.db.update_media_item_slicing_status_by_uid(unique_id, 'completed')
                             changed = True
-                        # Убеждаемся, что успешная компиляция заархивирована
                         if not item['is_ignored_by_user']:
                             self.db.set_media_item_ignored_status_by_uid(unique_id, True)
                             changed = True
 
-                # Стандартная проверка для еще не нарезанных компиляций
                 elif item.get('final_filename'):
                     if not os.path.exists(item['final_filename']):
                         self.logger.warning(f"Файл {item['final_filename']} для UID {unique_id} не найден. Сброс статуса загрузки.")
                         self.db.reset_media_item_download_state(unique_id)
                         changed = True
-                
-                # ---> КОНЕЦ ИЗМЕНЕНИЙ <---
 
-            # Агрегация статусов для главной карточки (остается без изменений)
+            # Агрегация статусов выполняется только для VK-сериалов, так как мы внутри условия
             download_statuses = self.db.get_series_download_statuses(series_id)
             new_state_str = self._aggregate_statuses_to_state_str(download_statuses)
 
@@ -194,6 +185,20 @@ class MonitoringAgent(threading.Thread):
                 all_hashes.update(series_hashes)
 
         if not all_hashes:
+            # ---> НАЧАЛО ИЗМЕНЕНИЙ: Проверяем даже если нет активных хешей <---
+            for series in all_series:
+                if series.get('source_type') != 'torrent':
+                    continue
+                try:
+                    # Если у торрент-сериала нет активных хешей, а его статус - JSON, сбрасываем его.
+                    state_obj = json.loads(series.get('state', '""'))
+                    if isinstance(state_obj, dict):
+                        self.logger.warning(f"Обнаружен зависший JSON-статус для торрент-сериала ID {series['id']}. Сброс на 'waiting'.")
+                        self.db.set_series_state(series['id'], 'waiting')
+                        _broadcast_series_update(series['id'])
+                except (json.JSONDecodeError, TypeError):
+                    pass # Статус уже является строкой, все в порядке.
+            # ---> КОНЕЦ ИЗМЕНЕНИЙ <---
             return
 
         all_torrents_info = self.qb_client.get_torrents_info(list(all_hashes))
@@ -210,10 +215,16 @@ class MonitoringAgent(threading.Thread):
             
             if not current_hashes and old_status_obj:
                 self.db.update_series(series_id, {'active_status': '{}'})
-                updated_series_data = self.db.get_series(series_id)
-                if updated_series_data.get('last_scan_time'):
-                    updated_series_data['last_scan_time'] = updated_series_data['last_scan_time'].isoformat()
-                self.broadcaster.broadcast('series_updated', updated_series_data)
+                # ---> НАЧАЛО ИЗМЕНЕНИЙ: Добавляем проверку state при очистке <---
+                if series.get('source_type') == 'torrent':
+                    try:
+                        state_obj = json.loads(series.get('state', '""'))
+                        if isinstance(state_obj, dict):
+                             self.db.set_series_state(series_id, 'waiting')
+                    except (json.JSONDecodeError, TypeError):
+                        pass
+                # ---> КОНЕЦ ИЗМЕНЕНИЙ <---
+                _broadcast_series_update(series_id)
                 continue
             
             if not current_hashes:
@@ -234,10 +245,7 @@ class MonitoringAgent(threading.Thread):
             try:
                 if old_status_obj != new_active_status:
                     self.db.update_series(series_id, {'active_status': new_active_status})
-                    updated_series_data = self.db.get_series(series_id)
-                    if updated_series_data.get('last_scan_time'):
-                        updated_series_data['last_scan_time'] = updated_series_data['last_scan_time'].isoformat()
-                    self.broadcaster.broadcast('series_updated', updated_series_data)
+                    _broadcast_series_update(series_id)
             except Exception as e:
                 self.logger.error("monitoring_agent", f"Ошибка обновления active_status для series_id {series_id}: {e}")
 

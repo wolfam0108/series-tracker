@@ -93,11 +93,17 @@ def parse_url():
         domain = url.split('/')[2]
         site = re.sub(r'^(www\.)', '', domain)
         
+        # ---> НАЧАЛО ИЗМЕНЕНИЙ <---
         parser_key = site
-        if 'kinozal' in site:
+        if 'anilibria.tv' in site:
+            parser_key = 'anilibria.tv' # Явное условие для anilibria.tv
+        elif 'anilibria' in site or 'aniliberty' in site:
+            parser_key = 'anilibria.top'
+        elif 'kinozal' in site:
             parser_key = 'kinozal.me'
         elif 'astar' in site:
             parser_key = 'astar.bz'
+        # ---> КОНЕЦ ИЗМЕНЕНИЙ <---
 
     except IndexError:
          return jsonify({"error": "Некорректный URL"}), 400
@@ -105,7 +111,7 @@ def parse_url():
     auth_manager = AuthManager(app.db, app.logger)
     parsers = {
         'kinozal.me': KinozalParser(auth_manager, app.db, app.logger),
-        'anilibria.top': AnilibriaParser(app.db, app.logger),
+        'anilibria.top': AnilibriaParser(app.db, app.logger), # Ключ остается прежним
         'anilibria.tv': AnilibriaTvParser(app.db, app.logger),
         'astar.bz': AstarParser(app.db, app.logger)
     }

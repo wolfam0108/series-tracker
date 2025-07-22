@@ -238,7 +238,12 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                 app.logger.info("scanner", f"Начало сканирования для series_id: {series_id}. Режим отладки: {'ВКЛ' if debug_force_replace else 'ВЫКЛ'}")
                 
                 site_key = series['site']
-                if 'kinozal' in site_key:
+                if 'anilibria.tv' in site_key:
+                    site_key = 'anilibria.tv' # Явное условие для anilibria.tv
+                elif 'anilibria' in site_key or 'aniliberty' in site_key:
+                    site_key = 'anilibria.top'
+                # ---> КОНЕЦ ИСПРАВЛЕНИЙ <---
+                elif 'kinozal' in site_key:
                     site_key = 'kinozal.me'
                 elif 'astar' in site_key:
                     site_key = 'astar.bz'

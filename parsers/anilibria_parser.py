@@ -90,16 +90,16 @@ class AnilibriaParser:
     def parse_series(self, original_url: str, last_known_torrents: Optional[List[Dict]] = None) -> Dict:
         self.logger.info("anilibria_parser", f"Начало парсинга {original_url}")
 
-        match = re.match(r"(https://anilibria\.top/(?:release|anime/releases/release)/[^/]+)", original_url)
+        match = re.match(r"(https://aniliberty\.top/(?:release|anime/releases/release)/[^/]+)", original_url)
         if not match:
-            return {"source": "anilibria.top", "title": {"ru": None, "en": None}, "torrents": [], "error": "Некорректный URL релиза"}
+            return {"source": "aniliberty.top", "title": {"ru": None, "en": None}, "torrents": [], "error": "Некорректный URL релиза"}
         
         base_release_url = match.group(1)
         url_to_fetch = f"{base_release_url}/torrents"
 
         html_content = self._fetch_page_source(url_to_fetch)
         if not html_content:
-            return {"source": "anilibria.top", "title": {"ru": None, "en": None}, "torrents": [], "error": f"Не удалось загрузить страницу {url_to_fetch}"}
+            return {"source": "aniliberty.top", "title": {"ru": None, "en": None}, "torrents": [], "error": f"Не удалось загрузить страницу {url_to_fetch}"}
 
         soup = BeautifulSoup(html_content, 'html.parser')
 

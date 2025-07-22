@@ -159,3 +159,13 @@ def get_table_content(table_name):
     except Exception as e:
         app.logger.error("database_api", f"Ошибка получения данных из таблицы '{table_name}': {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+    
+@system_bp.route('/logs/groups', methods=['GET'])
+def get_log_groups():
+    """Возвращает список всех уникальных групп, найденных в логах."""
+    try:
+        groups = app.db.get_unique_log_groups()
+        return jsonify(groups)
+    except Exception as e:
+        app.logger.error("system_api", f"Ошибка получения групп логов: {e}", exc_info=True)
+        return jsonify({"error": "Не удалось получить группы логов"}), 500

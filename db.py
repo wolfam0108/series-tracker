@@ -1105,3 +1105,11 @@ class Database:
                 filter(MediaItem.series_id == series_id).\
                 group_by(MediaItem.slicing_status).all()
             return {status: count for status, count in statuses}
+    
+    def get_unique_log_groups(self) -> List[str]:
+        """Возвращает отсортированный список всех уникальных групп из логов."""
+        with self.Session() as session:
+            # Выполняем запрос на получение уникальных значений из столбца 'group'
+            query_result = session.query(Log.group).distinct().order_by(Log.group).all()
+            # Преобразуем результат (список кортежей) в простой список строк
+            return [item[0] for item in query_result]
