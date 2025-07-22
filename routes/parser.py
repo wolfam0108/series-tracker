@@ -59,8 +59,8 @@ def scrape_vk_titles():
     channel_url = data.get('channel_url')
     query = data.get('query')
     
-    if not channel_url or not query:
-        return jsonify({"error": "Необходимо указать и URL канала, и название для поиска"}), 400
+    if not channel_url:
+        return jsonify({"error": "Необходимо указать URL канала"}), 400
     
     try:
         scraper = VKScraper(app.db, app.logger)

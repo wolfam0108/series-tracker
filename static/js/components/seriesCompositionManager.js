@@ -13,11 +13,50 @@ const SeriesCompositionManager = {
         </div>
         
         <div class="position-relative">
-            <transition name="fade">
-                <div v-if="isLoading" class="loading-overlay"></div>
-            </transition>
+
+            <div v-if="isLoading" class="composition-cards-container">
+                <div class="test-result-card-compact animate-pulse">
+                    <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <div class="card-line">
+                            <div style="height: 16px; background-color: #e0e0e0; border-radius: 6px; width: 60%;"></div>
+                            <div style="height: 24px; background-color: #e0e0e0; border-radius: 6px; width: 48px;"></div>
+                        </div>
+                        <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 80%;"></div>
+                        <div class="card-line">
+                            <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 40%;"></div>
+                            <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 25%;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="test-result-card-compact animate-pulse" style="animation-delay: 0.2s;">
+                     <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <div class="card-line">
+                            <div style="height: 16px; background-color: #e0e0e0; border-radius: 6px; width: 70%;"></div>
+                            <div style="height: 24px; background-color: #e0e0e0; border-radius: 6px; width: 48px;"></div>
+                        </div>
+                        <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 100%;"></div>
+                        <div class="card-line">
+                            <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 30%;"></div>
+                            <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 35%;"></div>
+                        </div>
+                    </div>
+                </div>
+                <div class="test-result-card-compact animate-pulse" style="animation-delay: 0.4s;">
+                     <div style="display: flex; flex-direction: column; gap: 12px;">
+                        <div class="card-line">
+                            <div style="height: 16px; background-color: #e0e0e0; border-radius: 6px; width: 50%;"></div>
+                            <div style="height: 24px; background-color: #e0e0e0; border-radius: 6px; width: 48px;"></div>
+                        </div>
+                        <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 75%;"></div>
+                        <div class="card-line">
+                            <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 45%;"></div>
+                            <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 20%;"></div>
+                        </div>
+                    </div>
+                </div>
+            </div>
             
-            <div v-if="!displayItems.length && !isLoading" class="empty-state">
+            <div v-else-if="!displayItems.length && !isLoading" class="empty-state">
                 Нет данных для отображения.
             </div>
 
@@ -121,23 +160,20 @@ const SeriesCompositionManager = {
             items.push({
                 type: 'sliced',
                 unique_id: `sliced-${file.id}`,
-                season: file.season, // Теперь это поле приходит с сервера
+                season: file.season,
                 episode_start: file.episode_number,
                 file_path: file.file_path,
-                parent_filename: file.parent_filename, // И это тоже
+                parent_filename: file.parent_filename,
                 status: file.status,
             });
         });
 
         return items;
     },
+
     groupedItems() {
-        // ---> НАЧАЛО ИЗМЕНЕНИЙ <---
-        // 1. Группируем все элементы по номеру сезона.
         const groups = this.displayItems.reduce((acc, item) => {
-            // Используем свойство 'season', которое теперь надежно приходит с сервера для всех типов.
-            // Если сезон не определен, помещаем в специальную группу 'undefined'.
-            const season = item.season ?? 'undefined';
+            const season = item.season ?? item.result?.extracted?.season ?? 'undefined';
             
             if (!acc[season]) {
                 acc[season] = [];
@@ -146,17 +182,13 @@ const SeriesCompositionManager = {
             return acc;
         }, {});
 
-        // 2. Сортируем элементы ВНУТРИ каждой сезонной группы по номеру эпизода.
         for (const season in groups) {
             groups[season].sort((a, b) => {
-                // Используем 'episode_start' для всех типов карточек.
-                // Если по какой-то причине номер эпизода отсутствует, отправляем такой элемент в конец.
-                const epA = a.episode_start ?? Infinity;
-                const epB = b.episode_start ?? Infinity;
-                return epA - epB;
+                const epA = this.getEpisodeStart(a);
+                const epB = this.getEpisodeStart(b);
+                return epB - epA;
             });
         }
-        // ---> КОНЕЦ ИЗМЕНЕНИЙ <---
         return groups;
     },
     filteredGroupedItems() {
@@ -267,6 +299,24 @@ const SeriesCompositionManager = {
             this.ignoredSeasons = this.ignoredSeasons.filter(s => s !== seasonNumber);
         }
     },
+
+    getEpisodeStart(item) {
+        // Для уже обработанных или нарезанных файлов
+        if (item.episode_start != null) {
+            return item.episode_start;
+        }
+        // Для новых одиночных серий
+        if (item.result?.extracted?.episode != null) {
+            return item.result.extracted.episode;
+        }
+        // Для новых компиляций
+        if (item.result?.extracted?.start != null) {
+            return item.result.extracted.start;
+        }
+        // Если номер не найден, отправляем в конец списка
+        return Infinity;
+    },
+
     isSeasonIgnored(seasonNumber) {
         if (seasonNumber === 'undefined') return false;
         return this.ignoredSeasons.includes(parseInt(seasonNumber, 10));
@@ -279,26 +329,20 @@ const SeriesCompositionManager = {
         return item.status === 'in_plan_single' || item.status === 'in_plan_compilation';
     },
     getCardClass(item) {
-        // 1. Самый высокий приоритет: Элемент "архивный", если его нарезка завершена.
-        // Это не зависит от того, скачан ли он или входит ли в план.
         if (item.slicing_status === 'completed') {
-            return 'archived'; // Серый цвет
+            return 'archived';
         }
 
-        // 2. Следующий приоритет: Элемент игнорируется пользователем или настройками сезона.
         const season = item.result?.extracted?.season ?? 1;
         if (item.is_ignored_by_user || this.isSeasonIgnored(season)) {
-            return 'no-match'; // Тусклый цвет
+            return 'no-match';
         }
 
-        // 3. Если он не архивный и не игнорируется, проверяем, входит ли он в план загрузки.
         const isPlanned = ['in_plan_single', 'in_plan_compilation'].includes(item.status);
         if (isPlanned) {
-            // Если да, то он либо скачан (зеленый), либо ожидает (желтый).
             return item.local_status === 'completed' ? 'success' : 'pending';
         }
         
-        // 4. Если ничего из вышеперечисленного не подошло, значит элемент избыточен (redundant/replaced).
         return 'no-match';
     },
     getSeasonTitle(seasonNumber) {

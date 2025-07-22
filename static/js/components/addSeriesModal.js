@@ -204,7 +204,7 @@ const AddSeriesModal = {
     },
     canAddSeries() { 
         if (this.sourceType === 'vk_video') {
-            return this.vkChannelUrl && this.vkQuery && this.newSeries.parser_profile_id && this.isNameValid && this.isNameEnValid && this.isSavePathValid;
+            return this.vkChannelUrl && this.newSeries.parser_profile_id && this.isNameValid && this.isNameEnValid && this.isSavePathValid;
         }
         return this.parsed && this.isSavePathValid && this.isNameValid && this.isNameEnValid && this.isSeasonValid; 
     },

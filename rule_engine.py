@@ -161,7 +161,7 @@ class RuleEngine:
             final_results.append({
                 "source_data": video_data,
                 "match_events": match_events, # Детальный список
-                "final_result": { # Общий результат
+                "result": { # Общий результат
                     'extracted': final_extracted_data
                 }
             })

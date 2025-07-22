@@ -216,7 +216,7 @@ const SettingsParserTab = {
                             <input v-model.trim="scrapeChannelUrl" type="text" class="modern-input" placeholder="Ссылка на канал VK, например, https://vkvideo.ru/@anidubonline" style="flex-grow: 2;">
                             <div class="modern-input-group-divider"></div>
                             <input v-model.trim="scrapeQuery" type="text" class="modern-input" placeholder="Название для поиска">
-                            <button @click="scrapeTestTitles" class="btn btn-primary" :disabled="!scrapeChannelUrl || !scrapeQuery || isScraping">
+                            <button @click="scrapeTestTitles" class="btn btn-primary" :disabled="!scrapeChannelUrl || isScraping">
                                 <span v-if="isScraping" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                                 <i v-else class="bi bi-cloud-download"></i>
                                 <span class="ms-2">Получить с VK</span>
@@ -241,18 +241,20 @@ const SettingsParserTab = {
                                 </div>
                                 
                                 <div v-else class="card-details">
-                                    <!-- Процедурно выводим результат для каждого сработавшего правила -->
-                                    <div v-for="(event, event_index) in res.match_events" :key="event_index" class="card-line">
-                                        <div v-if="event.action === 'exclude'">
+                                    
+                                    <template v-for="(event, event_index) in res.match_events" :key="event_index">
+                                        <div v-if="event.action === 'exclude'" class="card-line">
                                             <span><i class="bi bi-x-circle-fill text-danger me-2"></i>Видео исключено</span>
+                                            <span class="card-rule-name">{{ event.rule_name }}</span>
                                         </div>
-                                        <div v-else class="d-flex flex-wrap gap-3">
-                                             <span v-for="key in Object.keys(event.extracted)" :key="key" v-if="formatExtractedValue(key, event.extracted)">
-                                                 {{ formatExtractedKey(key) }}: <strong>{{ formatExtractedValue(key, event.extracted) }}</strong>
-                                             </span>
+                                        <div v-else v-for="key in getDisplayableKeys(event.extracted)" :key="key" class="card-line">
+                                            <span>
+                                                {{ formatExtractedKey(key) }}: <strong>{{ formatExtractedValue(key, event.extracted) }}</strong>
+                                            </span>
+                                            <span class="card-rule-name">{{ event.rule_name }}</span>
                                         </div>
-                                        <span class="card-rule-name">{{ event.rule_name }}</span>
-                                    </div>
+                                    </template>
+
                                 </div>
                             </div>
                         </transition-group>
@@ -373,6 +375,13 @@ const SettingsParserTab = {
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
         finally { this.isLoading = false; }
     },
+
+    getDisplayableKeys(extractedData) {
+        if (!extractedData) return [];
+        // Просто отфильтровываем ключ 'end' из массива ключей
+        return Object.keys(extractedData).filter(key => key !== 'end');
+    },
+
     addRule() {
         const newRule = {
             id: 'new-' + Date.now(),
@@ -515,10 +524,10 @@ const SettingsParserTab = {
     },
     formatExtractedKey(key) {
         const keyMap = {
-            'season': 'Извлечен сезон', 'episode': 'Извлечена серия',
-            'start': 'Извлечена компиляция', 'voiceover': 'Извлечена озвучка',
+            'season': 'Сезон', 'episode': 'Серия',
+            'start': 'Компиляция', 'voiceover': 'Озвучка',
         };
-        return keyMap[key] || `Извлечено '${key}'`;
+        return keyMap[key] || `'${key}'`;
     },
     formatExtractedValue(key, extractedData) {
         if (key === 'end') return null; 
@@ -529,7 +538,7 @@ const SettingsParserTab = {
         return (value !== null && value !== undefined) ? value : '';
     },
     async scrapeTestTitles() {
-        if (!this.scrapeChannelUrl || !this.scrapeQuery) return;
+        if (!this.scrapeChannelUrl) return;
         this.isScraping = true;
         this.$emit('show-toast', 'Запущен сбор названий через VK API...', 'info');
         try {

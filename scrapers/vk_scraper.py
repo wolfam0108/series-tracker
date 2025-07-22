@@ -1,5 +1,5 @@
 import requests
-from urllib.parse import urlparse, parse_qs
+from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Any
 
@@ -21,7 +21,6 @@ class VKScraper:
 
     def _get_owner_id(self, screen_name: str) -> int | None:
         if not self.access_token: return None
-
         self.logger.info("vk_scraper", f"Определяю ID для канала '{screen_name}'...")
         params = {
             'screen_name': screen_name,
@@ -33,12 +32,9 @@ class VKScraper:
             if 'error' in response:
                 self.logger.error(f"vk_scraper", f"Ошибка API: {response['error']['error_msg']}")
                 return None
-            
-            # Проверяем, что ответ содержит словарь, а не список или что-то еще
             if response.get('response') and isinstance(response.get('response'), dict):
                 object_id = response['response']['object_id']
                 obj_type = response['response']['type']
-                
                 owner_id = -object_id if obj_type == 'group' else object_id
                 self.logger.info("vk_scraper", f"ID канала: {owner_id}")
                 return owner_id
@@ -49,58 +45,50 @@ class VKScraper:
             self.logger.error(f"vk_scraper", f"Сетевая ошибка: {e}")
             return None
 
-    def _search_videos_on_channel(self, owner_id: int, query: str) -> list:
-        if not self.access_token: return []
-        
-        all_videos = []
+    def _execute_vk_paginated_request(self, method: str, params: dict) -> list:
+        """Универсальный метод для выполнения запросов к VK API с пагинацией."""
+        all_items = []
         offset = 0
-        count = 200
+        count = 200 # Максимальное количество за один запрос
 
-        self.logger.info("vk_scraper", f"Выполняю поиск по запросу '{query}' на канале {owner_id}...")
-        
         while True:
-            params = {
-                'owner_id': owner_id,
-                'q': query,
-                'count': count,
-                'offset': offset,
-                'access_token': self.access_token,
-                'v': self.API_VERSION
-            }
+            params['offset'] = offset
+            params['count'] = count
+            
             try:
-                response = requests.get(f"{self.BASE_URL}video.search", params=params).json()
+                response = requests.get(f"{self.BASE_URL}{method}", params=params).json()
                 if 'error' in response:
-                    self.logger.error(f"vk_scraper", f"Ошибка API: {response['error']['error_msg']}")
+                    self.logger.error(f"vk_scraper", f"Ошибка API ({method}): {response['error']['error_msg']}")
                     break
 
                 items = response.get('response', {}).get('items', [])
                 if not items:
                     break
                 
-                all_videos.extend(items)
+                all_items.extend(items)
                 if len(items) < count:
                     break
                 offset += count
                 
             except requests.exceptions.RequestException as e:
-                self.logger.error(f"vk_scraper", f"Сетевая ошибка: {e}")
+                self.logger.error(f"vk_scraper", f"Сетевая ошибка при вызове {method}: {e}")
                 break
-                
-        return all_videos
+        
+        return all_items
 
     def scrape_video_data(self, channel_url: str, query: str) -> List[Dict[str, Any]]:
+        """
+        Основной метод. Получает данные о видео либо поиском, либо все подряд.
+        """
         if not self.access_token:
             raise ValueError("Токен доступа VK не настроен.")
             
-        # --- ИЗМЕНЕНИЕ: Исправлена логика извлечения имени канала ---
         try:
             parsed_url = urlparse(channel_url)
             path_parts = parsed_url.path.strip('/').split('/')
             screen_name_part = next((part for part in path_parts if part.startswith('@')), None)
-            
             if not screen_name_part:
                 raise ValueError("Не удалось найти имя канала (должно начинаться с @) в URL.")
-            
             screen_name = screen_name_part[1:]
         except Exception as e:
             self.logger.error("vk_scraper", f"Не удалось распарсить URL канала '{channel_url}': {e}")
@@ -110,7 +98,21 @@ class VKScraper:
         if not owner_id:
             raise ValueError(f"Не удалось определить ID для канала '{screen_name}'.")
 
-        videos = self._search_videos_on_channel(owner_id, query)
+        # --- ИЗМЕНЕНИЕ: Выбор метода в зависимости от наличия query ---
+        base_params = {
+            'owner_id': owner_id,
+            'access_token': self.access_token,
+            'v': self.API_VERSION
+        }
+        
+        if query and query.strip():
+            self.logger.info("vk_scraper", f"Режим: ПОИСК. Запрос: '{query}' на канале {owner_id}...")
+            base_params['q'] = query
+            videos = self._execute_vk_paginated_request('video.search', base_params)
+        else:
+            self.logger.info("vk_scraper", f"Режим: ПОЛУЧЕНИЕ ВСЕХ ВИДЕО. Канал: {owner_id}...")
+            videos = self._execute_vk_paginated_request('video.get', base_params)
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         
         results = []
         for video in videos:
