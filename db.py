@@ -643,6 +643,8 @@ class Database:
                     "name": rule.name,
                     "priority": rule.priority,
                     "action_pattern": rule.action_pattern,
+                    # ---> ДОБАВЛЕНО НЕДОСТАЮЩЕЕ ПОЛЕ <---
+                    "continue_after_match": rule.continue_after_match,
                     "conditions": conditions
                 })
             return result
@@ -656,7 +658,9 @@ class Database:
                 profile_id=profile_id,
                 name=rule_data.get('name', 'Новое правило'),
                 action_pattern=rule_data.get('action_pattern', '[]'),
-                priority=max_priority + 1
+                priority=max_priority + 1,
+                # ---> ДОБАВЛЕНО: Учитываем новое поле при создании <---
+                continue_after_match=rule_data.get('continue_after_match', False)
             )
             
             if conditions_data := rule_data.get('conditions'):
@@ -684,6 +688,8 @@ class Database:
 
                 rule.name = rule_data.get('name', rule.name)
                 rule.action_pattern = rule_data.get('action_pattern', rule.action_pattern)
+                # ---> ДОБАВЛЕНО: Обновляем новое поле <---
+                rule.continue_after_match = rule_data.get('continue_after_match', rule.continue_after_match)
 
                 if conditions_data := rule_data.get('conditions'):
                     for cond_data in conditions_data:

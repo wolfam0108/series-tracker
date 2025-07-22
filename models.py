@@ -146,6 +146,7 @@ class ParserRule(Base):
     name = Column(Text, nullable=False)
     priority = Column(Integer, default=0, nullable=False)
     action_pattern = Column(Text)
+    continue_after_match = Column(Boolean, default=False, nullable=False)
     profile = relationship("ParserProfile", back_populates="rules")
     conditions = relationship("ParserRuleCondition", back_populates="rule", cascade="all, delete-orphan", order_by="ParserRuleCondition.id")
 

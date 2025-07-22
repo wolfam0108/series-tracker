@@ -124,22 +124,47 @@ class RuleEngine:
 
         for video_data in videos:
             title = video_data['title']
-            action_result = None
-            matched_rule = None
+            
+            # ---> НАЧАЛО ИЗМЕНЕНИЙ: Новая, более детальная структура <---
+            match_events = [] # Список событий для каждого сработавшего правила
+            final_extracted_data = {} # Итоговые накопленные данные
 
             for rule in rules:
                 if self._evaluate_conditions(title, rule['conditions']):
                     temp_result = self._execute_actions(title, rule['action_pattern'])
                     
-                    if temp_result is not None:
-                        action_result = temp_result
-                        matched_rule = rule
-                        break
+                    if temp_result:
+                        # Если действие - исключить, это финальное событие
+                        if temp_result.get('action') == 'exclude':
+                            match_events.append({
+                                'rule_name': rule['name'],
+                                'action': 'exclude',
+                                'extracted': {}
+                            })
+                            break 
+
+                        # Сохраняем, что именно извлекло это правило
+                        extracted_by_this_rule = temp_result.get('extracted', {})
+                        if extracted_by_this_rule:
+                            match_events.append({
+                                'rule_name': rule['name'],
+                                'action': 'extract',
+                                'extracted': extracted_by_this_rule
+                            })
+                            # Обновляем итоговые данные
+                            final_extracted_data.update(extracted_by_this_rule)
+
+                        # Если нет флага "продолжить", прерываем цикл
+                        if not rule.get('continue_after_match', False):
+                            break
             
             final_results.append({
                 "source_data": video_data,
-                "matched_rule_name": matched_rule['name'] if matched_rule else "Нет совпадений",
-                "result": action_result
+                "match_events": match_events, # Детальный список
+                "final_result": { # Общий результат
+                    'extracted': final_extracted_data
+                }
             })
+            # ---> КОНЕЦ ИЗМЕНЕНИЙ <---
             
         return final_results

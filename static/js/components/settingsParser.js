@@ -1,6 +1,5 @@
 const SettingsParserTab = {
   name: 'SettingsParserTab',
-  // Компонент ParserRuleEditor больше не нужен
   components: {
     'draggable': vuedraggable,
   },
@@ -53,6 +52,9 @@ const SettingsParserTab = {
                                         <div class="rule-controls">
                                            <button @click="moveRule(index, -1)" class="control-btn" :disabled="index === 0" title="Поднять приоритет"><i class="bi bi-arrow-up"></i></button>
                                            <button @click="moveRule(index, 1)" class="control-btn" :disabled="index === rules.length - 1" title="Понизить приоритет"><i class="bi bi-arrow-down"></i></button>
+                                           <div class="form-check form-switch mx-2" title="Разрешить обработку следующими правилами после этого">
+                                               <input class="form-check-input" type="checkbox" role="switch" v-model="rule.continue_after_match" @change="saveRule(rule)">
+                                           </div>
                                            <button @click="saveRule(rule)" class="control-btn text-success" title="Сохранить правило"><i class="bi bi-save"></i></button>
                                            <button @click="deleteRule(rule.id)" class="control-btn text-danger" title="Удалить правило"><i class="bi bi-trash"></i></button>
                                         </div>
@@ -229,36 +231,32 @@ const SettingsParserTab = {
                             </button>
                         </div>
                         <div v-if="isTesting" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
+                        
                         <transition-group v-else name="list" tag="div" class="test-results-container mt-3">
                             <div v-for="(res, index) in testResults" :key="index" class="test-result-card-compact" :class="getResultClass(res)">
                                 <div class="card-title" :title="res.source_data.title">{{ res.source_data.title }}</div>
-                                <div v-if="res.matched_rule_name === 'Нет совпадений'" class="card-line">
+                                
+                                <div v-if="!res.match_events || res.match_events.length === 0" class="card-line">
                                     <span>Правила не применились</span>
                                 </div>
-                                <div v-else-if="res.result && res.result.action === 'exclude'" class="card-line">
-                                    <span>Видео исключено</span>
-                                    <span class="card-rule-name">{{ res.matched_rule_name }}</span>
-                                </div>
-                                <div v-else-if="res.result && res.result.extracted" class="card-details">
-                                     <div v-if="res.result.extracted.season !== null && res.result.extracted.season !== undefined" class="card-line">
-                                        <span>Извлечен сезон: <strong>{{ res.result.extracted.season }}</strong></span>
-                                        <span class="card-rule-name">{{ res.matched_rule_name }}</span>
-                                    </div>
-                                    <div v-if="res.result.extracted.episode" class="card-line">
-                                        <span>Извлечена серия: <strong>{{ res.result.extracted.episode }}</strong></span>
-                                         <span class="card-rule-name">{{ res.matched_rule_name }}</span>
-                                    </div>
-                                    <div v-if="res.result.extracted.start && res.result.extracted.end" class="card-line">
-                                        <span>Извлечена компиляция: <strong>{{ res.result.extracted.start }}-{{ res.result.extracted.end }}</strong></span>
-                                         <span class="card-rule-name">{{ res.matched_rule_name }}</span>
-                                    </div>
-                                    <div v-if="res.result.extracted.voiceover" class="card-line">
-                                        <span>Извлечена озвучка: <strong>{{ res.result.extracted.voiceover }}</strong></span>
-                                         <span class="card-rule-name">{{ res.matched_rule_name }}</span>
+                                
+                                <div v-else class="card-details">
+                                    <!-- Процедурно выводим результат для каждого сработавшего правила -->
+                                    <div v-for="(event, event_index) in res.match_events" :key="event_index" class="card-line">
+                                        <div v-if="event.action === 'exclude'">
+                                            <span><i class="bi bi-x-circle-fill text-danger me-2"></i>Видео исключено</span>
+                                        </div>
+                                        <div v-else class="d-flex flex-wrap gap-3">
+                                             <span v-for="key in Object.keys(event.extracted)" :key="key" v-if="formatExtractedValue(key, event.extracted)">
+                                                 {{ formatExtractedKey(key) }}: <strong>{{ formatExtractedValue(key, event.extracted) }}</strong>
+                                             </span>
+                                        </div>
+                                        <span class="card-rule-name">{{ event.rule_name }}</span>
                                     </div>
                                 </div>
                             </div>
                         </transition-group>
+
                     </div>
                 </div>
             </div>
@@ -307,7 +305,7 @@ const SettingsParserTab = {
         } else {
             this.rules = [];
         }
-        this.testResults = []; // Очищаем результаты при смене профиля
+        this.testResults = [];
     }
   },
   methods: {
@@ -323,9 +321,6 @@ const SettingsParserTab = {
             const response = await fetch('/api/parser-profiles');
             if (!response.ok) throw new Error('Ошибка загрузки профилей');
             this.profiles = await response.json();
-            if (this.profiles.length > 0 && !this.selectedProfileId) {
-                // Не выбираем профиль по умолчанию, даем пользователю сделать выбор
-            }
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); } 
         finally { this.isLoading = false; }
     },
@@ -385,6 +380,7 @@ const SettingsParserTab = {
             conditions: [{ condition_type: 'contains', _blocks: [{type: 'text', value: '', id: Date.now()}], logical_operator: 'AND' }],
             actions: [{ action_type: 'exclude', action_pattern: '[]', _action_blocks: [] }],
             is_new: true,
+            continue_after_match: false,
         };
         this.rules.push(newRule);
         this.openRuleId = newRule.id;
@@ -504,11 +500,33 @@ const SettingsParserTab = {
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
         finally { this.isTesting = false; }
     },
-    getResultClass(result) {
-        if (result.matched_rule_name === 'Нет совпадений') return 'no-match';
-        if (result.result && result.result.action === 'exclude') return 'excluded';
-        if (result.result && result.result.error) return 'error';
+    getResultClass(res) {
+        if (!res.match_events || res.match_events.length === 0) {
+            return 'no-match';
+        }
+        const lastEvent = res.match_events[res.match_events.length - 1];
+        if (lastEvent.action === 'exclude') {
+            return 'excluded';
+        }
+        if (res.final_result && res.final_result.error) {
+            return 'error';
+        }
         return 'success';
+    },
+    formatExtractedKey(key) {
+        const keyMap = {
+            'season': 'Извлечен сезон', 'episode': 'Извлечена серия',
+            'start': 'Извлечена компиляция', 'voiceover': 'Извлечена озвучка',
+        };
+        return keyMap[key] || `Извлечено '${key}'`;
+    },
+    formatExtractedValue(key, extractedData) {
+        if (key === 'end') return null; 
+        if (key === 'start') {
+            return `${extractedData.start}-${extractedData.end}`;
+        }
+        const value = extractedData[key];
+        return (value !== null && value !== undefined) ? value : '';
     },
     async scrapeTestTitles() {
         if (!this.scrapeChannelUrl || !this.scrapeQuery) return;
