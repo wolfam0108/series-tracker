@@ -1,20 +1,32 @@
 const StatusTabNaming = {
-  template: `
+template: `
     <div>
         <div v-if="isLoading" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
         <div v-else-if="!qbTorrents.length" class="text-center text-muted mt-3">Нет торрентов в qBittorrent для переименования.</div>
         <div v-else>
             <div v-for="torrent in qbTorrents" :key="torrent.qb_hash" class="div-table table-naming-preview mb-3 position-relative">
-                <transition name="fade"><div v-if="renamingPreviews[torrent.qb_hash] && renamingPreviews[torrent.qb_hash].loading" class="loading-overlay"></div></transition>
                 <div class="div-table-row" style="background-color: #e9ecef; font-weight: bold;"><div class="div-table-cell" style="grid-column: 1 / -1;">Торрент ID: {{ torrent.torrent_id }}</div></div>
-                <div class="div-table-header"><div class="div-table-cell">Файл на данный момент</div><div class="div-table-cell">Файл после переименования</div></div>
-                <div class="div-table-body">
-                    <template v-if="renamingPreviews[torrent.qb_hash] && !renamingPreviews[torrent.qb_hash].loading">
-                        <div v-for="file in renamingPreviews[torrent.qb_hash].files" :key="file.original" class="div-table-row">
-                            <div class="div-table-cell">{{ file.original }}</div><div class="div-table-cell">{{ file.renamed }}</div>
+                
+                <div v-if="renamingPreviews[torrent.qb_hash] && renamingPreviews[torrent.qb_hash].loading" class="animate-pulse">
+                    <div class="div-table-header"><div class="div-table-cell">&nbsp;</div><div class="div-table-cell">&nbsp;</div></div>
+                    <div class="div-table-body">
+                        <div v-for="i in 3" :key="i" class="div-table-row">
+                            <div class="div-table-cell"><div class="skeleton-line"></div></div>
+                            <div class="div-table-cell"><div class="skeleton-line"></div></div>
                         </div>
-                    </template>
+                    </div>
                 </div>
+
+                <template v-else>
+                    <div class="div-table-header"><div class="div-table-cell">Файл на данный момент</div><div class="div-table-cell">Файл после переименования</div></div>
+                    <div class="div-table-body">
+                        <template v-if="renamingPreviews[torrent.qb_hash]">
+                            <div v-for="file in renamingPreviews[torrent.qb_hash].files" :key="file.original" class="div-table-row">
+                                <div class="div-table-cell">{{ file.original }}</div><div class="div-table-cell">{{ file.renamed }}</div>
+                            </div>
+                        </template>
+                    </div>
+                </template>
             </div>
              <div class="d-flex justify-content-end mt-4">
                 <button class="btn btn-success" @click="executeRename" :disabled="isRenaming || qbTorrents.length === 0">

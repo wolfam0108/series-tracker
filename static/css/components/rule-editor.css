@@ -112,7 +112,7 @@
     flex-wrap: wrap;
     gap: 0.5rem;
     min-height: 38px;
-    align-items: flex-start; /* <-- Исправлено */
+    align-items: flex-start;
     padding: 0.25rem;
     flex-grow: 1;
     position: relative;
@@ -131,7 +131,6 @@
 .block-type-any_text, .block-type-start_of_line, .block-type-end_of_line { background-color: #d1e7dd; color: #0f5132; }
 
 .pattern-block-input {
-    /* ИЗМЕНЕНИЕ: Адаптируем стили под наш дизайн */
     min-width: 1ch;
     max-width: 250px;
     border: none;
@@ -184,31 +183,6 @@
 
 .palette-btn:hover { filter: brightness(0.95); }
 
-.test-results {
-    max-height: 400px;
-    overflow-y: auto;
-    border: 1px solid #e9ecef;
-    border-radius: 6px;
-    font-size: 0.9rem;
-}
-.test-result-item {
-    display: grid;
-    grid-template-columns: 3fr 2fr 2fr;
-    gap: 1rem;
-    padding: 0.5rem;
-    border-bottom: 1px solid #e9ecef;
-}
-.test-result-item:last-child { border-bottom: none; }
-
-.test-result-title {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-}
-.result-no-match { background-color: #f8f9fa; }
-.result-exclude { background-color: #f8d7da; }
-.result-error { background-color: #fff3cd; }
-
 .mb-0 {
     margin-bottom: 0 !important;
 }
@@ -217,7 +191,6 @@
     padding: 8px 12px;
 }
 
-/* ИЗМЕНЕНИЕ: Стили для drag-n-drop из нового примера */
 .drag-handle {
     cursor: grab;
     color: #9ca3af;
@@ -230,7 +203,7 @@
     opacity: 0.5;
     background: #c8ebfb;
 }
-/* Новые стили для компактных карточек результатов теста */
+
 .test-results-container {
     display: flex;
     flex-direction: column;
@@ -246,34 +219,17 @@
     box-shadow: 0 1px 3px rgba(0,0,0,0.05);
 }
 
-.test-result-card-compact.success {
-    background-color: #e7f4e8;
-    border-color: #d1e7dd;
-    color: #0f5132;
-}
-
-.test-result-card-compact.excluded {
-    background-color: #fbe9ea;
-    border-color: #f8d7da;
-    color: #842029;
-}
-
-.test-result-card-compact.no-match {
-    background-color: #f8f9fa;
-    border-color: #e9ecef;
-    color: #6c757d;
-}
-
 .test-result-card-compact .card-title {
     font-weight: 600;
-    margin-bottom: 8px;
+    margin-bottom: 0; /* Убрали отступ, так как теперь есть card-line */
     word-break: break-all;
 }
 
 .test-result-card-compact .card-details {
     display: flex;
     flex-direction: column;
-    gap: 4px; /* Расстояние между строками с данными */
+    gap: 4px;
+    margin-top: 8px;
 }
 
 .test-result-card-compact .card-line {

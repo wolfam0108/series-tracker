@@ -197,6 +197,7 @@ class Database:
                 self.logger.info("db", f"Удаление связанных записей для series_id: {series_id}")
                 session.query(Torrent).filter_by(series_id=series_id).delete(synchronize_session=False)
                 session.query(MediaItem).filter_by(series_id=series_id).delete(synchronize_session=False)
+                session.query(SlicedFile).filter_by(series_id=series_id).delete(synchronize_session=False)
                 session.delete(series)
                 session.commit()
                 self.logger.info("db", f"Сериал {series_id} и все связанные с ним записи удалены.")

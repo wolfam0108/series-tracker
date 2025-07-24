@@ -30,6 +30,8 @@ class Series(Base):
     source_type = Column(Text, default='torrent', nullable=False)
     parser_profile_id = Column(Integer, ForeignKey('parser_profiles.id'), nullable=True)
     ignored_seasons = Column(Text, default='[]')
+    vk_search_mode = Column(Text, default='search', nullable=False) # 'search' или 'get_all'
+    vk_quality_priority = Column(Text, nullable=True) # JSON-массив с приоритетом разрешений, e.g., "[1080, 720]"
 
 class RenamingPattern(Base):
     __tablename__ = 'renaming_patterns'
@@ -181,6 +183,9 @@ class MediaItem(Base):
     chapters = Column(Text, nullable=True) # Поле для хранения глав в формате JSON
     slicing_status = Column(Text, default='none', nullable=False) # none, pending, slicing, completed, error
     is_available = Column(Boolean, default=True, nullable=False)
+
+    resolution = Column(Integer, nullable=True) # Максимальное разрешение видео, e.g., 1080
+
     series = relationship("Series")
 
 class DownloadTask(Base):

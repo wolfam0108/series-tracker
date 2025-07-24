@@ -1,5 +1,6 @@
 import hashlib
 import os
+import json
 from flask import Blueprint, jsonify, request, current_app as app
 
 from auth import AuthManager
@@ -84,8 +85,10 @@ def get_series_composition(series_id):
             return jsonify({"error": "Для сериала не назначен профиль правил парсера."}), 400
         processed_videos = engine.process_videos(profile_id, scraped_videos)
 
-        collector = SmartCollector(app.logger)
-        download_plan = collector.collect(processed_videos)
+        # Передаем app.db для доступа к данным
+        collector = SmartCollector(app.logger, app.db)
+        # Передаем весь объект series, чтобы коллектор мог узнать приоритет качества
+        download_plan = collector.collect(processed_videos, series)
         
         for item in download_plan:
             pub_date = item.get('source_data', {}).get('publication_date')
@@ -290,3 +293,20 @@ def get_sliced_files_for_series(series_id):
     except Exception as e:
         app.logger.error("series_api", f"Ошибка получения sliced_files для series_id {series_id}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+    
+@series_bp.route('/<int:series_id>/vk-quality-priority', methods=['PUT'])
+def set_vk_quality_priority(series_id):
+    """Сохраняет пользовательский порядок приоритета качеств для VK-сериала."""
+    data = request.get_json()
+    priority_list = data.get('priority')
+    
+    if not isinstance(priority_list, list):
+        return jsonify({"success": False, "error": "Приоритет должен быть списком"}), 400
+
+    try:
+        # Сохраняем список в виде JSON-строки
+        app.db.update_series(series_id, {'vk_quality_priority': json.dumps(priority_list)})
+        return jsonify({"success": True, "message": "Приоритет качества сохранен."})
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка обновления vk_quality_priority для series {series_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500

@@ -14,15 +14,33 @@ const SettingsParserTab = {
             <div id="collapseProfiles" class="accordion-collapse collapse show" aria-labelledby="headingProfiles" data-bs-parent="#parserEditorAccordion">
                 <div class="accordion-body">
                     <p class="text-muted small">Выберите профиль для редактирования или создайте новый. Правила и тестирование появятся ниже после выбора профиля.</p>
+                    
                     <div class="modern-input-group">
-                        <select v-model="selectedProfileId" class="modern-select" :disabled="isLoading">
-                            <option :value="null" disabled>-- Выберите профиль --</option>
-                            <option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
-                        </select>
-                        <input v-model.trim="newProfileName" @keyup.enter="createProfile" type="text" class="modern-input" placeholder="Имя нового профиля...">
-                        <button @click="createProfile" class="btn btn-success" :disabled="!newProfileName || isLoading"><i class="bi bi-plus-lg"></i></button>
-                        <button @click="deleteProfile" class="btn btn-danger" :disabled="!selectedProfileId || isLoading"><i class="bi bi-trash"></i></button>
+                        <!-- Режим отображения -->
+                        <template v-if="!editingProfileId">
+                            <select v-model="selectedProfileId" class="modern-select" :disabled="isLoading">
+                                <option :value="null" disabled>-- Выберите профиль --</option>
+                                <option v-for="profile in profiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
+                            </select>
+                            <input v-model.trim="newProfileName" @keyup.enter="createProfile" type="text" class="modern-input" placeholder="Имя нового профиля...">
+                            <button @click="createProfile" class="btn btn-success" :disabled="!newProfileName || isLoading" title="Создать"><i class="bi bi-plus-lg"></i></button>
+                            <button @click="startEditingProfile" class="btn btn-warning" :disabled="!selectedProfileId || isLoading" title="Переименовать"><i class="bi bi-pencil"></i></button>
+                            <button @click="deleteProfile" class="btn btn-danger" :disabled="!selectedProfileId || isLoading" title="Удалить"><i class="bi bi-trash"></i></button>
+                        </template>
+                        
+                        <template v-else>
+                             <input v-model.trim="editingProfileName" 
+                                   @keyup.enter="saveProfileName" 
+                                   @keyup.esc="cancelEditing"
+                                   type="text" 
+                                   class="modern-input" 
+                                   placeholder="Новое имя профиля..."
+                                   ref="editProfileInput">
+                            <button @click="saveProfileName" class="btn btn-success" :disabled="!editingProfileName" title="Сохранить"><i class="bi bi-check-lg"></i></button>
+                            <button @click="cancelEditing" class="btn btn-secondary" title="Отмена"><i class="bi bi-x-lg"></i></button>
+                        </template>
                     </div>
+
                 </div>
             </div>
         </div>
@@ -212,16 +230,32 @@ const SettingsParserTab = {
                 <div id="collapseTest" class="accordion-collapse collapse" aria-labelledby="headingTest" data-bs-parent="#parserEditorAccordion">
                     <div class="accordion-body">
                         <p class="text-muted small">Вставьте "сырые" названия видео в поле ниже или получите их с VK, а затем запустите тест.</p>
-                        <div class="modern-input-group mb-3">
-                            <input v-model.trim="scrapeChannelUrl" type="text" class="modern-input" placeholder="Ссылка на канал VK, например, https://vkvideo.ru/@anidubonline" style="flex-grow: 2;">
-                            <div class="modern-input-group-divider"></div>
-                            <input v-model.trim="scrapeQuery" type="text" class="modern-input" placeholder="Название для поиска">
-                            <button @click="scrapeTestTitles" class="btn btn-primary" :disabled="!scrapeChannelUrl || isScraping">
-                                <span v-if="isScraping" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
-                                <i v-else class="bi bi-cloud-download"></i>
-                                <span class="ms-2">Получить с VK</span>
-                            </button>
+                        
+                        <div class="modern-fieldset mb-3">
+                            <div class="fieldset-content">
+                                <div class="mb-3">
+                                    <label class="modern-label">Режим поиска для теста</label>
+                                    <div class="btn-group w-100">
+                                        <input type="radio" class="btn-check" name="vk_search_mode_test" id="vk_search_test" value="search" v-model="scrapeSearchMode" autocomplete="off">
+                                        <label class="btn btn-outline-primary" for="vk_search_test"><i class="bi bi-search me-2"></i>Быстрый поиск</label>
+                                        
+                                        <input type="radio" class="btn-check" name="vk_search_mode_test" id="vk_get_all_test" value="get_all" v-model="scrapeSearchMode" autocomplete="off">
+                                        <label class="btn btn-outline-primary" for="vk_get_all_test"><i class="bi bi-card-list me-2"></i>Полное сканирование</label>
+                                    </div>
+                                </div>
+                                <div class="modern-input-group">
+                                    <input v-model.trim="scrapeChannelUrl" type="text" class="modern-input" placeholder="Ссылка на канал VK, например, https://vkvideo.ru/@anidubonline" style="flex-grow: 2;">
+                                    <div class="modern-input-group-divider"></div>
+                                    <input v-model.trim="scrapeQuery" type="text" class="modern-input" placeholder="Запросы через / (необязательно для полного сканирования)">
+                                    <button @click="scrapeTestTitles" class="btn btn-primary" :disabled="!scrapeChannelUrl || isScraping">
+                                        <span v-if="isScraping" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                        <i v-else class="bi bi-cloud-download"></i>
+                                        <span class="ms-2">Получить с VK</span>
+                                    </button>
+                                </div>
+                            </div>
                         </div>
+
                         <textarea v-model="testTitles" class="modern-input mb-3" rows="8" placeholder="Название видео 1\nНазвание видео 2"></textarea>
                         <div class="text-end">
                             <button @click="runTest" class="btn btn-success" :disabled="!testTitles || isTesting">
@@ -234,14 +268,18 @@ const SettingsParserTab = {
                         
                         <transition-group v-else name="list" tag="div" class="test-results-container mt-3">
                             <div v-for="(res, index) in testResults" :key="index" class="test-result-card-compact" :class="getResultClass(res)">
-                                <div class="card-title" :title="res.source_data.title">{{ res.source_data.title }}</div>
+                                <div class="card-line">
+                                    <div class="card-title" :title="res.source_data.title">{{ res.source_data.title }}</div>
+                                    <div v-if="res.source_data.resolution" class="quality-badge">
+                                        <span>{{ formatResolution(res.source_data.resolution).text }}</span>
+                                    </div>
+                                </div>
                                 
                                 <div v-if="!res.match_events || res.match_events.length === 0" class="card-line">
                                     <span>Правила не применились</span>
                                 </div>
                                 
                                 <div v-else class="card-details">
-                                    
                                     <template v-for="(event, event_index) in res.match_events" :key="event_index">
                                         <div v-if="event.action === 'exclude'" class="card-line">
                                             <span><i class="bi bi-x-circle-fill text-danger me-2"></i>Видео исключено</span>
@@ -254,7 +292,6 @@ const SettingsParserTab = {
                                             <span class="card-rule-name">{{ event.rule_name }}</span>
                                         </div>
                                     </template>
-
                                 </div>
                             </div>
                         </transition-group>
@@ -288,6 +325,10 @@ const SettingsParserTab = {
       scrapeQuery: '',
       isScraping: false,
       scrapedItems: [],
+      scrapeSearchMode: 'search',
+      // --- ИЗМЕНЕНИЕ: Добавлены состояния для редактирования ---
+      editingProfileId: null,
+      editingProfileName: '',
     };
   },
   emits: ['show-toast'],
@@ -311,12 +352,65 @@ const SettingsParserTab = {
     }
   },
   methods: {
-    emitToast(message, type) {
-      this.$emit('show-toast', message, type);
+    // --- ИЗМЕНЕНИЕ: Добавлены новые методы для управления редактированием ---
+    startEditingProfile() {
+        if (!this.selectedProfileId) return;
+        this.editingProfileId = this.selectedProfileId;
+        const profile = this.profiles.find(p => p.id === this.editingProfileId);
+        this.editingProfileName = profile ? profile.name : '';
+        
+        this.$nextTick(() => {
+            this.$refs.editProfileInput.focus();
+        });
     },
-    async load() {
-      await this.loadProfiles();
+    cancelEditing() {
+        this.editingProfileId = null;
+        this.editingProfileName = '';
     },
+    async saveProfileName() {
+        if (!this.editingProfileName.trim() || !this.editingProfileId) {
+            this.cancelEditing();
+            return;
+        }
+        
+        const currentProfile = this.profiles.find(p => p.id === this.editingProfileId);
+        if (currentProfile && currentProfile.name === this.editingProfileName.trim()) {
+            this.cancelEditing();
+            return;
+        }
+
+        this.isLoading = true;
+        try {
+            const response = await fetch(`/api/parser-profiles/${this.editingProfileId}`, {
+                method: 'PUT',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ name: this.editingProfileName.trim() })
+            });
+            const data = await response.json();
+            if (!response.ok) throw new Error(data.error || 'Ошибка переименования');
+            
+            this.$emit('show-toast', 'Профиль успешно переименован.', 'success');
+            const currentId = this.selectedProfileId;
+            await this.loadProfiles();
+            this.selectedProfileId = currentId;
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        } finally {
+            this.isLoading = false;
+            this.cancelEditing();
+        }
+    },
+    // ... (остальные методы без изменений)
+    formatResolution(resolution) {
+        if (!resolution) return { text: 'N/A' };
+        if (resolution >= 2160) return { text: `4K ${resolution}` };
+        if (resolution >= 1080) return { text: `FHD ${resolution}` };
+        if (resolution >= 720) return { text: `HD ${resolution}` };
+        if (resolution >= 480) return { text: `SD ${resolution}` };
+        return { text: `${resolution}p` };
+    },
+    emitToast(message, type) { this.$emit('show-toast', message, type); },
+    async load() { await this.loadProfiles(); },
     async loadProfiles() {
         this.isLoading = true;
         try {
@@ -375,13 +469,6 @@ const SettingsParserTab = {
         } catch (error) { this.$emit('show-toast', error.message, 'danger'); }
         finally { this.isLoading = false; }
     },
-
-    getDisplayableKeys(extractedData) {
-        if (!extractedData) return [];
-        // Просто отфильтровываем ключ 'end' из массива ключей
-        return Object.keys(extractedData).filter(key => key !== 'end');
-    },
-
     addRule() {
         const newRule = {
             id: 'new-' + Date.now(),
@@ -499,10 +586,13 @@ const SettingsParserTab = {
         if (!this.testTitles || !this.selectedProfileId) return;
         this.isTesting = true; this.testResults = [];
         try {
-            const titles = this.testTitles.split('\n').filter(t => t.trim() !== '');
+            const videosToTest = this.scrapedItems.length > 0 
+                ? this.scrapedItems 
+                : this.testTitles.split('\n').filter(t => t.trim() !== '').map(title => ({ title }));
+
             const response = await fetch('/api/parser-profiles/test', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ profile_id: this.selectedProfileId, titles: titles })
+                body: JSON.stringify({ profile_id: this.selectedProfileId, videos: videosToTest })
             });
             if (!response.ok) throw new Error('Ошибка тестирования');
             this.testResults = await response.json();
@@ -521,6 +611,10 @@ const SettingsParserTab = {
             return 'error';
         }
         return 'success';
+    },
+    getDisplayableKeys(extractedData) {
+        if (!extractedData) return [];
+        return Object.keys(extractedData).filter(key => key !== 'end');
     },
     formatExtractedKey(key) {
         const keyMap = {
@@ -544,7 +638,11 @@ const SettingsParserTab = {
         try {
             const response = await fetch('/api/parser-profiles/scrape-titles', {
                 method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ channel_url: this.scrapeChannelUrl, query: this.scrapeQuery })
+                body: JSON.stringify({ 
+                    channel_url: this.scrapeChannelUrl, 
+                    query: this.scrapeQuery,
+                    search_mode: this.scrapeSearchMode
+                })
             });
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Ошибка сбора названий');

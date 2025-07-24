@@ -1,14 +1,27 @@
 const StatusTabQbit = {
   components: { 'file-tree': FileTree },
-  template: `
+template: `
     <div>
         <div class="d-flex justify-content-between align-items-center mb-3">
             <h6>Торренты из qBittorrent</h6>
             <button v-if="qbTorrents.length > 0 && !isLoading" class="btn btn-danger btn-sm" @click="deleteAllTorrents"><i class="bi bi-trash me-2"></i>Удалить все из qBit</button>
         </div>
         <div class="position-relative">
-            <transition name="fade"><div v-if="isLoading" class="loading-overlay"></div></transition>
-            <div class="div-table table-qbit-info">
+            <div v-if="isLoading" class="div-table table-qbit-info animate-pulse">
+                <div class="div-table-header">
+                    <div class="div-table-cell" v-for="i in 4" :key="i">&nbsp;</div>
+                </div>
+                <div class="div-table-body">
+                    <div v-for="i in 2" :key="i" class="div-table-row">
+                        <div class="div-table-cell"><div class="skeleton-line short"></div></div>
+                        <div class="div-table-cell"><div class="skeleton-line"></div></div>
+                        <div class="div-table-cell"><div class="skeleton-line short"></div></div>
+                        <div class="div-table-cell"><div class="skeleton-line long"></div></div>
+                    </div>
+                </div>
+            </div>
+
+            <div v-else class="div-table table-qbit-info">
                 <div class="div-table-header"><div class="div-table-cell">ID</div><div class="div-table-cell">Статус</div><div class="div-table-cell">Устарел?</div><div class="div-table-cell">Список файлов</div></div>
                 <div class="div-table-body">
                     <transition-group name="list" tag="div">

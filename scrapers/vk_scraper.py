@@ -49,7 +49,7 @@ class VKScraper:
         """Универсальный метод для выполнения запросов к VK API с пагинацией."""
         all_items = []
         offset = 0
-        count = 200 # Максимальное количество за один запрос
+        count = 200
 
         while True:
             params['offset'] = offset
@@ -66,8 +66,7 @@ class VKScraper:
                     break
                 
                 all_items.extend(items)
-                if len(items) < count:
-                    break
+                self.logger.info("vk_scraper", f"  ...загружено {len(all_items)} видео...")
                 offset += count
                 
             except requests.exceptions.RequestException as e:
@@ -76,10 +75,7 @@ class VKScraper:
         
         return all_items
 
-    def scrape_video_data(self, channel_url: str, query: str) -> List[Dict[str, Any]]:
-        """
-        Основной метод. Получает данные о видео либо поиском, либо все подряд.
-        """
+    def scrape_video_data(self, channel_url: str, query: str, search_mode: str = 'search') -> List[Dict[str, Any]]:
         if not self.access_token:
             raise ValueError("Токен доступа VK не настроен.")
             
@@ -98,24 +94,63 @@ class VKScraper:
         if not owner_id:
             raise ValueError(f"Не удалось определить ID для канала '{screen_name}'.")
 
-        # --- ИЗМЕНЕНИЕ: Выбор метода в зависимости от наличия query ---
         base_params = {
             'owner_id': owner_id,
             'access_token': self.access_token,
-            'v': self.API_VERSION
+            'v': self.API_VERSION,
+            # --- ИЗМЕНЕНИЕ: Запрашиваем поле с файлами для определения качества ---
+            'fields': 'files'
         }
         
-        if query and query.strip():
-            self.logger.info("vk_scraper", f"Режим: ПОИСК. Запрос: '{query}' на канале {owner_id}...")
-            base_params['q'] = query
-            videos = self._execute_vk_paginated_request('video.search', base_params)
-        else:
-            self.logger.info("vk_scraper", f"Режим: ПОЛУЧЕНИЕ ВСЕХ ВИДЕО. Канал: {owner_id}...")
-            videos = self._execute_vk_paginated_request('video.get', base_params)
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+        query_terms = [q.strip() for q in query.split('/') if q.strip()]
+        
+        videos = []
+        if search_mode == 'search':
+            self.logger.info("vk_scraper", f"Режим: ПОИСК (video.search). Запросы: {query_terms}")
+            if not query_terms:
+                return []
+            
+            all_found_videos = []
+            for term in query_terms:
+                search_params = base_params.copy()
+                search_params['q'] = term
+                self.logger.info("vk_scraper", f"Выполняю поиск по запросу: '{term}'...")
+                all_found_videos.extend(self._execute_vk_paginated_request('video.search', search_params))
+            
+            seen_ids = set()
+            for video in all_found_videos:
+                if video.get('id') not in seen_ids:
+                    videos.append(video)
+                    seen_ids.add(video.get('id'))
+
+        else: # search_mode == 'get_all'
+            self.logger.info("vk_scraper", f"Режим: ПОЛНОЕ СКАНИРОВАНИЕ (video.get). Фильтры: {query_terms}")
+            all_channel_videos = self._execute_vk_paginated_request('video.get', base_params)
+            
+            if not query_terms:
+                videos = all_channel_videos
+            else:
+                self.logger.info(f"Всего получено {len(all_channel_videos)} видео. Начинаю локальный поиск...")
+                for video in all_channel_videos:
+                    title = video.get('title', '').lower()
+                    if any(term.lower() in title for term in query_terms):
+                        videos.append(video)
         
         results = []
         for video in videos:
+            # --- ИЗМЕНЕНИЕ: Извлекаем максимальное разрешение ---
+            max_resolution = 0
+            if 'files' in video and isinstance(video['files'], dict):
+                for key in video['files']:
+                    if key.startswith('mp4_'):
+                        try:
+                            resolution = int(key.split('_')[1])
+                            if resolution > max_resolution:
+                                max_resolution = resolution
+                        except (ValueError, IndexError):
+                            continue
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
             video_id = video.get('id')
             video_owner_id = video.get('owner_id')
             video_url = f"https://vk.com/video{video_owner_id}_{video_id}"
@@ -126,8 +161,9 @@ class VKScraper:
             results.append({
                 "title": video.get('title', 'Без названия'),
                 "url": video_url,
-                "publication_date": publication_date
+                "publication_date": publication_date,
+                "resolution": max_resolution if max_resolution > 0 else None
             })
             
-        self.logger.info("vk_scraper", f"Найдено {len(results)} видео.")
+        self.logger.info("vk_scraper", f"Найдено и отфильтровано {len(results)} видео.")
         return sorted(results, key=lambda x: x['publication_date'], reverse=True)

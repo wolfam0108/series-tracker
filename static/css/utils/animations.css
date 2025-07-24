@@ -154,3 +154,19 @@
         opacity: 0.5;
     }
 }
+
+/* Стили для скелета загрузки таблиц */
+.skeleton-line {
+    height: 14px;
+    width: 80%;
+    background-color: #e9ecef; /* Более светлый серый */
+    border-radius: 6px;
+}
+
+.skeleton-line.short {
+    width: 50%;
+}
+
+.skeleton-line.long {
+    width: 100%;
+}

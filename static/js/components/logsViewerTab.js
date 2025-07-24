@@ -1,7 +1,5 @@
-// static/js/components/logsViewerTab.js
-
 const LogsViewerTab = {
-  template: `
+template: `
     <div class="d-flex flex-column h-100">
         <div class="row mb-3">
             <div class="col-md-4">
@@ -29,10 +27,21 @@ const LogsViewerTab = {
         
         <div class="div-table-wrapper flex-grow-1" style="overflow-y: auto; position: relative;">
             <div class="position-relative">
-                <transition name="fade">
-                    <div v-if="isLoading" class="loading-overlay"></div>
-                </transition>
-                <div class="div-table table-logs">
+                <div v-if="isLoading" class="div-table table-logs animate-pulse">
+                    <div class="div-table-header">
+                        <div class="div-table-cell" v-for="i in 4" :key="i">&nbsp;</div>
+                    </div>
+                    <div class="div-table-body">
+                        <div v-for="i in 10" :key="i" class="div-table-row">
+                            <div class="div-table-cell"><div class="skeleton-line"></div></div>
+                            <div class="div-table-cell"><div class="skeleton-line short"></div></div>
+                            <div class="div-table-cell"><div class="skeleton-line short"></div></div>
+                            <div class="div-table-cell"><div class="skeleton-line long"></div></div>
+                        </div>
+                    </div>
+                </div>
+
+                <div v-else class="div-table table-logs">
                     <div class="div-table-header">
                         <div class="div-table-cell">Время</div>
                         <div class="div-table-cell">Группа</div>

@@ -67,9 +67,10 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                     app.logger.info("scanner", "Включен 'менее строгий' режим сканирования: будет произведена проверка файлов на диске.")
 
                 app.logger.info("scanner", f"VK-Сериал ID {series_id}: Фаза 1 - Построение плана.")
-                channel_url, query = series['url'].split('|')
+                channel_url, query = series['url'].split('|', 1)
+                search_mode = series.get('vk_search_mode', 'search')
                 scraper = VKScraper(app.db, app.logger)
-                scraped_videos = scraper.scrape_video_data(channel_url, query)
+                scraped_videos = scraper.scrape_video_data(channel_url, query, search_mode)
 
                 engine = RuleEngine(app.db, app.logger)
                 profile_id = series.get('parser_profile_id')
@@ -100,8 +101,10 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                     app.logger.info("scanner", f"После фильтрации по сезонам осталось {len(final_videos_to_process)} из {len(processed_videos)} видео.")
                     processed_videos = final_videos_to_process
 
-                collector = SmartCollector(app.logger)
-                download_plan = collector.collect(processed_videos)
+                # Передаем app.db для доступа к данным
+                collector = SmartCollector(app.logger, app.db) 
+                # Передаем весь объект series, чтобы коллектор мог узнать приоритет качества
+                download_plan = collector.collect(processed_videos, series) 
                 
                 items_in_plan = [item for item in download_plan if item['status'] in ['in_plan_single', 'in_plan_compilation']]
                 app.logger.info("scanner", f"VK-Сериал ID {series_id}: План построен, {len(items_in_plan)} элементов выбрано для загрузки.")

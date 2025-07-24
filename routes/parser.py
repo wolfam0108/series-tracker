@@ -3,10 +3,7 @@ from rule_engine import RuleEngine
 from scrapers.vk_scraper import VKScraper
 import json
 
-# Чертеж для управления профилями и получения/создания правил внутри профиля
 profiles_bp = Blueprint('parser_profiles_api', __name__, url_prefix='/api/parser-profiles')
-
-# Чертеж для управления отдельными правилами
 rules_bp = Blueprint('parser_rules_api', __name__, url_prefix='/api/parser-rules')
 
 
@@ -15,17 +12,20 @@ def get_parser_profiles():
     profiles = app.db.get_parser_profiles()
     return jsonify(profiles)
 
-@profiles_bp.route('', methods=['POST'])
-def create_parser_profile():
+@profiles_bp.route('/<int:profile_id>', methods=['PUT'])
+def update_parser_profile(profile_id):
     data = request.get_json()
     name = data.get('name')
     if not name:
-        return jsonify({"success": False, "error": "Имя профиля не указано"}), 400
+        return jsonify({"success": False, "error": "Новое имя не указано"}), 400
+    
     try:
-        profile_id = app.db.create_parser_profile(name)
-        return jsonify({"success": True, "id": profile_id})
-    except ValueError as e:
+        app.db.update_parser_profile(profile_id, {'name': name})
+        return jsonify({"success": True})
+    except ValueError as e: # Обработка ошибки, если имя уже существует
         return jsonify({"success": False, "error": str(e)}), 409
+    except Exception as e:
+        return jsonify({"success": False, "error": f"Ошибка на сервере: {e}"}), 500
 
 @profiles_bp.route('/<int:profile_id>', methods=['DELETE'])
 def delete_parser_profile(profile_id):
@@ -46,7 +46,6 @@ def get_rules_for_profile(profile_id):
 def add_rule_to_profile(profile_id):
     data = request.get_json()
     try:
-        # --- ИЗМЕНЕНИЕ: action_pattern теперь напрямую принимает JSON-строку с фронтенда ---
         rule_id = app.db.add_rule_to_profile(profile_id, data)
         return jsonify({"success": True, "id": rule_id})
     except Exception as e:
@@ -58,13 +57,16 @@ def scrape_vk_titles():
     data = request.get_json()
     channel_url = data.get('channel_url')
     query = data.get('query')
+    # --- ИЗМЕНЕНИЕ: Получаем новый параметр ---
+    search_mode = data.get('search_mode', 'search')
     
     if not channel_url:
         return jsonify({"error": "Необходимо указать URL канала"}), 400
     
     try:
         scraper = VKScraper(app.db, app.logger)
-        titles_with_dates = scraper.scrape_video_data(channel_url, query)
+        # --- ИЗМЕНЕНИЕ: Передаем параметр в скрейпер ---
+        titles_with_dates = scraper.scrape_video_data(channel_url, query, search_mode)
         return jsonify(titles_with_dates)
     except Exception as e:
         app.logger.error("parser_api", f"Ошибка скрапинга VK: {e}", exc_info=True)
@@ -75,7 +77,6 @@ def scrape_vk_titles():
 def update_rule(rule_id):
     data = request.get_json()
     try:
-        # --- ИЗМЕНЕНИЕ: action_pattern теперь напрямую принимает JSON-строку с фронтенда ---
         app.db.update_rule(rule_id, data)
         return jsonify({"success": True})
     except Exception as e:
@@ -104,11 +105,15 @@ def reorder_rules():
 def test_parser_rules():
     data = request.get_json()
     profile_id = data.get('profile_id')
-    titles = data.get('titles', [])
+    # Принимаем новый формат `videos`, но оставляем старый `titles` для совместимости
+    video_data = data.get('videos', [])
+    
     if not profile_id:
         return jsonify({"error": "profile_id не указан"}), 400
+    if not video_data:
+        return jsonify({"error": "Не переданы данные для тестирования"}), 400
     
     engine = RuleEngine(app.db, app.logger)
-    video_data = [{"title": title} for title in titles]
+    # Теперь `video_data` уже содержит полные объекты, а не только заголовки
     results = engine.process_videos(profile_id, video_data)
     return jsonify(results)

@@ -19,33 +19,61 @@ const AddSeriesModal = {
                         <div v-if="urlError" class="invalid-feedback">{{ urlError }}</div>
                     </div>
                     
-                    <div v-if="parsing" class="text-center my-4">
-                        <div class="spinner-border" role="status"><span class="visually-hidden">Получение информации...</span></div>
-                        <p class="mt-2">Получение информации...</p>
+                    <div v-if="parsing" class="animate-pulse">
+                        <div class="modern-fieldset mt-4">
+                            <div class="fieldset-header"><div class="skeleton-line short" style="height: 20px; width: 30%;"></div></div>
+                            <div class="fieldset-content">
+                                <div class="row">
+                                    <div class="col-md-6"><div class="skeleton-line long mb-3"></div></div>
+                                    <div class="col-md-6"><div class="skeleton-line long mb-3"></div></div>
+                                    <div class="col-md-6"><div class="skeleton-line long mb-3"></div></div>
+                                    <div class="col-md-6"><div class="skeleton-line long mb-3"></div></div>
+                                </div>
+                            </div>
+                        </div>
+                        <div class="modern-fieldset mt-4">
+                            <div class="fieldset-header"><div class="skeleton-line short" style="height: 20px; width: 25%;"></div></div>
+                            <div class="fieldset-content">
+                                <div class="skeleton-line long"></div>
+                            </div>
+                        </div>
                     </div>
 
                     <div v-if="parsed || sourceType === 'vk_video'">
-                        <div v-if="sourceType === 'vk_video'">
-                            <div class="modern-fieldset mt-4">
-                                <div class="fieldset-header"><h6 class="fieldset-title mb-0">Настройки для VK Video</h6></div>
-                                <div class="fieldset-content">
-                                    <div class="row">
-                                        <div class="col-md-6">
-                                            <label class="modern-label">Ссылка на канал</label>
-                                            <input v-model.trim="vkChannelUrl" type="text" class="modern-input" placeholder="https://vkvideo.ru/@канал">
-                                        </div>
-                                        <div class="col-md-6">
-                                            <label class="modern-label">Поисковый запрос</label>
-                                            <input v-model.trim="vkQuery" type="text" class="modern-input" placeholder="Название сериала">
-                                        </div>
+                        <div v-if="sourceType === 'vk_video'" class="modern-fieldset mt-4">
+                            <div class="fieldset-header"><h6 class="fieldset-title mb-0">Настройки для VK Video</h6></div>
+                            <div class="fieldset-content">
+                                <div class="mb-3">
+                                    <label class="modern-label">Режим поиска</label>
+                                    <div class="btn-group w-100">
+                                        <input type="radio" class="btn-check" name="vk_search_mode_add" id="vk_search_add" value="search" v-model="newSeries.vk_search_mode" autocomplete="off">
+                                        <label class="btn btn-outline-primary" for="vk_search_add"><i class="bi bi-search me-2"></i>Быстрый поиск (video.search)</label>
+                                        
+                                        <input type="radio" class="btn-check" name="vk_search_mode_add" id="vk_get_all_add" value="get_all" v-model="newSeries.vk_search_mode" autocomplete="off">
+                                        <label class="btn btn-outline-primary" for="vk_get_all_add"><i class="bi bi-card-list me-2"></i>Полное сканирование (video.get)</label>
                                     </div>
-                                    <div class="modern-form-group mt-3">
-                                        <label class="modern-label">Профиль правил парсера</label>
-                                        <select v-model="newSeries.parser_profile_id" class="modern-select">
-                                            <option :value="null">-- Не выбрано --</option>
-                                            <option v-for="profile in parserProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
-                                        </select>
+                                    <small class="form-text text-muted mt-2 d-block">
+                                        <b>Быстрый поиск:</b> использует API поиска VK. Быстро, но может пропустить некоторые видео.
+                                        <br>
+                                        <b>Полное сканирование:</b> загружает список всех видео с канала, затем фильтрует. Медленнее, но надёжнее.
+                                    </small>
+                                </div>
+                                <div class="row">
+                                    <div class="col-md-6">
+                                        <label class="modern-label">Ссылка на канал</label>
+                                        <input v-model.trim="vkChannelUrl" type="text" class="modern-input" placeholder="https://vkvideo.ru/@канал">
                                     </div>
+                                    <div class="col-md-6">
+                                        <label class="modern-label">Поисковые запросы (через /)</label>
+                                        <input v-model.trim="vkQuery" type="text" class="modern-input" placeholder="Название 1 / Название 2">
+                                    </div>
+                                </div>
+                                <div class="modern-form-group mt-3">
+                                    <label class="modern-label">Профиль правил парсера</label>
+                                    <select v-model="newSeries.parser_profile_id" class="modern-select">
+                                        <option :value="null">-- Не выбрано --</option>
+                                        <option v-for="profile in parserProfiles" :key="profile.id" :value="profile.id">{{ profile.name }}</option>
+                                    </select>
                                 </div>
                             </div>
                         </div>
@@ -177,7 +205,8 @@ const AddSeriesModal = {
   data() {
     return { 
         modal: null, 
-        newSeries: { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null }, 
+        // --- ИЗМЕНЕНИЕ: Добавлен vk_search_mode ---
+        newSeries: { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null, vk_search_mode: 'search' }, 
         isSeasonless: false,
         urlError: '', 
         parsing: false, 
@@ -202,9 +231,11 @@ const AddSeriesModal = {
         if (this.isSeasonless) return true;
         return /^s\d{2}$/.test(this.newSeries.season.trim()); 
     },
+    // --- ИЗМЕНЕНИЕ: Обновлена логика валидации ---
     canAddSeries() { 
         if (this.sourceType === 'vk_video') {
-            return this.vkChannelUrl && this.newSeries.parser_profile_id && this.isNameValid && this.isNameEnValid && this.isSavePathValid;
+            const isSearchModeValid = this.newSeries.vk_search_mode === 'search' ? this.vkQuery.trim().length > 0 : true;
+            return this.vkChannelUrl && isSearchModeValid && this.newSeries.parser_profile_id && this.isNameValid && this.isNameEnValid && this.isSavePathValid;
         }
         return this.parsed && this.isSavePathValid && this.isNameValid && this.isNameEnValid && this.isSeasonValid; 
     },
@@ -216,7 +247,7 @@ const AddSeriesModal = {
   emits: ['series-added', 'show-toast'],
   methods: {
     async open() {
-      this.newSeries = { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null };
+      this.newSeries = { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null, vk_search_mode: 'search' };
       this.isSeasonless = false;
       this.urlError = ''; 
       this.parsing = false; 
@@ -295,7 +326,6 @@ const AddSeriesModal = {
             Object.keys(this.episodeQualityOptions).forEach(key => delete this.episodeQualityOptions[key]);
             Object.keys(this.newSeries.qualityByEpisodes).forEach(key => delete this.newSeries.qualityByEpisodes[key]);
             
-            // ---> ИЗМЕНЕНИЕ ЗДЕСЬ <---
             if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
                 this.episodeQualityOptions.all = [...new Set(data.torrents.filter(t => t.quality).map(t => t.quality))];
                 this.newSeries.qualityByEpisodes.all = this.episodeQualityOptions.all[0] || '';
@@ -340,9 +370,9 @@ const AddSeriesModal = {
                 payload.source_type = 'vk_video';
                 payload.url = `${this.vkChannelUrl}|${this.vkQuery}`;
                 payload.site = 'vkvideo.ru';
+                // --- ИЗМЕНЕНИЕ: vk_search_mode уже есть в payload из newSeries ---
             } else {
                 payload.source_type = 'torrent';
-                // ---> И ИЗМЕНЕНИЕ ЗДЕСЬ <---
                 if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
                     qualityString = this.newSeries.qualityByEpisodes.all;
                 } else if (this.site.includes('astar')) {

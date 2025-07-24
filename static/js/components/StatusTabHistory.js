@@ -1,7 +1,25 @@
 const StatusTabHistory = {
-  template: `
+template: `
     <div>
-        <div v-if="isLoading" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
+        <div v-if="isLoading">
+            <div v-if="sourceType === 'vk_video'" class="div-table table-media-item-history animate-pulse">
+                <div class="div-table-header"><div class="div-table-cell" v-for="i in 7" :key="i">&nbsp;</div></div>
+                <div class="div-table-body">
+                    <div v-for="i in 5" :key="i" class="div-table-row">
+                        <div class="div-table-cell" v-for="j in 7" :key="j"><div class="skeleton-line"></div></div>
+                    </div>
+                </div>
+            </div>
+            <div v-else class="div-table table-torrents-history animate-pulse">
+                <div class="div-table-header"><div class="div-table-cell" v-for="i in 7" :key="i">&nbsp;</div></div>
+                <div class="div-table-body">
+                    <div v-for="i in 5" :key="i" class="div-table-row">
+                        <div class="div-table-cell" v-for="j in 7" :key="j"><div class="skeleton-line"></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
+
         <div v-else-if="sourceType === 'vk_video'">
             <h6>История медиа-элементов в БД</h6>
             <div class="table-wrapper-scroll-x">

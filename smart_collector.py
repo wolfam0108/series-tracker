@@ -1,33 +1,81 @@
+import json
 from typing import List, Dict, Any, Set
 
 class SmartCollector:
     """
     Рассчитывает оптимальный "план загрузки" для сериала,
-    обрабатывая каждый сезон независимо.
+    обрабатывая каждый сезон независимо и выбирая наилучшее качество видео.
     """
-    def __init__(self, logger):
+    def __init__(self, logger, db):
         self.logger = logger
+        self.db = db
 
-    def _build_plan_for_season(self, singles: List[Dict[str, Any]], compilations: List[Dict[str, Any]]) -> Dict[str, Dict[str, Any]]:
+    def _get_best_quality_version(self, items: List[Dict[str, Any]], quality_priority: List[int]) -> Dict[str, Any]:
+        """
+        Из списка дубликатов одного и того же эпизода/компиляции выбирает лучший.
+        Логика выбора:
+        1. По пользовательскому приоритету разрешений.
+        2. Если приоритет не задан, по максимальному разрешению.
+        3. Если разрешения равны, по самой новой дате публикации.
+        """
+        if not items:
+            return None
+        if len(items) == 1:
+            return items[0]
+
+        # Сортировка по качеству
+        def sort_key(item):
+            resolution = item.get('source_data', {}).get('resolution') or 0
+            
+            # Приоритет №1: Пользовательский порядок
+            if quality_priority:
+                try:
+                    # Чем ниже индекс в списке приоритетов, тем лучше (индекс 0 - лучший)
+                    priority_index = quality_priority.index(resolution)
+                except ValueError:
+                    # Если разрешения нет в списке, отправляем его в конец
+                    priority_index = float('inf')
+                return priority_index
+            
+            # Приоритет №2: Максимальное разрешение (сортируем по убыванию, поэтому -resolution)
+            return -resolution
+
+        # Сначала сортируем по качеству
+        sorted_by_quality = sorted(items, key=sort_key)
+        
+        # Отбираем всех кандидатов с наилучшим качеством
+        best_quality_value = sort_key(sorted_by_quality[0])
+        top_candidates = [item for item in sorted_by_quality if sort_key(item) == best_quality_value]
+
+        # Если после фильтрации по качеству остался один кандидат, возвращаем его
+        if len(top_candidates) == 1:
+            return top_candidates[0]
+            
+        # Приоритет №3: Если качества одинаковы, выбираем по самой новой дате
+        return max(top_candidates, key=lambda x: x.get('source_data', {}).get('publication_date'))
+
+    def _build_plan_for_season(self, singles: List[Dict[str, Any]], compilations: List[Dict[str, Any]], quality_priority: List[int]) -> Dict[str, Dict[str, Any]]:
         """Содержит основную логику построения плана для ОДНОГО сезона."""
         
         statuses = {}
 
-        # 1. Создание базового плана из уникальных одиночных серий
-        base_plan_episodes: Dict[int, Dict[str, Any]] = {}
+        # --- ИЗМЕНЕНИЕ: Группируем одиночные серии по номеру эпизода ---
+        singles_by_episode = {}
         for s in singles:
             ep_num = s['result']['extracted']['episode']
-            if ep_num not in base_plan_episodes:
-                base_plan_episodes[ep_num] = s
-            else:
-                # Обработка дубликатов: оставляем более новую версию
-                current_date = base_plan_episodes[ep_num]['source_data']['publication_date']
-                new_date = s['source_data']['publication_date']
-                if new_date > current_date:
-                    statuses[base_plan_episodes[ep_num]['source_data']['url']] = {'status': 'redundant', 'reason': 'Найдена более новая версия'}
-                    base_plan_episodes[ep_num] = s
-                else:
-                    statuses[s['source_data']['url']] = {'status': 'redundant', 'reason': 'Найдена более новая версия'}
+            if ep_num not in singles_by_episode:
+                singles_by_episode[ep_num] = []
+            singles_by_episode[ep_num].append(s)
+
+        # 1. Создание базового плана из лучших версий одиночных серий
+        base_plan_episodes: Dict[int, Dict[str, Any]] = {}
+        for ep_num, items in singles_by_episode.items():
+            best_version = self._get_best_quality_version(items, quality_priority)
+            base_plan_episodes[ep_num] = best_version
+            # Помечаем остальные версии как избыточные
+            for item in items:
+                if item != best_version:
+                    statuses[item['source_data']['url']] = {'status': 'redundant', 'reason': 'Найдена версия с лучшим качеством'}
 
         all_ep_numbers: Set[int] = set(base_plan_episodes.keys())
         for c in compilations:
@@ -100,18 +148,28 @@ class SmartCollector:
         return statuses
 
 
-    def collect(self, processed_items: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
-        self.logger.info("smart_collector", "Запуск НОВОГО сезонно-ориентированного алгоритма.")
+    def collect(self, processed_items: List[Dict[str, Any]], series_data: Dict[str, Any]) -> List[Dict[str, Any]]:
+        self.logger.info("smart_collector", "Запуск НОВОГО сезонно-ориентированного алгоритма с фильтрацией по качеству.")
+
+        # --- ИЗМЕНЕНИЕ: Загружаем приоритет качества из данных сериала ---
+        quality_priority = []
+        try:
+            if series_data.get('vk_quality_priority'):
+                quality_priority = json.loads(series_data['vk_quality_priority'])
+        except (json.JSONDecodeError, TypeError):
+            self.logger.warning("smart_collector", "Не удалось прочитать настройки приоритета качества.")
+        
+        self.logger.info("smart_collector", f"Используемый приоритет качества: {quality_priority or 'По убыванию'}")
 
         # Шаг 1: Группировка всех элементов по сезонам
         seasons: Dict[int, Dict[str, List]] = {}
         
         for item in processed_items:
-            if not item.get('result') or item['result'].get('error'):
+            # --- ИЗМЕНЕНИЕ: Пропускаем видео без разрешения ---
+            if not item.get('result') or item['result'].get('error') or not item.get('source_data', {}).get('resolution'):
                 continue
 
             extracted = item['result'].get('extracted', {})
-            # По умолчанию считаем сезоном 1, если он не указан
             season_num = extracted.get('season', 1)
 
             if season_num not in seasons:
@@ -126,14 +184,13 @@ class SmartCollector:
         final_statuses = {}
         for season_num, season_data in seasons.items():
             self.logger.debug(f"smart_collector: Обработка сезона {season_num} ({len(season_data['singles'])} одиночных, {len(season_data['compilations'])} компиляций)")
-            season_statuses = self._build_plan_for_season(season_data['singles'], season_data['compilations'])
+            season_statuses = self._build_plan_for_season(season_data['singles'], season_data['compilations'], quality_priority)
             final_statuses.update(season_statuses)
 
         # Шаг 3: Сборка итогового результата
         result_with_statuses = []
         for item in processed_items:
             item_with_status = item.copy()
-            # Если элемент не попал ни в один из планов, он считается отброшенным
             status_info = final_statuses.get(item['source_data']['url'], {'status': 'discarded'})
             item_with_status.update(status_info)
             result_with_statuses.append(item_with_status)
