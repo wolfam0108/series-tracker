@@ -40,6 +40,7 @@ LOGGING_MODULES = {
         {'name': 'vk_scraper', 'description': 'Получение данных из VK (ID канала, поиск видео).'},
         {'name': 'kinozal_parser', 'description': 'Парсинг Kinozal.'},
         {'name': 'anilibria_parser', 'description': 'Парсинг Anilibria.'},
+        {'name': 'anilibria_parser_debug', 'description': 'Детальная отладка парсера Anilibria (время).'},
         {'name': 'anilibria_tv_parser', 'description': 'Парсинг Anilibria.TV.'},
         {'name': 'astar_parser', 'description': 'Парсинг Astar.'},
         {'name': 'renamer', 'description': 'Процесс переименования файлов.'},

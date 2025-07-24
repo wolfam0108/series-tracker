@@ -1,6 +1,5 @@
 import time
 import re
-import locale
 from urllib.parse import urlparse
 from bs4 import BeautifulSoup
 from db import Database
@@ -8,7 +7,7 @@ from logger import Logger
 from typing import Optional, Dict, List
 from flask import current_app as app
 import os
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from playwright.sync_api import sync_playwright, TimeoutError as PlaywrightTimeoutError
 
 class AnilibriaParser:
@@ -20,25 +19,58 @@ class AnilibriaParser:
     def __init__(self, db: Database, logger: Logger):
         self.db = db
         self.logger = logger
-        try:
-            locale.setlocale(locale.LC_ALL, 'en_US.UTF-8')
-        except locale.Error:
-            self.logger.warning("anilibria_parser", "Предупреждение: не удалось установить локаль en_US.UTF-8. Парсинг даты может не сработать на вашей системе.")
+        # locale больше не используется
 
     def _normalize_date_from_anilibria(self, date_str: str) -> Optional[str]:
+        """
+        Нормализует строку с датой от Anilibria (которая приходит в UTC)
+        и конвертирует ее в ЛОКАЛЬНОЕ время сервера.
+        """
         try:
-            date_str_cleaned = date_str.replace(',', '')
-            parsed_datetime = datetime.strptime(date_str_cleaned, '%m/%d/%Y %I:%M:%S %p')
-            return parsed_datetime.strftime('%d.%m.%Y %H:%M:%S')
-        except ValueError as e:
-            self.logger.error(f"anilibria_parser - Ошибка нормализации даты Anilibria '{date_str}': {str(e)}")
+            if app.debug_manager.is_debug_enabled('anilibria_parser_debug'):
+                self.logger.debug("anilibria_parser_debug", f"RAW DATE STRING RECEIVED: '{date_str}'")
+
+            # 1. Определяем часовые пояса: UTC и локальный часовой пояс сервера
+            utc_tz = timezone.utc
+            local_tz = datetime.now().astimezone().tzinfo
+
+            # 2. Ручной разбор строки
+            match = re.match(r'(\d{1,2})/(\d{1,2})/(\d{4}),?\s*(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)', date_str, re.IGNORECASE)
+            if not match:
+                raise ValueError(f"Формат даты '{date_str}' не соответствует 'm/d/yyyy, h:mm:ss am/pm'")
+            
+            month, day, year, hour, minute, second, am_pm = match.groups()
+            month, day, year, hour, minute, second = map(int, [month, day, year, hour, minute, second])
+
+            if am_pm.upper() == 'PM' and hour < 12:
+                hour += 12
+            elif am_pm.upper() == 'AM' and hour == 12:
+                hour = 0
+                
+            # 3. Создаем "наивный" объект datetime
+            dt_naive = datetime(year, month, day, hour, minute, second)
+
+            # 4. Делаем его "осведомленным", сказав, что это время в UTC
+            dt_utc = dt_naive.replace(tzinfo=utc_tz)
+
+            # 5. Конвертируем время из UTC в локальный часовой пояс сервера
+            dt_local = dt_utc.astimezone(local_tz)
+            
+            final_str = dt_local.strftime('%d.%m.%Y %H:%M:%S')
+
+            if app.debug_manager.is_debug_enabled('anilibria_parser_debug'):
+                self.logger.debug("anilibria_parser_debug", f"PARSED UTC: {dt_utc}, CONVERTED TO LOCAL ({local_tz}): {dt_local}, FINAL STRING: '{final_str}'")
+
+            return final_str
+
+        except Exception as e:
+            self.logger.error(f"anilibria_parser - КРИТИЧЕСКАЯ ошибка нормализации даты '{date_str}': {e}")
             return None
 
     def _save_html_dump(self, html_content: str):
         try:
             if not os.path.exists(self.DUMP_DIR):
                 os.makedirs(self.DUMP_DIR)
-                self.logger.info("anilibria_parser", f"Создана директория для дампов: {self.DUMP_DIR}")
             
             timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
             filename = os.path.join(self.DUMP_DIR, f"anilibria_parser_{timestamp}.html")
@@ -51,9 +83,7 @@ class AnilibriaParser:
             self.logger.error(f"anilibria_parser - Не удалось сохранить HTML-дамп: {e}", exc_info=True)
 
     def _fetch_page_source(self, url: str) -> Optional[str]:
-        if app.debug_manager.is_debug_enabled('anilibria_parser'):
-            self.logger.debug("anilibria_parser", f"Запрос страницы с помощью Playwright: {url}")
-        
+        # Playwright больше не нуждается в принудительной установке timezone_id
         for attempt in range(self.MAX_RETRIES):
             try:
                 with sync_playwright() as p:
@@ -62,24 +92,16 @@ class AnilibriaParser:
                     page = context.new_page()
                     page.goto(url, timeout=self.TIMEOUT, wait_until="domcontentloaded")
                     
-                    self.logger.info("anilibria_parser", "Ожидание отрисовки контента страницы...")
                     page.wait_for_selector('div.v-list-item', state='visible', timeout=self.TIMEOUT)
-                    self.logger.info("anilibria_parser", "Контент отрисован.")
                     
                     html_content = page.content()
                     browser.close()
-
-                    self.logger.info(f"anilibria_parser - Страница {url} успешно загружена и отрисована (попытка {attempt + 1}).")
 
                     if app.debug_manager.is_debug_enabled('save_parser_html'):
                         self._save_html_dump(html_content)
 
                     return html_content
-            except PlaywrightTimeoutError:
-                self.logger.warning(f"anilibria_parser - Ошибка таймаута Playwright при запросе к {url} (попытка {attempt + 1}/{self.MAX_RETRIES}).")
-                if attempt < self.MAX_RETRIES - 1:
-                    time.sleep(self.RETRY_DELAY)
-            except Exception as e:
+            except (PlaywrightTimeoutError, Exception) as e:
                 self.logger.warning(f"anilibria_parser - Ошибка Playwright при запросе к {url} (попытка {attempt + 1}/{self.MAX_RETRIES}): {e}")
                 if attempt < self.MAX_RETRIES - 1:
                     time.sleep(self.RETRY_DELAY)
@@ -107,17 +129,12 @@ class AnilibriaParser:
         ru_title = ru_title_element.text.strip() if ru_title_element else "Название не найдено"
         en_title_element = soup.find('div', class_='text-grey-darken-2')
         en_title = en_title_element.text.strip() if en_title_element else "Eng title not found"
-        self.logger.info(f"Название (ru): {ru_title}")
-        self.logger.info(f"Название (en): {en_title}")
-
+        
         torrents = []
         torrent_blocks = soup.find_all('div', class_='v-list-item')
         if not torrent_blocks:
-            self.logger.error("anilibria_parser", "Не найдены блоки торрентов ('div.v-list-item').")
             return {"source": urlparse(url_to_fetch).netloc, "title": {"ru": ru_title, "en": en_title}, "torrents": [], "error": "Не найдены блоки торрентов"}
         
-        self.logger.info(f"Найдено {len(torrent_blocks)} визуальных блоков торрентов.")
-
         for index, block in enumerate(torrent_blocks):
             try:
                 episodes_element = block.find('div', class_='fz-90')
@@ -125,16 +142,11 @@ class AnilibriaParser:
                 
                 magnet_link_tag = block.find('a', href=re.compile(r'^magnet:'))
                 if not magnet_link_tag:
-                    self.logger.warning(f"В блоке торрента №{index+1} не найдена magnet-ссылка.")
                     continue
                 magnet_link = magnet_link_tag['href']
                 
-                # --- ИЗМЕНЕНИЕ: Уточнен селектор для поиска информации о торренте ---
                 info_element = block.find('div', class_='text-grey-darken-2 fz-75')
-                # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-                
                 if not info_element:
-                    self.logger.warning(f"В блоке торрента №{index+1} не найдена строка с датой/качеством.")
                     continue
                 
                 info_string = info_element.text.strip()
@@ -145,7 +157,6 @@ class AnilibriaParser:
                 quality = " • ".join(parts[1:]) if len(parts) > 1 else None
 
                 torrent_info = {
-                    "torrent_id": f"anilibria_{len(torrents) + 1:03d}",
                     "episodes": episodes,
                     "date_time": formatted_datetime,
                     "quality": quality,
@@ -156,7 +167,8 @@ class AnilibriaParser:
                 self.logger.warning(f"Пропущен один блок торрента из-за ошибки парсинга: {e}. Блок: {block.text[:150]}...")
                 continue
         
-        self.logger.info(f"Найдено и обработано {len(torrents)} торрентов.")
+        if app.debug_manager.is_debug_enabled('anilibria_parser_debug'):
+            self.logger.debug("anilibria_parser_debug", f"FINAL TORRENTS PAYLOAD: {torrents}")
         
         return {
             "source": urlparse(url_to_fetch).netloc,

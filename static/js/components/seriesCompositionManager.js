@@ -384,7 +384,4 @@ const SeriesCompositionManager = {
         return path.split(/[\\/]/).pop();
     },
   },
-  mounted() {
-    this.loadComposition();
-  },
 };

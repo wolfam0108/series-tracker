@@ -1,5 +1,3 @@
-# downloader_agent.py
-
 import threading
 import time
 import json
@@ -9,6 +7,8 @@ from logger import Logger
 from downloader import Downloader
 from concurrent.futures import ThreadPoolExecutor
 from sse import ServerSentEvent
+# --- ИЗМЕНЕНИЕ: Добавляем импорты для работы со временем ---
+from datetime import datetime, timezone
 
 class DownloaderAgent(threading.Thread):
     def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent):
@@ -30,13 +30,10 @@ class DownloaderAgent(threading.Thread):
             active_tasks = self.db.get_active_download_tasks()
             self.broadcaster.broadcast('download_queue_update', active_tasks)
 
-    # ---> ЗАМЕНИТЕ СУЩЕСТВУЮЩИЙ МЕТОД _aggregate_statuses НА ЭТОТ <---
     def _aggregate_statuses(self, statuses: dict) -> str:
         """Агрегирует статусы загрузок в единую JSON-строку для поля state."""
         new_state = {}
         idx = 0
-        # ---> ИСПРАВЛЕНИЕ: Здесь имя аргумента 'statuses', поэтому код был корректен,
-        # но для единообразия и ясности приведем его к общему виду. <---
         if statuses.get('downloading', 0) > 0:
             new_state[str(idx)] = 'downloading'; idx += 1
         if statuses.get('completed', 0) > 0:
@@ -97,6 +94,12 @@ class DownloaderAgent(threading.Thread):
                     self.db.update_media_item_filename(unique_id, save_path)
                     self.db.update_media_item_download_status(unique_id, 'completed')
                     self.db.delete_download_task(task_id)
+                    
+                    # --- ИЗМЕНЕНИЕ: Обновляем время последней активности сериала ---
+                    self.db.update_series(series_id, {'last_scan_time': datetime.now(timezone.utc)})
+                    self.logger.info("downloader_agent", f"Обновлено время последней загрузки для series_id: {series_id}")
+                    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
                 else:
                     self.logger.error("downloader_agent", f"Задача {task_id} завершилась с ошибкой. Статус будет обновлен. Ошибка: {error_msg}")
                     self.db.update_download_task_status(task_id, 'error', error_message=error_msg)
@@ -138,7 +141,6 @@ class DownloaderAgent(threading.Thread):
                 pending_tasks = self.db.get_pending_download_tasks(tasks_to_start_count)
                 
                 if pending_tasks:
-                    # Мы берем series_id из первой задачи, предполагая, что все они из одной пачки
                     series_id_to_update = None
                     for task in pending_tasks:
                         task_id = task['id']

@@ -80,12 +80,8 @@ const ChapterManager = {
             const isDownloaded = item.status === 'completed';
             const isIgnoredBySeason = ignoredSeasons.includes(season);
             
-            // Показываем, если:
-            // 1. Это скачанная компиляция, которую пользователь НЕ игнорировал И сезон НЕ игнорируется.
-            // ИЛИ
-            // 2. Это компиляция, у которой нарезка уже завершена (даже если она помечена как "игнорируемая системой").
             const showBecauseActive = isDownloaded && !item.is_ignored_by_user && !isIgnoredBySeason;
-            const showBecauseCompletedSlicing = ['completed', 'completed_with_errors'].includes(item.slicing_status);
+            const showBecauseCompletedSlicing = ['completed', 'completed_with_errors', 'error'].includes(item.slicing_status);
 
             return isCompilation && (showBecauseActive || showBecauseCompletedSlicing);
           })
@@ -119,18 +115,19 @@ const ChapterManager = {
         return item.chapters && item.chapters.length > 0;
     },
     isSliceButtonDisabled(item) {
-        // Кнопка активна, если статус "none" ИЛИ "completed_with_errors"
-        const allowed_statuses = ['none', 'completed_with_errors'];
+        // --- ИЗМЕНЕНИЕ: Добавляем 'error' в список разрешенных статусов ---
+        const allowed_statuses = ['none', 'completed_with_errors', 'error'];
         return !allowed_statuses.includes(item.slicing_status);
     },
     getSliceButtonTitle(item) {
+        // --- ИЗМЕНЕНИЕ: Добавляем текст для статуса 'error' ---
         const statusMap = {
             'none': 'Начать нарезку на эпизоды',
             'completed_with_errors': 'Восстановить недостающие файлы',
             'pending': 'В очереди на нарезку',
             'slicing': 'В процессе нарезки...',
             'completed': 'Нарезка успешно завершена',
-            'error': 'Ошибка при нарезке',
+            'error': 'Произошла ошибка. Попробовать снова?',
         };
         return statusMap[item.slicing_status] || 'Начать нарезку';
     },
@@ -148,7 +145,7 @@ const ChapterManager = {
             this.$emit('show-toast', 'Задача на нарезку успешно создана.', 'success');
         } catch(error) {
             this.$emit('show-toast', error.message, 'danger');
-            item.slicing_status = 'none';
+            item.slicing_status = 'error'; // Возвращаем статус 'error' если создание задачи не удалось
         }
     },
     getCardClass(item) {

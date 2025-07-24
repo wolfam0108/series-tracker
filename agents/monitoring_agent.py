@@ -32,10 +32,13 @@ class MonitoringAgent(threading.Thread):
         self.awaiting_tasks_flag = threading.Event()
         self.CHECK_INTERVAL = 10 
         self.STATUS_UPDATE_INTERVAL = 5
-        self.FILE_VERIFY_INTERVAL = 60 # Проверять файлы раз в минуту
+        self.FILE_VERIFY_INTERVAL = 60
         self.last_status_update_time = time.time()
         self.last_file_verify_time = time.time()
         self.qb_client = None
+        # --- НОВОЕ: Статусы, которые считаются "проверкой" в qBittorrent ---
+        self.QBIT_CHECKING_STATES = {'checkingUP', 'checkingDL', 'checkingResumeData'}
+
 
     def _broadcast_scanner_status(self):
         with self.app.app_context():
@@ -60,16 +63,11 @@ class MonitoringAgent(threading.Thread):
         }
         
     def _verify_downloaded_files(self):
-        """
-        Проверяет наличие файлов на диске (как компиляций, так и нарезанных),
-        восстанавливает состояние в случае утери файлов и агрегирует статусы для UI.
-        ВАЖНО: Эта логика предназначена ТОЛЬКО для vk_video.
-        """
+        """Проверяет наличие файлов на диске и агрегирует статусы для UI."""
         all_series = self.db.get_all_series()
         series_to_broadcast = set()
 
         for series in all_series:
-            # ---> ГЛАВНОЕ ИСПРАВЛЕНИЕ: Пропускаем все, что не является VK-сериалом <---
             if series['source_type'] != 'vk_video':
                 continue
             
@@ -84,7 +82,6 @@ class MonitoringAgent(threading.Thread):
                     sliced_files = self.db.get_sliced_files_for_source(unique_id)
                     
                     if not sliced_files:
-                        self.logger.warning(f"Неконсистентное состояние для {unique_id}: статус '{item['slicing_status']}', но нет записей о нарезанных файлах. Запуск восстановления.")
                         self._trigger_slicing_recovery(unique_id)
                         changed = True
                         continue
@@ -95,21 +92,17 @@ class MonitoringAgent(threading.Thread):
                             has_missing_files = True
                             if file_record['status'] != 'missing':
                                 self.db.update_sliced_file_status(file_record['id'], 'missing')
-                                self.logger.warning(f"Мониторинг: нарезанный файл помечен как отсутствующий: {file_record['file_path']}")
                                 changed = True
                         elif file_record['status'] != 'completed':
                             self.db.update_sliced_file_status(file_record['id'], 'completed')
-                            self.logger.info(f"Мониторинг: восстановлен статус для найденного файла: {file_record['file_path']}")
                             changed = True
 
                     if has_missing_files:
                         if item['slicing_status'] != 'completed_with_errors':
                             self.db.update_media_item_slicing_status_by_uid(unique_id, 'completed_with_errors')
                             changed = True
-                        
                         if item['is_ignored_by_user']:
                             self.db.set_media_item_ignored_status_by_uid(unique_id, False)
-                            self.logger.warning(f"РЕАКТИВАЦИЯ: Компиляция {unique_id} возвращена в активное состояние, так как ее нарезанные файлы отсутствуют.")
                             changed = True
                     else:
                         if item['slicing_status'] != 'completed':
@@ -121,11 +114,9 @@ class MonitoringAgent(threading.Thread):
 
                 elif item.get('final_filename'):
                     if not os.path.exists(item['final_filename']):
-                        self.logger.warning(f"Файл {item['final_filename']} для UID {unique_id} не найден. Сброс статуса загрузки.")
                         self.db.reset_media_item_download_state(unique_id)
                         changed = True
 
-            # Агрегация статусов выполняется только для VK-сериалов, так как мы внутри условия
             download_statuses = self.db.get_series_download_statuses(series_id)
             new_state_str = self._aggregate_statuses_to_state_str(download_statuses)
 
@@ -140,29 +131,18 @@ class MonitoringAgent(threading.Thread):
             _broadcast_series_update(sid)
 
     def _trigger_slicing_recovery(self, unique_id: str):
-        """Выполняет полный сброс состояния нарезки для медиа-элемента."""
         self.db.delete_sliced_files_for_source(unique_id)
         self.db.update_media_item_slicing_status(unique_id, 'none')
-        self.db.set_media_item_ignored_status_by_uid(unique_id, False) # Снимаем игнорирование
+        self.db.set_media_item_ignored_status_by_uid(unique_id, False)
 
     def _aggregate_statuses_to_state_str(self, download_statuses: dict) -> str:
-        """Вспомогательная функция для сборки JSON-строки статуса из словаря."""
         new_state = {}
         idx = 0
-        # ---> ИСПРАВЛЕНИЕ: 'statuses' заменено на 'download_statuses' <---
-        if download_statuses.get('downloading', 0) > 0:
-            new_state[str(idx)] = 'downloading'; idx += 1
-        if download_statuses.get('completed', 0) > 0:
-            new_state[str(idx)] = 'ready'; idx += 1
-        if download_statuses.get('error', 0) > 0:
-            new_state[str(idx)] = 'error'; idx += 1
-        
-        if download_statuses.get('pending', 0) > 0:
-            new_state[str(idx)] = 'waiting'; idx += 1
-        
-        if not new_state:
-             new_state[str(idx)] = 'waiting'; idx += 1
-        
+        if download_statuses.get('downloading', 0) > 0: new_state[str(idx)] = 'downloading'; idx += 1
+        if download_statuses.get('completed', 0) > 0: new_state[str(idx)] = 'ready'; idx += 1
+        if download_statuses.get('error', 0) > 0: new_state[str(idx)] = 'error'; idx += 1
+        if download_statuses.get('pending', 0) > 0: new_state[str(idx)] = 'waiting'; idx += 1
+        if not new_state: new_state[str(idx)] = 'waiting'; idx += 1
         return json.dumps(new_state) if new_state else 'waiting'
 
     def _update_active_statuses(self):
@@ -171,8 +151,7 @@ class MonitoringAgent(threading.Thread):
             return
 
         all_series = self.db.get_all_series()
-        if not all_series:
-            return
+        if not all_series: return
 
         all_hashes = set()
         series_torrents_map = {}
@@ -185,20 +164,14 @@ class MonitoringAgent(threading.Thread):
                 all_hashes.update(series_hashes)
 
         if not all_hashes:
-            # ---> НАЧАЛО ИЗМЕНЕНИЙ: Проверяем даже если нет активных хешей <---
             for series in all_series:
-                if series.get('source_type') != 'torrent':
-                    continue
+                if series.get('source_type') != 'torrent': continue
                 try:
-                    # Если у торрент-сериала нет активных хешей, а его статус - JSON, сбрасываем его.
                     state_obj = json.loads(series.get('state', '""'))
                     if isinstance(state_obj, dict):
-                        self.logger.warning(f"Обнаружен зависший JSON-статус для торрент-сериала ID {series['id']}. Сброс на 'waiting'.")
                         self.db.set_series_state(series['id'], 'waiting')
                         _broadcast_series_update(series['id'])
-                except (json.JSONDecodeError, TypeError):
-                    pass # Статус уже является строкой, все в порядке.
-            # ---> КОНЕЦ ИЗМЕНЕНИЙ <---
+                except (json.JSONDecodeError, TypeError): pass
             return
 
         all_torrents_info = self.qb_client.get_torrents_info(list(all_hashes))
@@ -210,57 +183,88 @@ class MonitoringAgent(threading.Thread):
 
         for series in all_series:
             series_id = series['id']
+            if series.get('source_type') != 'torrent':
+                continue
+
+            # --- НАЧАЛО ИЗМЕНЕНИЙ: Упрощенная и более надежная логика восстановления ---
+            try:
+                state_obj = json.loads(series.get('state', '""'))
+                # Нас интересуют только состояния, управляемые агентом (которые являются словарями)
+                if not isinstance(state_obj, dict):
+                    continue
+
+                stuck_hashes_to_clear = []
+                for h, stage in state_obj.items():
+                    # Мы ищем только те задачи, которые застряли на нашей внутренней стадии 'checking'
+                    if stage == 'checking':
+                        qbit_info = info_map.get(h)
+                        # Считаем задачу зависшей, если:
+                        # 1. Торрента больше нет в qBittorrent.
+                        # 2. Реальный статус торрента в qBittorrent - НЕ проверка.
+                        if not qbit_info or qbit_info.get('state') not in self.QBIT_CHECKING_STATES:
+                            real_status = qbit_info.get('state') if qbit_info else "DELETED"
+                            self.logger.warning("monitoring_agent", f"Обнаружен зависший статус 'checking' для хеша {h[:8]}. Реальный статус qBit: '{real_status}'. Исправляем.")
+                            stuck_hashes_to_clear.append(h)
+                
+                if stuck_hashes_to_clear:
+                    new_state_obj = {h: s for h, s in state_obj.items() if h not in stuck_hashes_to_clear}
+                    
+                    # Если после очистки не осталось активных задач, сбрасываем статус на 'waiting'
+                    if not new_state_obj:
+                        self.db.set_series_state(series_id, 'waiting')
+                    else:
+                        self.db.set_series_state(series_id, new_state_obj)
+                    
+                    # Удаляем зависшие задачи из постоянной таблицы агента
+                    for h in stuck_hashes_to_clear:
+                        self.db.remove_agent_task(h)
+                    
+                    _broadcast_series_update(series_id)
+
+            except (json.JSONDecodeError, TypeError):
+                pass  # Статус не JSON, значит не управляется агентом, всё в порядке.
+            # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
             current_hashes = series_torrents_map.get(series_id, set())
             old_status_obj = json.loads(series.get('active_status', '{}'))
             
             if not current_hashes and old_status_obj:
                 self.db.update_series(series_id, {'active_status': '{}'})
-                # ---> НАЧАЛО ИЗМЕНЕНИЙ: Добавляем проверку state при очистке <---
                 if series.get('source_type') == 'torrent':
                     try:
                         state_obj = json.loads(series.get('state', '""'))
                         if isinstance(state_obj, dict):
                              self.db.set_series_state(series_id, 'waiting')
-                    except (json.JSONDecodeError, TypeError):
-                        pass
-                # ---> КОНЕЦ ИЗМЕНЕНИЙ <---
+                    except (json.JSONDecodeError, TypeError): pass
                 _broadcast_series_update(series_id)
                 continue
             
-            if not current_hashes:
-                continue
+            if not current_hashes: continue
 
             new_active_status = {}
             for h in current_hashes:
                 if h in info_map:
                     info = info_map[h]
                     new_active_status[h] = {
-                        'state': info.get('state'),
-                        'progress': info.get('progress'),
-                        'dlspeed': info.get('dlspeed'),
-                        'upspeed': info.get('upspeed'),
+                        'state': info.get('state'), 'progress': info.get('progress'),
+                        'dlspeed': info.get('dlspeed'), 'upspeed': info.get('upspeed'),
                         'eta': info.get('eta'),
                     }
             
-            try:
-                if old_status_obj != new_active_status:
-                    self.db.update_series(series_id, {'active_status': new_active_status})
-                    _broadcast_series_update(series_id)
-            except Exception as e:
-                self.logger.error("monitoring_agent", f"Ошибка обновления active_status для series_id {series_id}: {e}")
+            if old_status_obj != new_active_status:
+                self.db.update_series(series_id, {'active_status': new_active_status})
+                _broadcast_series_update(series_id)
 
     def run(self):
-        self.logger.info("monitoring_agent", f"{self.name} запущен.")
+        self.logger.info(f"{self.name} запущен.")
         time.sleep(5)
 
         with self.app.app_context():
             auth_manager = AuthManager(self.db, self.logger)
             self.qb_client = QBittorrentClient(auth_manager, self.db, self.logger)
-            
             self.logger.info("monitoring_agent", "Выполнение первоначальной проверки статусов файлов...")
             self._verify_downloaded_files()
             self.logger.info("monitoring_agent", "Первоначальная проверка завершена.")
-
             self.handle_startup_scan()
 
         while not self.shutdown_flag.is_set():
@@ -270,13 +274,11 @@ class MonitoringAgent(threading.Thread):
                     if (now - self.last_status_update_time) >= self.STATUS_UPDATE_INTERVAL:
                         self._update_active_statuses()
                         self.last_status_update_time = now
-                        # ---> ДОБАВЛЕНО: Отправляем сигнал о проверке qBit <---
                         self.broadcaster.broadcast('agent_heartbeat', {'name': 'monitoring', 'activity': 'qbit_check'})
 
                     if (now - self.last_file_verify_time) >= self.FILE_VERIFY_INTERVAL:
                         self._verify_downloaded_files()
                         self.last_file_verify_time = now
-                        # ---> ДОБАВЛЕНО: Отправляем сигнал о проверке файлов <---
                         self.broadcaster.broadcast('agent_heartbeat', {'name': 'monitoring', 'activity': 'file_verify'})
 
                     self._tick()
@@ -285,7 +287,7 @@ class MonitoringAgent(threading.Thread):
             
             self.shutdown_flag.wait(self.CHECK_INTERVAL)
 
-        self.logger.info("monitoring_agent", f"{self.name} был остановлен.")
+        self.logger.info(f"{self.name} был остановлен.")
 
     def handle_startup_scan(self):
         with self.app.app_context():
@@ -294,7 +296,7 @@ class MonitoringAgent(threading.Thread):
                 self.logger.info("monitoring_agent", "Автоматическое сканирование отключено, запуск при старте пропущен.")
                 return
 
-            next_scan_time_str = status.get('next_scan_time')
+            next_scan_time_str = status.get('next_scan_timestamp')
             if not next_scan_time_str:
                 self.logger.info("monitoring_agent", "Время следующего сканирования не назначено. Запускаем сейчас.")
                 self.trigger_scan_all()
@@ -312,14 +314,6 @@ class MonitoringAgent(threading.Thread):
 
     def _tick(self):
         with self.app.app_context():
-            try:
-                now = time.time()
-                if (now - self.last_status_update_time) >= self.STATUS_UPDATE_INTERVAL:
-                    self._update_active_statuses()
-                    self.last_status_update_time = now
-            except Exception as e:
-                self.logger.error("monitoring_agent", f"Ошибка при обновлении активных статусов: {e}", exc_info=True)
-
             status = self.get_status()
 
             if self.awaiting_tasks_flag.is_set():
@@ -387,7 +381,6 @@ class MonitoringAgent(threading.Thread):
                 is_busy = False
                 busy_reason = ""
 
-                # ---> НАЧАЛО НОВОЙ ЛОГИКИ ПРОВЕРКИ <---
                 if source_type == 'vk_video':
                     try:
                         state_obj = json.loads(current_state_str)
@@ -403,8 +396,8 @@ class MonitoringAgent(threading.Thread):
                                 busy_reason = "идет нарезка"
 
                     except (json.JSONDecodeError, TypeError):
-                        pass # Если статус не JSON, значит, загрузки нет
-                else:  # Логика для торрент-сериалов (остается прежней)
+                        pass
+                else:
                     try:
                         json.loads(current_state_str)
                         is_busy = True 
@@ -413,7 +406,6 @@ class MonitoringAgent(threading.Thread):
                         if current_state_str.startswith('scanning'):
                             is_busy = True
                             busy_reason = "идет сканирование"
-                # ---> КОНЕЦ НОВОЙ ЛОГИКИ ПРОВЕРКИ <---
                 
                 if is_busy:
                     if app.debug_manager.is_debug_enabled('monitoring_agent'):

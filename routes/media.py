@@ -82,25 +82,23 @@ def create_slice_task(unique_id):
         if not item:
             return jsonify({"success": False, "error": "Медиа-элемент не найден"}), 404
         
-        # ---> НАЧАЛО ИСПРАВЛЕНИЯ <---
-        
-        # 1. Проверяем, что задача еще не в процессе выполнения
-        allowed_statuses = ['none', 'completed_with_errors']
+        # --- ИЗМЕНЕНИЕ: Разрешаем повторный запуск из статуса 'error' ---
+        allowed_statuses = ['none', 'completed_with_errors', 'error']
         if item.get('slicing_status') not in allowed_statuses:
             return jsonify({"success": False, "error": "Задача на нарезку уже в очереди или была успешно завершена без ошибок."}), 409
 
-        # 2. Удаляем старые записи о нарезанных файлах для чистого старта
-        deleted_count = app.db.delete_sliced_files_for_source(unique_id)
-        if deleted_count > 0:
-            app.logger.info("media_api", f"Удалено {deleted_count} старых записей о нарезанных файлах для UID {unique_id} перед повторной нарезкой.")
+        # --- ИЗМЕНЕНИЕ: Удаляем старые записи о файлах И старую задачу на нарезку ---
+        deleted_files_count = app.db.delete_sliced_files_for_source(unique_id)
+        if deleted_files_count > 0:
+            app.logger.info("media_api", f"Удалено {deleted_files_count} старых записей о нарезанных файлах для UID {unique_id} перед повторной нарезкой.")
+        
+        # Очищаем старую, возможно, неудачную задачу из очереди
+        app.db.delete_slicing_task_by_uid(unique_id)
 
-        # ---> КОНЕЦ ИСПРАВЛЕНИЯ <---
-
-        # Создаем задачу в очереди и обновляем статус
+        # Создаем новую задачу в очереди и обновляем статус
         app.db.create_slicing_task(unique_id, item['series_id'])
         app.db.update_media_item_slicing_status(unique_id, 'pending')
         
-        # Транслируем обновление очереди SlicingAgent через SSE
         app.slicing_agent._broadcast_queue_update()
         
         return jsonify({"success": True, "message": "Задача на нарезку успешно создана."})

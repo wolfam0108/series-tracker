@@ -2,6 +2,8 @@ import subprocess
 import json
 from typing import List, Dict
 from flask import current_app as app
+# --- ИЗМЕНЕНИЕ: Импортируем новую функцию ---
+from .path_finder import get_executable_path
 
 def _format_seconds(seconds: float) -> str:
     """Вспомогательная функция для преобразования секунд в формат HH:MM:SS."""
@@ -19,8 +21,11 @@ def get_chapters(video_url: str) -> List[Dict]:
     """
     Запускает yt-dlp для получения глав в формате JSON и надежно обрабатывает результат.
     """
+    # --- ИЗМЕНЕНИЕ: Получаем абсолютный путь к yt-dlp ---
+    yt_dlp_executable = get_executable_path('yt-dlp')
+
     command = [
-        'yt-dlp',
+        yt_dlp_executable, # <-- Используем переменную с путём
         '--print', '%(chapters)j',
         '--no-warnings',
         '--no-progress',
@@ -35,24 +40,21 @@ def get_chapters(video_url: str) -> List[Dict]:
             command,
             capture_output=True,
             text=True,
-            check=False, # Не выбрасываем исключение при ошибке, обрабатываем вручную
+            check=False,
             encoding='utf-8',
             timeout=180
         )
 
-        # Если yt-dlp завершился с ошибкой, логируем и выходим
         if result.returncode != 0:
             app.logger.warning("chapter_parser_debug", f"yt-dlp exited with code {result.returncode}. STDERR:\n{result.stderr}")
             return []
 
         output = result.stdout.strip()
 
-        # Если вывод пустой, глав нет
         if not output:
             app.logger.info("chapter_parser_debug", "Оглавление не найдено (yt-dlp вернул пустой результат).")
             return []
 
-        # Пытаемся декодировать JSON. Если не получается - значит, глав нет.
         try:
             chapters_data = json.loads(output)
         except json.JSONDecodeError:
@@ -77,5 +79,10 @@ def get_chapters(video_url: str) -> List[Dict]:
         raise Exception("Превышено время ожидания от yt-dlp (180 секунд)")
     
     except Exception as e:
+        # --- ИЗМЕНЕНИЕ: Улучшаем сообщение об ошибке ---
+        if isinstance(e, FileNotFoundError):
+             app.logger.error("chapter_parser_debug", f"Команда '{yt_dlp_executable}' не найдена. Убедитесь, что yt-dlp установлен в venv.", exc_info=True)
+             raise Exception(f"yt-dlp не найден по пути: {yt_dlp_executable}")
+        
         app.logger.error("chapter_parser_debug", f"Произошла непредвиденная ошибка: {e}", exc_info=True)
         raise Exception(f"Произошла ошибка при обработке в yt-dlp: {e}")

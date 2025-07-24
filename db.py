@@ -1119,3 +1119,24 @@ class Database:
             query_result = session.query(Log.group).distinct().order_by(Log.group).all()
             # Преобразуем результат (список кортежей) в простой список строк
             return [item[0] for item in query_result]
+    
+    def delete_slicing_task_by_uid(self, unique_id: str):
+        """Удаляет все задачи на нарезку для указанного media_item_unique_id."""
+        with self.Session() as session:
+            tasks = session.query(SlicingTask).filter_by(media_item_unique_id=unique_id)
+            if tasks.count() > 0:
+                self.logger.info("db", f"Удаление {tasks.count()} старых задач на нарезку для UID {unique_id}.")
+                tasks.delete(synchronize_session=False)
+                session.commit()
+
+    def get_all_slicing_tasks(self) -> List[Dict[str, Any]]:
+        """Возвращает все активные задачи на нарезку."""
+        with self.Session() as session:
+            tasks = session.query(SlicingTask).order_by(SlicingTask.created_at).all()
+            result = []
+            for task in tasks:
+                task_dict = {c.name: getattr(task, c.name) for c in task.__table__.columns}
+                if task_dict.get('created_at'):
+                    task_dict['created_at'] = task_dict['created_at'].isoformat()
+                result.append(task_dict)
+            return result
