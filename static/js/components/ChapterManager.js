@@ -11,10 +11,14 @@ const ChapterManager = {
             В плане загрузки для этого сериала нет видео-компиляций.
         </div>
 
-        <transition-group v-else name="list" tag="div" class="compilation-cards-container compact-layout">
-            <div v-for="item in compilationItems" :key="item.unique_id" class="list-card compilation-card-compact" :class="getCardClass(item)">
-                <div class="card-row">
-                    <strong class="compilation-title" :title="item.source_url">
+        <!-- НАЧАЛО ИЗМЕНЕНИЙ: Полностью заменена структура карточки -->
+        <transition-group v-else name="list" tag="div" class="compilation-cards-container">
+            <div v-for="item in compilationItems" :key="item.unique_id" 
+                 class="slicing-card slicing-card-accent" 
+                 :class="getCardClass(item)">
+                
+                <div class="slicing-card-header">
+                    <strong class="compilation-title" :title="item.final_filename || item.source_url">
                         {{ getBaseName(item.final_filename) || 'Компиляция ' + item.episode_start + '-' + item.episode_end }}
                     </strong>
                     <div class="d-flex gap-2">
@@ -32,17 +36,19 @@ const ChapterManager = {
                         </button>
                     </div>
                 </div>
-                <div v-if="item.chapters && item.chapters.length" class="card-row chapter-wrap-container">
+
+                <div v-if="item.chapters && item.chapters.length" class="slicing-card-body">
                     <span v-for="(chapter, index) in item.chapters" :key="index" class="chapter-pill">
                         {{ chapter.time }} ({{ chapter.title }})
                     </span>
                 </div>
-                <div class="card-row card-footer-status">
-                    <span>{{ getChapterCountText(item) }}</span>
+
+                <div class="slicing-card-footer card-footer-status">
                     <span>{{ getStatusText(item) }}</span>
                 </div>
             </div>
         </transition-group>
+        <!-- КОНЕЦ ИЗМЕНЕНИЙ -->
     </div>
   `,
   data() {
@@ -115,12 +121,10 @@ const ChapterManager = {
         return item.chapters && item.chapters.length > 0;
     },
     isSliceButtonDisabled(item) {
-        // --- ИЗМЕНЕНИЕ: Добавляем 'error' в список разрешенных статусов ---
         const allowed_statuses = ['none', 'completed_with_errors', 'error'];
         return !allowed_statuses.includes(item.slicing_status);
     },
     getSliceButtonTitle(item) {
-        // --- ИЗМЕНЕНИЕ: Добавляем текст для статуса 'error' ---
         const statusMap = {
             'none': 'Начать нарезку на эпизоды',
             'completed_with_errors': 'Восстановить недостающие файлы',
@@ -145,27 +149,27 @@ const ChapterManager = {
             this.$emit('show-toast', 'Задача на нарезку успешно создана.', 'success');
         } catch(error) {
             this.$emit('show-toast', error.message, 'danger');
-            item.slicing_status = 'error'; // Возвращаем статус 'error' если создание задачи не удалось
+            item.slicing_status = 'error';
         }
     },
+    // --- ИЗМЕНЕНИЕ: Метод теперь возвращает классы для цветовых акцентов ---
     getCardClass(item) {
-      if (item.chapters === null) return 'status-yellow';
-      if (item.chapters.length === 0) return 'status-red';
+      if (item.chapters === null) return 'status-warning';
+      if (item.chapters.length === 0) return 'status-danger';
       if (item.chapters.length === this.getExpectedCount(item)) {
-        return 'status-green';
+        return 'status-success';
       }
-      return 'status-red';
+      return 'status-danger';
     },
-    getChapterCountText(item) {
+    // --- ИЗМЕНЕНИЕ: Метод теперь возвращает полный текст статуса ---
+    getStatusText(item) {
         const found = item.chapters ? item.chapters.length : 0;
         const expected = this.getExpectedCount(item);
-        return `${found} из ${expected} глав`;
-    },
-    getStatusText(item) {
+        
         if (item.chapters === null) return 'Не проверено';
-        if (item.chapters.length === 0) return 'Оглавление не найдено';
-        if (item.chapters.length === this.getExpectedCount(item)) return 'Соответствует';
-        return 'Несоответствие';
+        if (found === 0) return `${found} из ${expected} глав (Оглавление не найдено)`;
+        if (found === expected) return `${found} из ${expected} глав (Соответствует)`;
+        return `${found} из ${expected} глав (Несоответствие)`;
     },
     getBaseName(path) {
         if (!path) return '';

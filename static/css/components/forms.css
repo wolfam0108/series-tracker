@@ -82,6 +82,7 @@ textarea.modern-input {
     overflow: hidden;
     border: 2px solid var(--border-color);
     transition: all 0.3s ease;
+    position: relative; /* 1. Делаем группу-обертку контейнером для позиционирования */
 }
 
 .modern-input-group:focus-within {
@@ -196,4 +197,25 @@ textarea.modern-input {
     color: var(--text-color);
     cursor: pointer;
     line-height: 1.4;
+}
+
+/* 2. Позиционируем кнопку абсолютно внутри группы.
+   Используем специфичный селектор для прозрачной кнопки, чтобы не затронуть другие. */
+.modern-input-group > .btn[class*="bg-transparent"] {
+    position: absolute;
+    right: 1px;
+    top: 50%;
+    transform: translateY(-50%);
+    height: calc(100% - 4px); /* Высота с небольшим отступом */
+    width: 40px;
+    z-index: 5;
+    margin-left: 0 !important; /* Отменяем инлайновый стиль, который ломает позиционирование */
+    border: none;
+    border-radius: 8px;
+}
+
+/* 3. Добавляем отступ справа ТОЛЬКО в те поля ввода, за которыми идет наша кнопка.
+   Это предотвратит добавление лишнего отступа к другим полям в группе. */
+.modern-input-group > .modern-input:has(+ .btn[class*="bg-transparent"]) {
+    padding-right: 48px;
 }

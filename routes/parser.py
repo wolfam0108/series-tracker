@@ -12,6 +12,25 @@ def get_parser_profiles():
     profiles = app.db.get_parser_profiles()
     return jsonify(profiles)
 
+@profiles_bp.route('', methods=['POST'])
+def create_parser_profile():
+    """Создает новый профиль парсера."""
+    data = request.get_json()
+    name = data.get('name')
+    if not name:
+        return jsonify({"success": False, "error": "Имя профиля не указано"}), 400
+    
+    try:
+        profile_id = app.db.create_parser_profile(name)
+        # Возвращаем 201 Created со ссылкой на новый ресурс
+        return jsonify({"success": True, "id": profile_id}), 201
+    except ValueError as e:
+        # Обработка случая, когда профиль с таким именем уже существует
+        return jsonify({"success": False, "error": str(e)}), 409
+    except Exception as e:
+        app.logger.error("parser_api", f"Ошибка при создании профиля парсера: {e}", exc_info=True)
+        return jsonify({"success": False, "error": f"Ошибка на сервере: {e}"}), 500
+
 @profiles_bp.route('/<int:profile_id>', methods=['PUT'])
 def update_parser_profile(profile_id):
     data = request.get_json()
