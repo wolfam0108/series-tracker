@@ -46,6 +46,13 @@ LOGGING_MODULES = {
         {'name': 'renamer', 'description': 'Процесс переименования файлов.'},
     ]
 }
+PARSER_DUMP_FLAGS = [
+    {'name': 'save_html_kinozal', 'description': 'Kinozal'},
+    {'name': 'save_html_anilibria', 'description': 'Anilibria'},
+    {'name': 'save_html_anilibria_tv', 'description': 'Anilibria.TV'},
+    {'name': 'save_html_astar', 'description': 'Astar.bz'},
+]
+
 
 @settings_bp.route('/auth', methods=['GET'])
 def get_all_auth():
@@ -143,20 +150,28 @@ def handle_debug_flags():
         
         key = f"debug_enabled_{module_name}"
         app.db.set_setting(key, str(enabled).lower())
-        app.debug_manager._refresh_cache() # Обновляем кэш в реальном времени
+        app.debug_manager._refresh_cache()
         return jsonify({"success": True})
     
-    # GET-запрос теперь возвращает структурированные данные
+    # GET-запрос теперь возвращает объект с двумя ключами
     saved_flags = app.db.get_settings_by_prefix('debug_enabled_')
     
-    # Создаем копию структуры и заполняем её текущими значениями
-    result_structure = json.loads(json.dumps(LOGGING_MODULES))
-    for group in result_structure:
-        for module in result_structure[group]:
+    logging_structure = json.loads(json.dumps(LOGGING_MODULES))
+    for group in logging_structure:
+        for module in logging_structure[group]:
             key = f"debug_enabled_{module['name']}"
             module['enabled'] = saved_flags.get(key, 'false') == 'true'
-    
-    return jsonify(result_structure)
+
+    parser_dump_structure = json.loads(json.dumps(PARSER_DUMP_FLAGS))
+    for flag in parser_dump_structure:
+        key = f"debug_enabled_{flag['name']}"
+        flag['enabled'] = saved_flags.get(key, 'false') == 'true'
+            
+    return jsonify({
+        "logging_modules": logging_structure,
+        "parser_dump_flags": parser_dump_structure
+    })
+
 
 @settings_bp.route('/settings/force_replace', methods=['GET', 'POST'])
 def handle_force_replace_setting():

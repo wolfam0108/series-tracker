@@ -37,6 +37,8 @@ class MonitoringAgent(threading.Thread):
         self.last_file_verify_time = time.time()
         self.qb_client = None
         # --- НОВОЕ: Статусы, которые считаются "проверкой" в qBittorrent ---
+        self.last_file_verify_time = time.time()
+        self.qb_client = None
         self.QBIT_CHECKING_STATES = {'checkingUP', 'checkingDL', 'checkingResumeData'}
 
 
@@ -165,13 +167,9 @@ class MonitoringAgent(threading.Thread):
 
         if not all_hashes:
             for series in all_series:
-                if series.get('source_type') != 'torrent': continue
-                try:
-                    state_obj = json.loads(series.get('state', '""'))
-                    if isinstance(state_obj, dict):
-                        self.db.set_series_state(series['id'], 'waiting')
-                        _broadcast_series_update(series['id'])
-                except (json.JSONDecodeError, TypeError): pass
+                if series.get('source_type') == 'torrent' and series.get('active_status', '{}') != '{}':
+                    self.db.update_series(series['id'], {'active_status': '{}'})
+                    _broadcast_series_update(series['id'])
             return
 
         all_torrents_info = self.qb_client.get_torrents_info(list(all_hashes))
@@ -186,61 +184,60 @@ class MonitoringAgent(threading.Thread):
             if series.get('source_type') != 'torrent':
                 continue
 
-            # --- НАЧАЛО ИЗМЕНЕНИЙ: Упрощенная и более надежная логика восстановления ---
-            try:
-                state_obj = json.loads(series.get('state', '""'))
-                # Нас интересуют только состояния, управляемые агентом (которые являются словарями)
-                if not isinstance(state_obj, dict):
-                    continue
+            current_state_str = series.get('state', 'waiting')
+            current_hashes = series_torrents_map.get(series_id, set())
 
+            is_agent_active = False
+            state_obj = {}
+            try:
+                parsed_state = json.loads(current_state_str)
+                if isinstance(parsed_state, dict):
+                    is_agent_active = True
+                    state_obj = parsed_state
+            except (json.JSONDecodeError, TypeError):
+                pass
+
+            if is_agent_active:
                 stuck_hashes_to_clear = []
                 for h, stage in state_obj.items():
-                    # Мы ищем только те задачи, которые застряли на нашей внутренней стадии 'checking'
-                    if stage == 'checking':
+                    if stage == 'rechecking': # Проверяем стадию 'rechecking', а не UI-статус 'checking'
                         qbit_info = info_map.get(h)
-                        # Считаем задачу зависшей, если:
-                        # 1. Торрента больше нет в qBittorrent.
-                        # 2. Реальный статус торрента в qBittorrent - НЕ проверка.
                         if not qbit_info or qbit_info.get('state') not in self.QBIT_CHECKING_STATES:
-                            real_status = qbit_info.get('state') if qbit_info else "DELETED"
-                            self.logger.warning("monitoring_agent", f"Обнаружен зависший статус 'checking' для хеша {h[:8]}. Реальный статус qBit: '{real_status}'. Исправляем.")
+                            self.logger.warning("monitoring_agent", f"Обнаружен зависший статус агента 'rechecking' для хеша {h[:8]}. Исправляем.")
                             stuck_hashes_to_clear.append(h)
                 
                 if stuck_hashes_to_clear:
                     new_state_obj = {h: s for h, s in state_obj.items() if h not in stuck_hashes_to_clear}
-                    
-                    # Если после очистки не осталось активных задач, сбрасываем статус на 'waiting'
-                    if not new_state_obj:
-                        self.db.set_series_state(series_id, 'waiting')
-                    else:
-                        self.db.set_series_state(series_id, new_state_obj)
-                    
-                    # Удаляем зависшие задачи из постоянной таблицы агента
+                    self.db.set_series_state(series_id, new_state_obj if new_state_obj else 'waiting')
                     for h in stuck_hashes_to_clear:
                         self.db.remove_agent_task(h)
-                    
                     _broadcast_series_update(series_id)
+            else:
+                is_any_torrent_checking = any(
+                    info_map.get(h, {}).get('state') in self.QBIT_CHECKING_STATES
+                    for h in current_hashes
+                )
 
-            except (json.JSONDecodeError, TypeError):
-                pass  # Статус не JSON, значит не управляется агентом, всё в порядке.
-            # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+                # Диагностическое логирование (поможет, если проблема повторится)
+                if app.debug_manager.is_debug_enabled('monitoring_agent'):
+                    debug_info = {
+                        "series": series['name'],
+                        "current_db_state": current_state_str,
+                        "is_any_torrent_checking_in_qbit": is_any_torrent_checking,
+                        "torrents_and_states": {h[:8]: info_map.get(h, {}).get('state', 'N/A') for h in current_hashes}
+                    }
+                    self.logger.debug("monitoring_agent", f"Sync check: {json.dumps(debug_info, ensure_ascii=False)}")
 
-            current_hashes = series_torrents_map.get(series_id, set())
+                if is_any_torrent_checking and current_state_str != 'checking':
+                    self.logger.info(f"monitoring_agent", f"Обнаружен активный 'checking' для series_id {series_id}. Обновляю статус.")
+                    self.db.set_series_state(series_id, 'checking')
+                    _broadcast_series_update(series_id)
+                elif not is_any_torrent_checking and current_state_str == 'checking':
+                    self.logger.info(f"monitoring_agent", f"Проверка для series_id {series_id} завершена. Возвращаю статус 'waiting'.")
+                    self.db.set_series_state(series_id, 'waiting')
+                    _broadcast_series_update(series_id)
+            
             old_status_obj = json.loads(series.get('active_status', '{}'))
-            
-            if not current_hashes and old_status_obj:
-                self.db.update_series(series_id, {'active_status': '{}'})
-                if series.get('source_type') == 'torrent':
-                    try:
-                        state_obj = json.loads(series.get('state', '""'))
-                        if isinstance(state_obj, dict):
-                             self.db.set_series_state(series_id, 'waiting')
-                    except (json.JSONDecodeError, TypeError): pass
-                _broadcast_series_update(series_id)
-                continue
-            
-            if not current_hashes: continue
-
             new_active_status = {}
             for h in current_hashes:
                 if h in info_map:
@@ -252,8 +249,9 @@ class MonitoringAgent(threading.Thread):
                     }
             
             if old_status_obj != new_active_status:
-                self.db.update_series(series_id, {'active_status': new_active_status})
+                self.db.update_series(series_id, {'active_status': json.dumps(new_active_status)})
                 _broadcast_series_update(series_id)
+
 
     def run(self):
         self.logger.info(f"{self.name} запущен.")
@@ -296,7 +294,9 @@ class MonitoringAgent(threading.Thread):
                 self.logger.info("monitoring_agent", "Автоматическое сканирование отключено, запуск при старте пропущен.")
                 return
 
-            next_scan_time_str = status.get('next_scan_timestamp')
+            # --- ИСПРАВЛЕНИЕ: Используем правильный ключ 'next_scan_time' ---
+            next_scan_time_str = status.get('next_scan_time')
+            
             if not next_scan_time_str:
                 self.logger.info("monitoring_agent", "Время следующего сканирования не назначено. Запускаем сейчас.")
                 self.trigger_scan_all()

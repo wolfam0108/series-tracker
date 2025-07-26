@@ -268,7 +268,7 @@ def perform_series_scan(series_id: int, debug_force_replace: bool = False, recov
                 hashes_in_qb = {t['hash'] for t in torrents_in_qb} if torrents_in_qb else set()
                 active_db_torrents = [t for t in all_db_torrents if t.get('qb_hash') in hashes_in_qb]
                 
-                parsed_data = parser.parse_series(series['url'], last_known_torrents=active_db_torrents)
+                parsed_data = parser.parse_series(series['url'], last_known_torrents=active_db_torrents, debug_force_replace=debug_force_replace)
 
                 if parsed_data.get('error'):
                     raise Exception(f"Ошибка парсера: {parsed_data['error']}")

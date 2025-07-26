@@ -19,7 +19,6 @@ class AnilibriaParser:
     def __init__(self, db: Database, logger: Logger):
         self.db = db
         self.logger = logger
-        # locale больше не используется
 
     def _normalize_date_from_anilibria(self, date_str: str) -> Optional[str]:
         """
@@ -83,7 +82,6 @@ class AnilibriaParser:
             self.logger.error(f"anilibria_parser - Не удалось сохранить HTML-дамп: {e}", exc_info=True)
 
     def _fetch_page_source(self, url: str) -> Optional[str]:
-        # Playwright больше не нуждается в принудительной установке timezone_id
         for attempt in range(self.MAX_RETRIES):
             try:
                 with sync_playwright() as p:
@@ -97,7 +95,7 @@ class AnilibriaParser:
                     html_content = page.content()
                     browser.close()
 
-                    if app.debug_manager.is_debug_enabled('save_parser_html'):
+                    if app.debug_manager.is_debug_enabled('save_html_anilibria'):
                         self._save_html_dump(html_content)
 
                     return html_content
@@ -109,7 +107,7 @@ class AnilibriaParser:
         self.logger.error(f"anilibria_parser - Не удалось получить страницу {url} после {self.MAX_RETRIES} попыток.")
         return None
 
-    def parse_series(self, original_url: str, last_known_torrents: Optional[List[Dict]] = None) -> Dict:
+    def parse_series(self, original_url: str, last_known_torrents: Optional[List[Dict]] = None, debug_force_replace: bool = False) -> Dict:
         self.logger.info("anilibria_parser", f"Начало парсинга {original_url}")
 
         match = re.match(r"(https://aniliberty\.top/(?:release|anime/releases/release)/[^/]+)", original_url)

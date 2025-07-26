@@ -1,7 +1,26 @@
 const StatusTabNaming = {
 template: `
     <div>
-        <div v-if="isLoading" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
+        <div v-if="isLoading" class="animate-pulse">
+            <div class="div-table table-naming-preview mb-3">
+                <div class="div-table-row" style="background-color: #e9ecef;">
+                    <div class="div-table-cell" style="grid-column: 1 / -1;">
+                        <div class="skeleton-line short" style="height: 16px;"></div>
+                    </div>
+                </div>
+                <div class="div-table-header"><div class="div-table-cell">&nbsp;</div><div class="div-table-cell">&nbsp;</div></div>
+                <div class="div-table-body">
+                    <div class="div-table-row">
+                        <div class="div-table-cell"><div class="skeleton-line"></div></div>
+                        <div class="div-table-cell"><div class="skeleton-line"></div></div>
+                    </div>
+                    <div class="div-table-row">
+                        <div class="div-table-cell"><div class="skeleton-line"></div></div>
+                        <div class="div-table-cell"><div class="skeleton-line"></div></div>
+                    </div>
+                </div>
+            </div>
+        </div>
         <div v-else-if="!qbTorrents.length" class="text-center text-muted mt-3">Нет торрентов в qBittorrent для переименования.</div>
         <div v-else>
             <div v-for="torrent in qbTorrents" :key="torrent.qb_hash" class="div-table table-naming-preview mb-3 position-relative">

@@ -1,5 +1,3 @@
-// static/js/components/logsModal.js
-
 const LogsModal = {
   components: {
     'logs-viewer-tab': LogsViewerTab,
@@ -58,7 +56,6 @@ const LogsModal = {
         this.modal = new bootstrap.Modal(this.$refs.logsModal);
       }
       this.modal.show();
-      // ---> ИЗМЕНЕНО: Явный вызов загрузки для вкладки по умолчанию <---
       this.setActiveTab('viewer');
       this.$nextTick(() => {
         const firstTab = this.$refs.logsModal.querySelector('[data-bs-target="#viewer-tab-pane"]');
@@ -72,7 +69,6 @@ const LogsModal = {
     },
     setActiveTab(tabName) {
         this.activeTab = tabName;
-        // ---> ИЗМЕНЕНО: Явный вызов загрузки для активной вкладки <---
         this.$nextTick(() => {
             const tabRef = this.$refs[`${tabName}Tab`];
             if (tabRef && typeof tabRef.load === 'function') {

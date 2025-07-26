@@ -1,10 +1,11 @@
+# Файл: kinozal_parser.py
+
 import re
+import os
 from typing import Dict, Optional, List
 from bs4 import BeautifulSoup
 import requests
-# --- ИЗМЕНЕНИЕ: Добавлен импорт timezone ---
 from datetime import datetime, timedelta, timezone
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
 from auth import AuthManager
 from db import Database
 from logger import Logger
@@ -28,7 +29,6 @@ class KinozalParser:
         self.db = db
         self.logger = logger
 
-    # --- ИЗМЕНЕНИЕ: Логика получения текущей даты теперь учитывает часовой пояс МСК (UTC+3) ---
     def _normalize_date(self, date_str: str) -> Optional[str]:
         # Устанавливаем часовой пояс Москвы (UTC+3)
         moscow_tz = timezone(timedelta(hours=3))
@@ -60,9 +60,22 @@ class KinozalParser:
         except (IndexError, ValueError) as e:
             self.logger.error("kinozal_parser", f"Ошибка нормализации даты '{date_str}': {str(e)}")
             return None
-    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
-    def parse_series(self, url: str, last_known_torrents: Optional[List[Dict]] = None) -> Dict:
+    def _save_html_dump(self, html_content: str):
+        """Сохраняет HTML-дамп страницы для отладки."""
+        try:
+            DUMP_DIR = "parser_dumps"
+            if not os.path.exists(DUMP_DIR):
+                os.makedirs(DUMP_DIR)
+            timestamp = datetime.now(timezone.utc).strftime('%Y%m%d_%H%M%S')
+            filename = os.path.join(DUMP_DIR, f"kinozal_parser_{timestamp}.html")
+            with open(filename, 'w', encoding='utf-8') as f:
+                f.write(html_content)
+            self.logger.info("kinozal_parser", f"HTML-дамп сохранен в файл: {filename}")
+        except Exception as e:
+            self.logger.error(f"kinozal_parser", f"Не удалось сохранить HTML-дамп: {e}", exc_info=True)
+
+    def parse_series(self, url: str, last_known_torrents: Optional[List[Dict]] = None, debug_force_replace: bool = False) -> Dict:
         self.logger.info("kinozal_parser", f"Начало парсинга {url}")
         
         credentials = self.db.get_auth("kinozal")
@@ -112,6 +125,9 @@ class KinozalParser:
                 
                 html_content = response.content.decode('windows-1251', errors='replace')
                 
+                if app.debug_manager.is_debug_enabled('save_html_kinozal'):
+                    self._save_html_dump(html_content)
+                
                 if app.debug_manager.is_debug_enabled('kinozal_parser'):
                     self.logger.debug("kinozal_parser", "Начало парсинга HTML")
                 soup = BeautifulSoup(html_content, 'lxml') 
@@ -151,7 +167,8 @@ class KinozalParser:
                     raise ValueError("Дата обновления торрента не найдена на странице")
 
                 last_known_date = last_known_torrents[0].get('date_time') if last_known_torrents else None
-                if last_known_date and last_known_date == date_text:
+                
+                if last_known_date and last_known_date == date_text and not debug_force_replace:
                     self.logger.info("kinozal_parser", "Дата на сайте совпадает с известной. Обновление не требуется.")
                     return {
                         "source": "kinozal.me",

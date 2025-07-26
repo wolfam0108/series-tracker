@@ -1,31 +1,61 @@
 const SettingsLoggingTab = {
   template: `
-    <div class="settings-tab-content">
-        <p class="text-muted small mb-3">
-            Управляйте детализацией логов для разных частей приложения. Включение отладки для группы активирует логирование для всех модулей внутри неё.
-        </p>
-        <div v-if="isLoading" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
-        
-        <div class="row" v-else>
-            <div v-for="(modules, groupName) in moduleGroups" :key="groupName" class="col-md-6 mb-4">
-                <div class="modern-fieldset h-100">
-                    <div class="fieldset-header d-flex justify-content-between align-items-center">
-                        <h6 class="fieldset-title mb-0">{{ groupName }}</h6>
-                        <div class="form-check form-switch">
-                            <input class="form-check-input" type="checkbox" role="switch" 
-                                   :id="'group-switch-' + groupName" 
-                                   v-model="groupStates[groupName].allEnabled"
-                                   @change="saveGroupState(groupName, groupStates[groupName].allEnabled)">
-                            <label class="form-check-label" :for="'group-switch-' + groupName"></label>
+    <div class="settings-tab-content h-100" style="overflow-y: auto; padding-top: 1rem;">
+        <div class="modern-fieldset mb-4">
+            <div class="fieldset-header">
+                <h6 class="fieldset-title mb-0">Детализация логов</h6>
+            </div>
+            <div class="fieldset-content">
+                <p class="text-muted small mb-3">
+                    Управляйте детализацией логов для разных частей приложения. Включение отладки для группы активирует логирование для всех модулей внутри неё.
+                </p>
+                <div v-if="isLoading" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
+                
+                <div class="row" v-else>
+                    <div v-for="(modules, groupName) in loggingModuleGroups" :key="groupName" class="col-md-6 mb-4">
+                        <div class="modern-fieldset h-100">
+                            <div class="fieldset-header d-flex justify-content-between align-items-center">
+                                <h6 class="fieldset-title mb-0">{{ groupName }}</h6>
+                                <div class="form-check form-switch">
+                                    <input class="form-check-input" type="checkbox" role="switch" 
+                                           :id="'group-switch-' + groupName" 
+                                           :checked="areAllModulesEnabled(groupName)"
+                                           @change="saveGroupState(groupName, $event.target.checked)">
+                                    <label class="form-check-label" :for="'group-switch-' + groupName"></label>
+                                </div>
+                            </div>
+                            <div class="fieldset-content">
+                                <ul class="list-unstyled mb-0">
+                                    <li v-for="module in modules" :key="module.name" class="mb-2">
+                                        <strong>{{ module.name }}:</strong>
+                                        <span class="text-muted">{{ module.description }}</span>
+                                    </li>
+                                </ul>
+                            </div>
                         </div>
                     </div>
-                    <div class="fieldset-content">
-                        <ul class="list-unstyled mb-0">
-                            <li v-for="module in modules" :key="module.name" class="mb-2">
-                                <strong>{{ module.name }}:</strong>
-                                <span class="text-muted">{{ module.description }}</span>
-                            </li>
-                        </ul>
+                </div>
+            </div>
+        </div>
+
+        <div class="modern-fieldset">
+            <div class="fieldset-header">
+                <h6 class="fieldset-title mb-0">Сохранение HTML-дампов парсеров</h6>
+            </div>
+            <div class="fieldset-content">
+                 <p class="text-muted small mb-3">
+                    Включите эту опцию для конкретного парсера, чтобы при сканировании он сохранял полученную HTML-страницу в папку <code>parser_dumps</code>. Это полезно для отладки проблем с парсингом.
+                </p>
+                <div v-if="isLoading" class="text-center p-3"><div class="spinner-border spinner-border-sm" role="status"></div></div>
+                <div v-else class="row">
+                    <div v-for="flag in parserDumpFlags" :key="flag.name" class="col-md-4">
+                        <div class="modern-form-check form-switch">
+                            <input class="form-check-input" type="checkbox" role="switch" 
+                                   :id="'flag-switch-' + flag.name" 
+                                   v-model="flag.enabled"
+                                   @change="saveFlag(flag.name, flag.enabled)">
+                            <label class="modern-form-check-label" :for="'flag-switch-' + flag.name">{{ flag.description }}</label>
+                        </div>
                     </div>
                 </div>
             </div>
@@ -35,19 +65,9 @@ const SettingsLoggingTab = {
   data() {
     return {
       isLoading: true,
-      moduleGroups: {},
+      loggingModuleGroups: {},
+      parserDumpFlags: [],
     };
-  },
-  computed: {
-    groupStates() {
-        const states = {};
-        for (const groupName in this.moduleGroups) {
-            const modules = this.moduleGroups[groupName];
-            const allEnabled = modules.every(m => m.enabled);
-            states[groupName] = { allEnabled };
-        }
-        return states;
-    }
   },
   emits: ['show-toast'],
   methods: {
@@ -56,20 +76,34 @@ const SettingsLoggingTab = {
         try {
             const response = await fetch('/api/settings/debug_flags');
             if (!response.ok) throw new Error('Ошибка загрузки модулей логирования');
-            this.moduleGroups = await response.json();
+            const data = await response.json();
+            this.loggingModuleGroups = data.logging_modules;
+            this.parserDumpFlags = data.parser_dump_flags;
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
         } finally {
             this.isLoading = false;
         }
     },
+    areAllModulesEnabled(groupName) {
+        const modules = this.loggingModuleGroups[groupName];
+        if (!modules) return false;
+        return modules.every(m => m.enabled);
+    },
     async saveGroupState(groupName, isEnabled) {
-        const modulesToUpdate = this.moduleGroups[groupName];
-        for (const module of modulesToUpdate) {
-            module.enabled = isEnabled;
-            await this.saveFlag(module.name, isEnabled);
+        const modulesToUpdate = this.loggingModuleGroups[groupName];
+        // Временно обновляем UI для мгновенной реакции
+        modulesToUpdate.forEach(m => { m.enabled = isEnabled; });
+        
+        try {
+            for (const module of modulesToUpdate) {
+                await this.saveFlag(module.name, isEnabled);
+            }
+            this.$emit('show-toast', `Логирование для группы "${groupName}" ${isEnabled ? 'включено' : 'выключено'}.`, 'info');
+        } catch (error) {
+            // В случае ошибки откатываем изменения в UI
+            this.load();
         }
-        this.$emit('show-toast', `Логирование для группы "${groupName}" ${isEnabled ? 'включено' : 'выключено'}.`, 'info');
     },
     async saveFlag(moduleName, isEnabled) {
         try {
@@ -81,8 +115,9 @@ const SettingsLoggingTab = {
             if (!response.ok) throw new Error(`Ошибка сохранения флага для ${moduleName}`);
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
-            const module = Object.values(this.moduleGroups).flat().find(m => m.name === moduleName);
-            if(module) module.enabled = !isEnabled;
+            // Откатываем состояние переключателя в UI в случае ошибки
+            const flag = [...Object.values(this.loggingModuleGroups).flat(), ...this.parserDumpFlags].find(f => f.name === moduleName);
+            if(flag) flag.enabled = !isEnabled;
         }
     }
   },
