@@ -240,7 +240,7 @@ input:checked + .slider:before {
 .layer-waiting    { background: linear-gradient(135deg, #f0f2f5, #e9ecef); z-index: 1; }
 .layer-ready      { background: linear-gradient(135deg, #4CAF50, #409444); z-index: 2; } 
 .layer-downloading{ background: linear-gradient(135deg, #009688, #00796D); z-index: 3; } 
-.layer-activation { background: linear-gradient(135deg, #7EC9D1, #6ab8bf); z-index: 4; }
+.layer-activating { background: linear-gradient(135deg, #7EC9D1, #6ab8bf); z-index: 4; }
 .layer-checking   { background: linear-gradient(135deg, #849DD5, #6f88c3); z-index: 5; }
 .layer-renaming   { background: linear-gradient(135deg, #A28ADA, #8b73c2); z-index: 6; }
 .layer-metadata   { background: linear-gradient(135deg, #D2B575, #c0a463); z-index: 7; }

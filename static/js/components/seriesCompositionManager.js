@@ -5,40 +5,58 @@ const SeriesCompositionManager = {
   },
   template: `
     <div class="composition-manager">
-        <div v-if="availableQualities.length > 0" class="quality-priority-manager">
-            <div class="d-flex justify-content-between align-items-center mb-2">
-                <h6 class="mb-0">Приоритет качества (перетащите для сортировки)</h6>
-                <button class="btn btn-primary btn-sm" @click="saveQualityPriority" :disabled="isSavingPriority">
-                    <span v-if="isSavingPriority" class="spinner-border spinner-border-sm"></span>
-                    <i v-else class="bi bi-save"></i>
-                    <span class="ms-2">Сохранить приоритет</span>
+        <div class="modern-fieldset mb-4">
+            <div class="fieldset-header">
+                <h6 class="fieldset-title"><i class="bi bi-toggles2 me-2"></i>Настройки композиции</h6>
+                <button class="btn btn-primary" @click="loadComposition(true)" :disabled="isLoading">
+                    <span v-if="isLoading && isManualRefresh" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                    <i v-else class="bi bi-arrow-clockwise"></i>
+                    <span class="ms-1">Обновить</span>
                 </button>
             </div>
-            <p class="text-muted small">Чем левее, тем выше приоритет. "Smart Collector" будет выбирать наилучшее доступное качество из этого списка.</p>
-            <draggable
-                v-model="qualityPriority"
-                class="quality-priority-list"
-                item-key="quality"
-                ghost-class="ghost-pill"
-                animation="200">
-                <template #item="{ element }">
-                    <div class="quality-pill">
-                        <span>{{ formatResolution(element).text }}</span>
+            <div class="fieldset-content">
+                <div class="row gy-4 align-items-center">
+                    <div class="col-lg-4">
+                        <h6 class="mb-2">Опции отображения</h6>
+                        <div class="modern-form-check form-switch mb-2">
+                            <input class="form-check-input" type="checkbox" role="switch" id="autoUpdateSwitch" v-model="autoUpdateEnabled" :disabled="seriesSearchMode === 'get_all'">
+                            <label class="modern-form-check-label" for="autoUpdateSwitch">Авто-обновление</label>
+                        </div>
+                        <div class="modern-form-check form-switch m-0">
+                            <input class="form-check-input" type="checkbox" role="switch" id="showOnlyPlannedSwitch" v-model="showOnlyPlanned">
+                            <label class="modern-form-check-label" for="showOnlyPlannedSwitch">Только запланированные</label>
+                        </div>
                     </div>
-                </template>
-            </draggable>
-        </div>
-
-        <div class="d-flex justify-content-between align-items-center mb-3">
-            <div class="modern-form-check form-switch m-0">
-                <input class="form-check-input" type="checkbox" role="switch" id="showOnlyPlannedSwitch" v-model="showOnlyPlanned">
-                <label class="modern-form-check-label" for="showOnlyPlannedSwitch">Показывать только запланированные</label>
+                    <div class="col-lg-8">
+                         <div v-if="availableQualities.length > 0" class="quality-settings-block">
+                            <div class="d-flex justify-content-between align-items-center mb-2">
+                                <h6 class="mb-0">Приоритет качества</h6>
+                                <button class="btn btn-primary btn-sm" @click="saveQualityPriority" :disabled="isSavingPriority">
+                                    <span v-if="isSavingPriority" class="spinner-border spinner-border-sm"></span>
+                                    <i v-else class="bi bi-save"></i>
+                                    <span class="ms-1">Сохранить приоритет</span>
+                                </button>
+                            </div>
+                            <draggable
+                                v-model="qualityPriority"
+                                class="quality-priority-list"
+                                item-key="quality"
+                                ghost-class="ghost-pill"
+                                animation="200">
+                                <template #item="{ element }">
+                                    <div class="quality-pill">
+                                        <span>{{ formatResolution(element).text }}</span>
+                                    </div>
+                                </template>
+                            </draggable>
+                         </div>
+                    </div>
+                </div>
             </div>
         </div>
         
         <div class="position-relative">
-
-            <div v-if="isLoading" class="composition-cards-container">
+            <div v-if="isLoading && !isManualRefresh" class="composition-cards-container">
                 <div class="test-result-card-compact animate-pulse">
                     <div style="display: flex; flex-direction: column; gap: 12px;">
                         <div class="card-line">
@@ -62,19 +80,6 @@ const SeriesCompositionManager = {
                         <div class="card-line">
                             <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 30%;"></div>
                             <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 35%;"></div>
-                        </div>
-                    </div>
-                </div>
-                <div class="test-result-card-compact animate-pulse" style="animation-delay: 0.4s;">
-                     <div style="display: flex; flex-direction: column; gap: 12px;">
-                        <div class="card-line">
-                            <div style="height: 16px; background-color: #e0e0e0; border-radius: 6px; width: 50%;"></div>
-                            <div style="height: 24px; background-color: #e0e0e0; border-radius: 6px; width: 48px;"></div>
-                        </div>
-                        <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 75%;"></div>
-                        <div class="card-line">
-                            <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 45%;"></div>
-                            <div style="height: 12px; background-color: #e0e0e0; border-radius: 6px; width: 20%;"></div>
                         </div>
                     </div>
                 </div>
@@ -168,37 +173,28 @@ const SeriesCompositionManager = {
   data() {
     return {
       isLoading: false,
+      isManualRefresh: false,
       mediaItems: [],
       slicedFiles: [],
       showOnlyPlanned: true,
       ignoredSeasons: [],
-      availableQualities: [], // Все уникальные разрешения, найденные у видео
-      qualityPriority: [], // Пользовательский порядок разрешений
+      availableQualities: [],
+      qualityPriority: [],
       isSavingPriority: false,
+      autoUpdateEnabled: true,
+      seriesSearchMode: 'search',
     };
   },
   emits: ['show-toast'],
-  watch: {
-    isActive(newVal) {
-      if (newVal) {
-        this.loadComposition();
-      }
-    }
-  },
   computed: {
     sortedAvailableQualities() {
         return [...this.availableQualities].sort((a, b) => b - a);
     },
     displayItems() {
         const items = [];
-
         this.mediaItems.forEach(item => {
-            items.push({
-                ...item,
-                type: 'compilation',
-            });
+            items.push({ ...item, type: 'compilation' });
         });
-
         this.slicedFiles.forEach(file => {
             items.push({
                 type: 'sliced',
@@ -210,21 +206,17 @@ const SeriesCompositionManager = {
                 status: file.status,
             });
         });
-
         return items;
     },
-
     groupedItems() {
-        // 1. Сначала, как и раньше, группируем все существующие элементы по сезонам.
         const groups = this.displayItems.reduce((acc, item) => {
             const season = item.season ?? item.result?.extracted?.season ?? 'undefined';
-            if (season === 'undefined') return acc; // Игнорируем неопределенные
+            if (season === 'undefined') return acc;
             if (!acc[season]) acc[season] = [];
             acc[season].push(item);
             return acc;
         }, {});
 
-        // 2. Для каждого сезона находим "дыры" и добавляем заглушки.
         for (const seasonNumber in groups) {
             const itemsInSeason = groups[seasonNumber];
             if (itemsInSeason.length === 0) continue;
@@ -235,8 +227,7 @@ const SeriesCompositionManager = {
 
             itemsInSeason.forEach(item => {
                 const start = this.getEpisodeStart(item);
-                // Проверяем оба возможных местоположения конечного эпизода
-                const end = item.episode_end ?? item.result?.extracted?.end ?? start; // <-- ИСПРАВЛЕНО
+                const end = item.episode_end ?? item.result?.extracted?.end ?? start;
                 if (start !== Infinity) {
                     for (let i = start; i <= end; i++) {
                         coveredEpisodes.add(i);
@@ -248,10 +239,8 @@ const SeriesCompositionManager = {
 
             if (minEpisode === Infinity) continue;
 
-            // Проходим по всему диапазону от найденного минимума до максимума
             for (let i = minEpisode; i <= maxEpisode; i++) {
                 if (!coveredEpisodes.has(i)) {
-                    // Если эпизода нет, создаем и добавляем заглушку
                     itemsInSeason.push({
                         type: 'missing',
                         unique_id: `missing-s${seasonNumber}-e${i}`,
@@ -262,12 +251,11 @@ const SeriesCompositionManager = {
             }
         }
 
-        // 3. Финально сортируем все элементы в каждом сезоне, включая новые заглушки.
         for (const season in groups) {
             groups[season].sort((a, b) => {
                 const epA = this.getEpisodeStart(a);
                 const epB = this.getEpisodeStart(b);
-                return epB - epA; // Сортировка по убыванию
+                return epB - epA;
             });
         }
         
@@ -280,9 +268,7 @@ const SeriesCompositionManager = {
         const filtered = {};
         for (const season in this.groupedItems) {
             const itemsInSeason = this.groupedItems[season].filter(item => {
-                // ---> ДОБАВЬТЕ ЭТУ СТРОКУ <---
-                if (item.type === 'missing') return true; // Всегда показывать заглушки
-                
+                if (item.type === 'missing') return true;
                 if (item.type === 'sliced') return true;
                 if (item.is_ignored_by_user && item.slicing_status === 'completed') return true;
                 return this.isItemInPlan(item);
@@ -310,7 +296,7 @@ const SeriesCompositionManager = {
         if (resolution >= 480) return { text: `SD ${resolution}` };
         return { text: `${resolution}p` };
     },
-        async saveQualityPriority() {
+    async saveQualityPriority() {
         this.isSavingPriority = true;
         try {
             const response = await fetch(`/api/series/${this.seriesId}/vk-quality-priority`, {
@@ -320,8 +306,7 @@ const SeriesCompositionManager = {
             });
             if (!response.ok) throw new Error('Ошибка сохранения приоритета');
             this.$emit('show-toast', 'Приоритет качества сохранен. Перезагрузка...', 'success');
-            // Перезагружаем композицию, чтобы SmartCollector применил новые правила
-            await this.loadComposition();
+            await this.loadComposition(true);
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
         } finally {
@@ -329,11 +314,9 @@ const SeriesCompositionManager = {
         }
     },
     initializeQualityPriority(seriesData, allItems) {
-        // 1. Находим все уникальные разрешения из загруженных видео
         const allResolutions = [...new Set(allItems.map(item => item.source_data.resolution).filter(res => res > 0))];
-        this.availableQualities = allResolutions.sort((a, b) => b - a); // Сортируем по убыванию
+        this.availableQualities = allResolutions.sort((a, b) => b - a);
 
-        // 2. Загружаем сохраненный пользователем порядок
         let savedPriority = [];
         try {
             if (seriesData.vk_quality_priority) {
@@ -341,8 +324,6 @@ const SeriesCompositionManager = {
             }
         } catch (e) { /* ignore */ }
 
-        // 3. Формируем финальный список приоритетов
-        // Сначала идут сохраненные, затем новые (если появились), отсортированные по убыванию
         const finalPriority = [...savedPriority];
         this.availableQualities.forEach(q => {
             if (!finalPriority.includes(q)) {
@@ -351,56 +332,82 @@ const SeriesCompositionManager = {
         });
         this.qualityPriority = finalPriority.filter(q => this.availableQualities.includes(q));
     },
-    async loadComposition() {
+    async initialize() {
         if (this.isLoading) return;
         this.isLoading = true;
-        this.mediaItems = [];
-        this.slicedFiles = [];
-        this.ignoredSeasons = [];
-        this.availableQualities = []; // Сброс
-        this.qualityPriority = []; // Сброс
         try {
             const seriesResponse = await fetch(`/api/series/${this.seriesId}`);
             if (!seriesResponse.ok) throw new Error('Ошибка загрузки данных сериала');
             const seriesData = await seriesResponse.json();
+            
+            this.seriesSearchMode = seriesData.vk_search_mode || 'search';
             this.ignoredSeasons = seriesData.ignored_seasons ? JSON.parse(seriesData.ignored_seasons) : [];
 
-            const compResponse = await fetch(`/api/series/${this.seriesId}/composition`);
-            if (!compResponse.ok) throw new Error('Ошибка построения плана композиции');
-            this.mediaItems = await compResponse.json();
-
-            // Инициализируем приоритеты после загрузки данных
-            this.initializeQualityPriority(seriesData, this.mediaItems);
-
-            const slicedResponse = await fetch(`/api/series/${this.seriesId}/sliced-files`);
-            if (!slicedResponse.ok) throw new Error('Ошибка загрузки нарезанных файлов');
-            this.slicedFiles = await slicedResponse.json();
-
-            const uniqueCompilationIds = [...new Set(this.slicedFiles.map(f => f.source_media_item_unique_id))];
-            for (const uid of uniqueCompilationIds) {
-                try {
-                    await fetch(`/api/media-items/${uid}/verify-sliced-files`, { method: 'POST' });
-                } catch (verifyError) {
-                    console.warn(`Не удалось проверить файлы для компиляции ${uid}:`, verifyError);
-                }
-            }
-            if (uniqueCompilationIds.length > 0) {
-                 const refreshedSlicedResponse = await fetch(`/api/series/${this.seriesId}/sliced-files`);
-                 this.slicedFiles = await refreshedSlicedResponse.json();
+            if (this.seriesSearchMode === 'get_all') {
+                this.autoUpdateEnabled = false;
+            } else {
+                const savedState = localStorage.getItem(`composition_autoupdate_${this.seriesId}`);
+                this.autoUpdateEnabled = savedState !== null ? JSON.parse(savedState) : true;
             }
 
+            await this.loadComposition(this.autoUpdateEnabled);
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
         } finally {
             this.isLoading = false;
         }
     },
+    async loadComposition(forceRefresh = false) {
+        this.isManualRefresh = forceRefresh;
+        if (forceRefresh) {
+            this.$emit('show-toast', 'Запущено полное обновление композиции из VK...', 'info');
+        } else {
+            this.$emit('show-toast', 'Загрузка локальной композиции из БД...', 'info');
+        }
+        
+        this.isLoading = true;
+        try {
+            const url = `/api/series/${this.seriesId}/composition?refresh=${forceRefresh}`;
+            const response = await fetch(url);
+            if (!response.ok) {
+                const errorData = await response.json();
+                throw new Error(errorData.error || 'Ошибка построения композиции');
+            }
+            this.mediaItems = await response.json();
+
+            const seriesResponse = await fetch(`/api/series/${this.seriesId}`);
+            const seriesData = await seriesResponse.json();
+            this.initializeQualityPriority(seriesData, this.mediaItems);
+
+            await this.loadAndVerifySlicedFiles();
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        } finally {
+            this.isLoading = false;
+            this.isManualRefresh = false;
+        }
+    },
+    async loadAndVerifySlicedFiles() {
+        const slicedResponse = await fetch(`/api/series/${this.seriesId}/sliced-files`);
+        if (!slicedResponse.ok) throw new Error('Ошибка загрузки нарезанных файлов');
+        this.slicedFiles = await slicedResponse.json();
+        const uniqueCompilationIds = [...new Set(this.slicedFiles.map(f => f.source_media_item_unique_id))];
+        for (const uid of uniqueCompilationIds) {
+            try {
+                await fetch(`/api/media-items/${uid}/verify-sliced-files`, { method: 'POST' });
+            } catch (verifyError) {
+                console.warn(`Не удалось проверить файлы для компиляции ${uid}:`, verifyError);
+            }
+        }
+        if (uniqueCompilationIds.length > 0) {
+             const refreshedSlicedResponse = await fetch(`/api/series/${this.seriesId}/sliced-files`);
+             this.slicedFiles = await refreshedSlicedResponse.json();
+        }
+    },
     async toggleItemIgnored(item) {
         const isCurrentlyIgnored = item.is_ignored_by_user;
         const newIgnoredState = !isCurrentlyIgnored;
-        
         item.is_ignored_by_user = newIgnoredState;
-
         try {
             const response = await fetch(`/api/media-items/${item.unique_id}/ignore`, {
                 method: 'PUT',
@@ -416,16 +423,13 @@ const SeriesCompositionManager = {
     async toggleSeasonIgnored(seasonNumber) {
         seasonNumber = parseInt(seasonNumber, 10);
         const isCurrentlyIgnored = this.ignoredSeasons.includes(seasonNumber);
-        
         let newIgnoredSeasons = [...this.ignoredSeasons];
         if (isCurrentlyIgnored) {
             newIgnoredSeasons = newIgnoredSeasons.filter(s => s !== seasonNumber);
         } else {
             newIgnoredSeasons.push(seasonNumber);
         }
-        
         this.ignoredSeasons = newIgnoredSeasons;
-
         try {
             const response = await fetch(`/api/series/${this.seriesId}/ignored-seasons`, {
                 method: 'POST',
@@ -438,77 +442,63 @@ const SeriesCompositionManager = {
             this.ignoredSeasons = this.ignoredSeasons.filter(s => s !== seasonNumber);
         }
     },
-
     getEpisodeStart(item) {
-        // Для уже обработанных или нарезанных файлов
-        if (item.episode_start != null) {
-            return item.episode_start;
-        }
-        // Для новых одиночных серий
-        if (item.result?.extracted?.episode != null) {
-            return item.result.extracted.episode;
-        }
-        // Для новых компиляций
-        if (item.result?.extracted?.start != null) {
-            return item.result.extracted.start;
-        }
-        // Если номер не найден, отправляем в конец списка
+        if (item.episode_start != null) return item.episode_start;
+        if (item.result?.extracted?.episode != null) return item.result.extracted.episode;
+        if (item.result?.extracted?.start != null) return item.result.extracted.start;
         return Infinity;
     },
-
     isSeasonIgnored(seasonNumber) {
         if (seasonNumber === 'undefined') return false;
         return this.ignoredSeasons.includes(parseInt(seasonNumber, 10));
     },
     isItemInPlan(item) {
         if (item.type !== 'compilation') return false;
-        const seasonNumber = item.result?.extracted?.season ?? 'undefined';
+        
+        const seasonNumber = item.season ?? item.result?.extracted?.season ?? 'undefined';
         if (this.isSeasonIgnored(seasonNumber)) return false;
         if (item.is_ignored_by_user) return false;
-        return item.status === 'in_plan_single' || item.status === 'in_plan_compilation';
+        
+        const plannedStatuses = ['in_plan_single', 'in_plan_compilation'];
+        return plannedStatuses.includes(item.plan_status);
     },
     getCardClass(item) {
         if (item.slicing_status === 'completed') {
             return 'archived';
         }
-
-        const season = item.result?.extracted?.season ?? 1;
+        
+        const season = item.season ?? item.result?.extracted?.season ?? 1;
         if (item.is_ignored_by_user || this.isSeasonIgnored(season)) {
             return 'no-match';
         }
 
-        const isPlanned = ['in_plan_single', 'in_plan_compilation'].includes(item.status);
+        const isPlanned = ['in_plan_single', 'in_plan_compilation'].includes(item.plan_status);
+
         if (isPlanned) {
-            return item.local_status === 'completed' ? 'success' : 'pending';
+            if (item.status === 'completed') {
+                return 'success';
+            }
+            return 'pending';
+        } else {
+            return 'no-match';
         }
-        
-        return 'no-match';
     },
     getSeasonTitle(seasonNumber) {
-        if (seasonNumber === 'undefined') {
-            return 'Не определено';
-        }
+        if (seasonNumber === 'undefined') return 'Не определено';
         return `Сезон ${String(seasonNumber).padStart(2, '0')}`;
     },
     formatEpisode(item) {
         if (!item.result || !item.result.extracted) return '-';
         const extracted = item.result.extracted;
         const season = String(extracted.season ?? 1).padStart(2, '0');
-        if (extracted.episode !== undefined) {
-             return `s${season}e${String(extracted.episode).padStart(2, '0')}`;
-        }
-        if (extracted.start !== undefined && extracted.end !== undefined) {
-             return `s${season}e${String(extracted.start).padStart(2, '0')}-e${String(extracted.end).padStart(2, '0')}`;
-        }
+        if (extracted.episode != null) return `s${season}e${String(extracted.episode).padStart(2, '0')}`;
+        if (extracted.start != null && extracted.end != null) return `s${season}e${String(extracted.start).padStart(2, '0')}-e${String(extracted.end).padStart(2, '0')}`;
         return '-';
     },
     formatItemType(item) {
         if (!item.result || !item.result.extracted) return { icon: 'bi-question-circle', text: '-' };
         const isRange = item.result.extracted.start !== undefined;
-        return {
-            icon: isRange ? 'bi-collection-fill' : 'bi-film',
-            text: isRange ? 'Range' : 'Single',
-        };
+        return { icon: isRange ? 'bi-collection-fill' : 'bi-film', text: isRange ? 'Range' : 'Single' };
     },
     getVoiceoverTag(item) {
         return item.result?.extracted?.voiceover || 'N/A';

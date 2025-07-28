@@ -133,10 +133,11 @@ class AstarParser:
             
             temp_torrent_id = generate_astar_torrent_id(link, date_time)
 
-            if temp_torrent_id in known_torrents_dict:
-                link_to_add = None
-            else:
+            # Если включен режим принудительной замены ИЛИ торрент действительно новый
+            if debug_force_replace or temp_torrent_id not in known_torrents_dict:
                 link_to_add = link
+            else:
+                link_to_add = None
             
             episode_div = item.find('div', class_='info_d1')
             episode_text = episode_div.text.strip() if episode_div else None

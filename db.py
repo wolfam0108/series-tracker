@@ -1,3 +1,4 @@
+import os
 import string
 import random
 import logging
@@ -5,11 +6,11 @@ import json
 from sqlalchemy import create_engine, func, inspect, text
 from sqlalchemy.orm import sessionmaker, joinedload
 from sqlalchemy.exc import OperationalError, ProgrammingError, IntegrityError
-from datetime import datetime, timezone
+from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional, Any
 
 from models import (
-    Base, Auth, Series, RenamingPattern, SeasonPattern, AdvancedRenamingPattern,
+    Base, Auth, Series, SeriesStatus, RenamingPattern, SeasonPattern, AdvancedRenamingPattern,
     Torrent, Setting, Log, QualityPattern, QualitySearchPattern, ResolutionPattern,
     ResolutionSearchPattern, AgentTask, ScanTask,
     ParserProfile, ParserRule, ParserRuleCondition, MediaItem, DownloadTask,
@@ -37,11 +38,38 @@ class Database:
             try:
                 if self.engine.dialect.name == 'sqlite':
                     session.execute(text('PRAGMA foreign_keys = OFF;'))
-                    session.commit()
+                
+                migrated_tables = set()
 
+                # --- Специальная, неразрушающая миграция для series_statuses ---
+                table_name = 'series_statuses'
+                if inspector.has_table(table_name):
+                    columns = inspector.get_columns(table_name)
+                    is_viewing_col = next((c for c in columns if c['name'] == 'is_viewing'), None)
+                    is_boolean_type = is_viewing_col and 'BOOL' in str(is_viewing_col.get('type', '')).upper()
+
+                    if is_boolean_type:
+                        self.logger.warning("db", f"Обнаружена устаревшая схема для таблицы '{table_name}'. Запуск неразрушающей миграции...")
+                        
+                        session.execute(text(f'ALTER TABLE {table_name} RENAME TO _{table_name}_old;'))
+                        SeriesStatus.__table__.create(self.engine)
+                        
+                        old_columns = [c['name'] for c in inspector.get_columns(f'_{table_name}_old') if c['name'] != 'is_viewing']
+                        columns_str = ", ".join(old_columns)
+                        
+                        session.execute(text(
+                            f'INSERT INTO {table_name} ({columns_str}) SELECT {columns_str} FROM _{table_name}_old;'
+                        ))
+                        session.execute(text(f'DROP TABLE _{table_name}_old;'))
+                        self.logger.info("db", f"Миграция таблицы '{table_name}' успешно завершена.")
+                        migrated_tables.add(table_name)
+
+                # --- Общая проверка и пересоздание остальных таблиц при необходимости ---
                 for table_obj in Base.metadata.sorted_tables:
                     table_name = table_obj.name
-                    
+                    if table_name in migrated_tables:
+                        continue
+
                     if not inspector.has_table(table_name):
                         self.logger.warning("db", f"Таблица '{table_name}' не найдена. Создание...")
                         table_obj.create(self.engine)
@@ -55,26 +83,21 @@ class Database:
                             "db", 
                             f"Обнаружено несоответствие схемы для таблицы '{table_name}'. Таблица будет пересоздана."
                         )
-                        self.logger.debug(f"Ожидаемые колонки: {expected_columns}")
-                        self.logger.debug(f"Фактические колонки: {actual_columns}")
+                        self.logger.debug(f"db", f"Ожидаемые колонки: {expected_columns}")
+                        self.logger.debug(f"db", f"Фактические колонки: {actual_columns}")
                         
-                        missing_in_db = expected_columns - actual_columns
-                        extra_in_db = actual_columns - expected_columns
-                        if missing_in_db:
-                            self.logger.debug(f"Колонки, отсутствующие в БД: {missing_in_db}")
-                        if extra_in_db:
-                            self.logger.debug(f"Лишние колонки в БД: {extra_in_db}")
-
                         table_obj.drop(self.engine)
                         table_obj.create(self.engine)
                         self.logger.info("db", f"Таблица '{table_name}' успешно пересоздана.")
 
+                session.commit()
+
             except Exception as e:
                 self.logger.error("db", f"Ошибка при миграции схемы: {e}. Может потребоваться ручное вмешательство.", exc_info=True)
+                session.rollback()
             finally:
                 if self.engine.dialect.name == 'sqlite':
                     session.execute(text('PRAGMA foreign_keys = ON;'))
-                    session.commit()
                 self.logger.info("db", "DEBUG: Детальный анализ схемы базы данных завершен.")
 
     def create_scan_task(self, series_id: int, task_data: List[Dict]) -> int:
@@ -152,14 +175,20 @@ class Database:
 
     def add_series(self, data: Dict[str, Any]) -> int:
         with self.Session() as session:
-            allowed_keys = {c.name for c in Series.__table__.columns if c.name != 'id'}
+            allowed_keys = {c.name for c in Series.__table__.columns if c.name not in ['id', 'active_status']}
             series_data = {key: data[key] for key in allowed_keys if key in data}
-            
+        
             if 'source_type' not in series_data:
                 series_data['source_type'] = 'torrent'
-            
+        
             series = Series(**series_data)
             session.add(series)
+            session.flush() # Получаем series.id до коммита
+        
+            # Создаем запись в таблице статусов
+            new_status = SeriesStatus(series_id=series.id)
+            session.add(new_status)
+        
             session.commit()
             return series.id
 
@@ -184,11 +213,59 @@ class Database:
             if series:
                 for key, value in data.items():
                     if hasattr(series, key) and key != 'id':
-                        if key == 'active_status' and isinstance(value, dict):
-                            setattr(series, key, json.dumps(value))
-                        else:
-                            setattr(series, key, value)
+                        setattr(series, key, value)
                 session.commit()
+
+    # ДОБАВИТЬ ЭТИ МЕТОДЫ В КЛАСС Database
+    def set_series_status_flag(self, series_id: int, status_name: str, value: bool):
+        """Устанавливает конкретный флаг статуса для сериала."""
+        with self.Session() as session:
+            status_column = f"is_{status_name}"
+            if hasattr(SeriesStatus, status_column):
+                session.query(SeriesStatus).filter_by(series_id=series_id).update({status_column: value})
+                session.commit()
+
+    def get_series_statuses(self, series_id: int) -> Optional[Dict[str, Any]]:
+        """Возвращает все флаги статусов для одного сериала."""
+        with self.Session() as session:
+            statuses = session.query(SeriesStatus).filter_by(series_id=series_id).first()
+            if not statuses: return None
+            return {c.name: getattr(statuses, c.name) for c in statuses.__table__.columns}
+
+    def update_or_create_torrent_task(self, series_id: int, torrent_hash: str, data: Dict[str, Any]):
+        """Обновляет или создает задачу мониторинга для торрента."""
+        with self.Session() as session:
+            task = session.query(DownloadTask).filter_by(task_key=torrent_hash, task_type='torrent').first()
+            progress_percent = int(data.get('progress', 0) * 100)
+        
+            if task:
+                task.status = data.get('state')
+                task.progress = progress_percent
+                task.dlspeed = data.get('dlspeed', 0)
+                task.eta = data.get('eta', 0)
+                task.updated_at = datetime.now(timezone.utc)
+            else:
+                task = DownloadTask(
+                    task_key=torrent_hash,
+                    series_id=series_id,
+                    task_type='torrent',
+                    status=data.get('state'),
+                    progress=progress_percent,
+                    dlspeed=data.get('dlspeed', 0),
+                    eta=data.get('eta', 0)
+                )
+                session.add(task)
+            session.commit()
+
+    def remove_stale_torrent_tasks(self, series_id: int, active_hashes: List[str]):
+        """Удаляет из БД задачи мониторинга для торрентов, которых больше нет в qBittorrent."""
+        with self.Session() as session:
+            session.query(DownloadTask).filter(
+                DownloadTask.series_id == series_id,
+                DownloadTask.task_type == 'torrent',
+                ~DownloadTask.task_key.in_(active_hashes)
+            ).delete(synchronize_session=False)
+            session.commit()
 
     def delete_series(self, series_id: int):
         with self.Session() as session:
@@ -201,32 +278,7 @@ class Database:
                 session.delete(series)
                 session.commit()
                 self.logger.info("db", f"Сериал {series_id} и все связанные с ним записи удалены.")
-
-    def set_series_state(self, series_id: int, state: Any, scan_time: Optional[datetime] = None):
-        with self.Session() as session:
-            series = session.query(Series).filter_by(id=series_id).first()
-            if series:
-                if isinstance(state, dict):
-                    series.state = json.dumps(state)
-                else:
-                    series.state = str(state)
-                
-                if scan_time: series.last_scan_time = scan_time
-                session.commit()
     
-    def get_series_tasks_in_state(self, series_id: int, state_prefix: str) -> bool:
-        with self.Session() as session:
-            series = session.query(Series).filter_by(id=series_id).first()
-            return series and series.state.startswith(state_prefix)
-
-    def reset_stuck_series_states(self, states_to_reset: List[str]):
-        with self.Session() as session:
-            query = session.query(Series).filter(Series.state.in_(states_to_reset))
-            updated_count = query.update({"state": "waiting"}, synchronize_session=False)
-            session.commit()
-            self.logger.info("db", f"Сброшен статус для {updated_count} сериалов.")
-            return updated_count
-
     def add_torrent(self, series_id: int, torrent_data: Dict[str, Any], is_active: bool = True, qb_hash: Optional[str] = None):
         with self.Session() as session:
             torrent = Torrent(
@@ -262,13 +314,6 @@ class Database:
             if torrent:
                 for key, value in data.items():
                     setattr(torrent, key, value)
-                session.commit()
-
-    def add_torrent_mapping(self, torrent_id: str, qb_hash: str):
-        with self.Session() as session:
-            torrent = session.query(Torrent).filter_by(torrent_id=torrent_id).first()
-            if torrent:
-                torrent.qb_hash = qb_hash
                 session.commit()
     
     def get_patterns(self) -> List[Dict[str, Any]]:
@@ -752,6 +797,36 @@ class Database:
                 return None
             return {c.name: getattr(item, c.name) for c in item.__table__.columns}
     
+    def get_media_items_by_plan_status(self, series_id: int, plan_status: str) -> List[Dict[str, Any]]:
+        """Возвращает медиа-элементы для указанного сериала с заданным plan_status."""
+        with self.Session() as session:
+            items = session.query(MediaItem).filter_by(series_id=series_id, plan_status=plan_status).all()
+            return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in items]
+
+    def get_media_items_by_plan_statuses(self, series_id: int, plan_statuses: List[str]) -> List[Dict[str, Any]]:
+        """Возвращает медиа-элементы для указанного сериала с одним из указанных plan_status."""
+        with self.Session() as session:
+            items = session.query(MediaItem).filter(
+                MediaItem.series_id == series_id,
+                MediaItem.plan_status.in_(plan_statuses)
+            ).all()
+            return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in items]
+
+    def update_media_item_plan_statuses(self, status_map: Dict[str, str]):
+        """Массово обновляет plan_status для медиа-элементов."""
+        with self.Session() as session:
+            for unique_id, new_status in status_map.items():
+                session.query(MediaItem).filter_by(unique_id=unique_id).update({'plan_status': new_status})
+            session.commit()
+
+    def reset_plan_status_for_series(self, series_id: int):
+        """Сбрасывает plan_status в 'candidate' для всех медиа-элементов сериала."""
+        with self.Session() as session:
+            session.query(MediaItem).filter_by(series_id=series_id).update(
+                {'plan_status': 'candidate'}, synchronize_session=False
+            )
+            session.commit()
+
     def update_media_item_filename(self, unique_id: str, filename: str):
         with self.Session() as session:
             item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
@@ -806,10 +881,20 @@ class Database:
                     if not unique_id: continue
 
                     if existing_item := existing_items_map.get(unique_id):
-                        existing_item.status = item_data.get('status', existing_item.status)
+                        # Обновляем существующий элемент
+                        file_path = existing_item.final_filename
+                        if file_path and os.path.exists(file_path):
+                            if existing_item.status != 'completed':
+                                existing_item.status = 'completed'
+                        else:
+                            # Если файла нет, статус может быть обновлен (например, на 'pending')
+                            if 'status' in item_data:
+                                existing_item.status = item_data['status']
+
                         existing_item.publication_date = item_data.get('publication_date', existing_item.publication_date)
                         items_updated += 1
                     else:
+                        # Добавляем новый элемент
                         new_item = MediaItem(**item_data)
                         session.add(new_item)
                         items_added += 1
@@ -838,6 +923,7 @@ class Database:
             return {status: count for status, count in statuses}
 
     def add_download_task(self, task_data: Dict[str, Any]):
+        task_data['task_key'] = task_data.pop('unique_id')
         with self.Session() as session:
             new_task = DownloadTask(**task_data, status='pending', attempts=0)
             session.add(new_task)
@@ -852,7 +938,8 @@ class Database:
     def get_download_task_by_uid(self, unique_id: str) -> Optional[Dict[str, Any]]:
         with self.Session() as session:
             task = session.query(DownloadTask).filter(
-                DownloadTask.unique_id == unique_id,
+                DownloadTask.task_key == unique_id,
+                DownloadTask.task_type == 'vk_video',
                 DownloadTask.status.in_(['pending', 'downloading'])
             ).first()
             if not task: return None
@@ -860,10 +947,17 @@ class Database:
 
     def get_pending_download_tasks(self, limit: int) -> List[Dict[str, Any]]:
         with self.Session() as session:
-            tasks = session.query(DownloadTask).filter_by(status='pending').order_by(DownloadTask.created_at).limit(limit).all()
-            return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
+            # Используем правильное имя столбца `task_key` и фильтруем по типу задачи
+            tasks = session.query(DownloadTask).join(
+                MediaItem, DownloadTask.task_key == MediaItem.unique_id
+            ).filter(
+                DownloadTask.task_type == 'vk_video',
+                DownloadTask.status == 'pending',
+                MediaItem.plan_status.in_(['in_plan_single', 'in_plan_compilation'])
+            ).order_by(DownloadTask.created_at).limit(limit).all()
             
-    # --- ДОБАВЛЕННЫЙ МЕТОД ---
+            return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
+        
     def get_active_download_tasks(self) -> List[Dict[str, Any]]:
         """Возвращает список задач, находящихся в статусе 'pending' или 'downloading'."""
         with self.Session() as session:
@@ -1141,3 +1235,87 @@ class Database:
                     task_dict['created_at'] = task_dict['created_at'].isoformat()
                 result.append(task_dict)
             return result
+        
+    def get_media_items_by_slicing_status(self, series_id: int, status: str) -> List[Dict[str, Any]]:
+        """Возвращает медиа-элементы для сериала с указанным статусом нарезки."""
+        with self.Session() as session:
+            items = session.query(MediaItem).filter_by(series_id=series_id, slicing_status=status).all()
+            return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in items]
+
+    def add_sliced_file_if_not_exists(self, series_id: int, source_unique_id: str, episode_number: int, file_path: str):
+        """Добавляет запись о нарезанном файле, только если её ещё не существует."""
+        with self.Session() as session:
+            exists = session.query(SlicedFile).filter_by(
+                source_media_item_unique_id=source_unique_id,
+                episode_number=episode_number
+            ).first()
+
+            if not exists:
+                new_file = SlicedFile(
+                    series_id=series_id,
+                    source_media_item_unique_id=source_unique_id,
+                    episode_number=episode_number,
+                    file_path=file_path
+                )
+                session.add(new_file)
+                session.commit()
+                return True
+            return False
+    def get_all_agent_tasks_for_series(self, series_id: int) -> List[Dict[str, Any]]:
+        """Возвращает все активные задачи агента для указанного сериала."""
+        with self.Session() as session:
+            tasks = session.query(AgentTask).filter_by(series_id=series_id).all()
+            return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
+        
+    def get_all_active_torrent_tasks(self) -> List[Dict[str, Any]]:
+        """Возвращает все задачи мониторинга торрентов с именем сериала."""
+        with self.Session() as session:
+            tasks = session.query(DownloadTask, Series.name).join(
+                Series, Series.id == DownloadTask.series_id
+            ).filter(DownloadTask.task_type == 'torrent').all()
+            
+            result = []
+            for task, series_name in tasks:
+                task_dict = {c.name: getattr(task, c.name) for c in task.__table__.columns}
+                task_dict['series_name'] = series_name
+                result.append(task_dict)
+            return result
+        
+    def set_viewing_status(self, series_id: int, is_viewing: bool):
+        """Устанавливает или сбрасывает статус просмотра."""
+        with self.Session() as session:
+            value = datetime.now(timezone.utc) if is_viewing else None
+            session.query(SeriesStatus).filter_by(series_id=series_id).update({'is_viewing': value})
+            session.commit()
+
+    def get_stale_viewing_series_ids(self, timeout_seconds: int = 90) -> list[int]:
+        """Находит ID сериалов, у которых статус 'viewing' (метка времени) устарел."""
+        with self.Session() as session:
+            stale_threshold = datetime.now(timezone.utc) - timedelta(seconds=timeout_seconds)
+            stale_series = session.query(SeriesStatus).filter(
+                SeriesStatus.is_viewing.isnot(None),
+                SeriesStatus.is_viewing < stale_threshold
+            ).all()
+            return [s.series_id for s in stale_series]
+
+    def get_all_torrent_tasks_for_series(self, series_id: int) -> List[Dict[str, Any]]:
+        """Возвращает все задачи мониторинга торрентов для указанного сериала."""
+        with self.Session() as session:
+            tasks = session.query(DownloadTask).filter_by(
+                series_id=series_id,
+                task_type='torrent'
+            ).all()
+            return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
+        
+    def update_vk_series_status_flags(self, series_id: int, flags: Dict[str, bool]):
+        """Атомарно обновляет все флаги статусов для VK-сериала."""
+        with self.Session() as session:
+            update_data = {f"is_{name}": value for name, value in flags.items()}
+            session.query(SeriesStatus).filter_by(series_id=series_id).update(update_data)
+            session.commit()
+
+    def get_media_items_by_status(self, series_id: int, status: str) -> List[Dict[str, Any]]:
+        """Возвращает медиа-элементы для указанного сериала с заданным статусом выполнения."""
+        with self.Session() as session:
+            items = session.query(MediaItem).filter_by(series_id=series_id, status=status).all()
+            return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in items]

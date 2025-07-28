@@ -1,5 +1,4 @@
 const StatusModal = {
-  // 1. Регистрируем новые дочерние компоненты
   components: {
       'series-composition-manager': SeriesCompositionManager,
       'chapter-manager': ChapterManager,
@@ -42,12 +41,13 @@ const StatusModal = {
                     <div v-if="!series.id" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
                     <div v-else class="tab-content modern-tab-content" id="statusTabContent">
                         
+                        <!-- ИЗМЕНЕНИЕ: Добавлен ref="propertiesTab" -->
                         <div class="tab-pane fade show active" id="pane-properties" role="tabpanel">
-                            <status-tab-properties v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'properties'" @show-toast="emitToast" @series-updated="emitSeriesUpdated" />
+                            <status-tab-properties ref="propertiesTab" v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'properties'" @show-toast="emitToast" @series-updated="emitSeriesUpdated" />
                         </div>
 
                         <div class="tab-pane fade" id="pane-composition" role="tabpanel">
-                            <series-composition-manager v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'composition'" @show-toast="emitToast" />
+                            <series-composition-manager ref="compositionTab" v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'composition'" @show-toast="emitToast" />
                         </div>
 
                         <div class="tab-pane fade" id="pane-slicing" role="tabpanel">
@@ -58,7 +58,7 @@ const StatusModal = {
                              <status-tab-qbit v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'qbit'" @show-toast="emitToast" />
                         </div>
 
-                        <div class="tab-pane fade" id="pane-naming" role="tabpanel">
+                        <div class="tab-pane fade" id="pane-namingа" role="tabpanel">
                             <status-tab-naming v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'naming'" @show-toast="emitToast" />
                         </div>
                         
@@ -67,7 +67,11 @@ const StatusModal = {
                         </div>
                     </div>
                 </div>
+                <!-- ИЗМЕНЕНИЕ: Футер теперь динамический -->
                 <div class="modal-footer modern-footer">
+                    <button v-if="activeTab === 'properties'" class="btn btn-primary" @click="saveProperties">
+                        <i class="bi bi-check-lg me-2"></i>Сохранить
+                    </button>
                     <button class="btn btn-secondary" @click="close"><i class="bi bi-x-lg me-2"></i>Закрыть</button>
                 </div>
             </div>
@@ -78,7 +82,7 @@ const StatusModal = {
     return { 
         modal: null, 
         seriesId: null, 
-        series: {}, // Храним только базовые данные для отображения вкладок
+        series: {},
         activeTab: 'properties',
         isFullscreen: false,
     };
@@ -88,6 +92,14 @@ const StatusModal = {
     setActiveTab(tabName) {
         this.activeTab = tabName;
         this.isFullscreen = (tabName === 'history');
+
+        // Используем $nextTick, чтобы убедиться, что компонент видим перед вызовом
+        this.$nextTick(() => {
+            // Даем явную команду на обновление при каждом переключении на вкладку
+            if (tabName === 'composition' && this.$refs.compositionTab) {
+                this.$refs.compositionTab.initialize();
+            }
+        });
     },
     async open(seriesId) {
         this.seriesId = seriesId;
@@ -98,11 +110,9 @@ const StatusModal = {
         if (!this.modal) this.modal = new bootstrap.Modal(this.$refs.statusModal);
         this.modal.show();
         
-        // Активируем первую вкладку принудительно
         const firstTabEl = this.$refs.statusModal.querySelector('.modern-tab-link');
         if (firstTabEl) bootstrap.Tab.getOrCreateInstance(firstTabEl).show();
         
-        // Загружаем только основную информацию о сериале
         try {
             const response = await fetch(`/api/series/${this.seriesId}`);
             if (!response.ok) throw new Error('Сериал не найден');
@@ -114,6 +124,12 @@ const StatusModal = {
     },
     close() {
         this.modal.hide();
+    },
+    // --- НОВЫЙ МЕТОД: Вызывает метод сохранения в дочернем компоненте ---
+    saveProperties() {
+        if (this.$refs.propertiesTab) {
+            this.$refs.propertiesTab.updateSeries();
+        }
     },
     emitToast(message, type) {
         this.$emit('show-toast', message, type);

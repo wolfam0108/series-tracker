@@ -2,6 +2,7 @@ import threading
 import time
 import json
 import os
+import select
 import subprocess
 from flask import Flask
 from datetime import datetime
@@ -10,9 +11,10 @@ from logger import Logger
 from sse import ServerSentEvent
 from filename_formatter import FilenameFormatter
 from utils.path_finder import get_executable_path
+from status_manager import StatusManager
 
 class SlicingAgent(threading.Thread):
-    def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent):
+    def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent, status_manager: StatusManager):
         super().__init__(daemon=True)
         self.name = "SlicingAgent"
         self.app = app
@@ -21,6 +23,9 @@ class SlicingAgent(threading.Thread):
         self.broadcaster = broadcaster
         self.shutdown_flag = threading.Event()
         self.CHECK_INTERVAL = 5
+        self.status_manager = status_manager
+        # 2. Создаем "канал пробуждения"
+        self._shutdown_pipe_r, self._shutdown_pipe_w = os.pipe()
 
     def recover_tasks(self):
         """Восстанавливает прерванные задачи при старте."""
@@ -34,11 +39,12 @@ class SlicingAgent(threading.Thread):
                 self.logger.info("slicing_agent", "Незавершенных задач нарезки не найдено. Всё в порядке.")
 
     def _process_task(self, task):
-        """Основная логика обработки одной задачи нарезки. Вызывается ИЗНУТРИ контекста."""
         unique_id = task['media_item_unique_id']
         task_id = task['id']
+        series_id = task['series_id']
         
         try:
+            self.status_manager.set_status(series_id, 'slicing', True)
             self.db.update_slicing_task(task_id, {'status': 'slicing'})
             self.db.update_media_item_slicing_status(unique_id, 'slicing')
             self._broadcast_queue_update()
@@ -130,7 +136,9 @@ class SlicingAgent(threading.Thread):
             self.logger.error("slicing_agent", f"Ошибка при обработке задачи нарезки ID {task_id}: {e}", exc_info=True)
             self.db.update_slicing_task(task_id, {'status': 'error', 'error_message': str(e)})
             self.db.update_media_item_slicing_status(unique_id, 'error')
+            self.status_manager.set_status(series_id, 'error', True)
         finally:
+            self.status_manager.set_status(series_id, 'slicing', False)
             self._broadcast_queue_update()
 
     def run(self):
@@ -139,7 +147,11 @@ class SlicingAgent(threading.Thread):
         self.recover_tasks()
 
         while not self.shutdown_flag.is_set():
-            # --- ИЗМЕНЕНИЕ: Контекст теперь охватывает всю логику тика ---
+            # 3. Заменяем shutdown_flag.wait() на select()
+            readable, _, _ = select.select([self._shutdown_pipe_r], [], [], self.CHECK_INTERVAL)
+            if readable:
+                break
+                
             with self.app.app_context():
                 self.broadcaster.broadcast('agent_heartbeat', {'name': 'slicing'})
                 task = self.db.get_pending_slicing_task()
@@ -147,14 +159,20 @@ class SlicingAgent(threading.Thread):
                 if task:
                     self.logger.info("slicing_agent", f"Взята в работу задача на нарезку ID: {task['id']}")
                     self._process_task(task)
-            
-            self.shutdown_flag.wait(self.CHECK_INTERVAL)
         
+        # 4. Очищаем ресурсы pipe после выхода из цикла
+        os.close(self._shutdown_pipe_r)
+        os.close(self._shutdown_pipe_w)
         self.logger.info(f"{self.name} был остановлен.")
 
     def shutdown(self):
         self.logger.info(f"{self.name}: получен сигнал на остановку.")
         self.shutdown_flag.set()
+        try:
+            # 5. Пишем в pipe, чтобы мгновенно разбудить поток из select()
+            os.write(self._shutdown_pipe_w, b'x')
+        except OSError:
+            pass
     
     def _broadcast_queue_update(self):
         """Собирает активные задачи нарезки и транслирует их через SSE."""

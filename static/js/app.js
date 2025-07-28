@@ -33,13 +33,13 @@ const app = createApp({
         'metadata':   { title: 'Метадата',       icon: 'bi-file-earmark-text' },
         'renaming':   { title: 'Переименование', icon: 'bi-pencil-square' },
         'checking':   { title: 'Проверка',       icon: 'bi-arrow-repeat' },
-        'activation': { title: 'Активация',      icon: 'bi-lightning-charge' },
+        'activating': { title: 'Активация',      icon: 'bi-lightning-charge' },
         'downloading':{ title: 'Загрузка',       icon: 'bi-download' },
         'ready':      { title: 'Готов',          icon: 'bi-hdd-stack-fill' },
         'error':      { title: 'Ошибка',         icon: 'bi-exclamation-triangle' },
         'overflow':   { title: '',               icon: 'bi-three-dots' }
       },
-      layerHierarchy: ['waiting', 'ready', 'downloading', 'activation', 'checking', 'renaming', 'metadata', 'scanning', 'viewing', 'error']
+      layerHierarchy: ['waiting', 'ready', 'downloading', 'activating', 'checking', 'renaming', 'metadata', 'scanning', 'viewing', 'error']
     };
   },
   mounted() {
@@ -53,87 +53,43 @@ const app = createApp({
     }
   },
   computed: {
-    seriesWithPills() {
-      return this.series.map(s => {
-        let displayStates = [];
-        try {
-          const stateData = JSON.parse(s.state);
-          displayStates.push(...[...new Set(Object.values(stateData))]);
-        } catch (e) {
-          displayStates.push(s.state.split(':')[0]);
-        }
+        seriesWithPills() {
+          return this.series.map(s => {
+            // Используем готовый массив английских ключей. Если его нет, парсим state.
+            let uniqueStates = s.statuses || s.state.split(',').map(st => st.trim());
+            
+            const totalCount = uniqueStates.length;
+            const maxVisible = 3;
+            let pillsToDisplay = [];
 
-        if (s.active_status && s.active_status !== '{}') {
-          try {
-            const activeStatus = JSON.parse(s.active_status);
-            const torrentStates = Object.values(activeStatus).map(t => t.state);
-            const torrentProgress = Object.values(activeStatus).map(t => t.progress);
-
-            if (torrentStates.some(st => ['downloading', 'forcedDL', 'metaDL'].includes(st))) {
-              displayStates.push('downloading');
-            }
-            const isReady = torrentProgress.some(p => p === 1) && 
-                            !torrentStates.some(st => ['error', 'missingFiles'].includes(st));
-            if (isReady) {
-              displayStates.push('ready');
-            }
-          } catch (e) {}
-        }
-        
-        let uniqueStates = [...new Set(displayStates)];
-
-        // ---> НАЧАЛО ИЗМЕНЕНИЙ В ЛОГИКЕ ФИЛЬТРАЦИИ <---
-        const hasReady = uniqueStates.includes('ready');
-        const hasWaiting = uniqueStates.includes('waiting');
-
-        if (s.source_type === 'vk_video') {
-            // Для VK-сериалов: оставляем сложную логику для индикации проблем.
-            if (uniqueStates.length > 1 && hasWaiting && !hasReady) {
-                uniqueStates = uniqueStates.filter(state => state !== 'waiting');
-            }
-        } else {
-            // Для торрент-сериалов: если есть любой другой статус, 'waiting' всегда скрывается.
-            if (uniqueStates.length > 1 && hasWaiting) {
-                uniqueStates = uniqueStates.filter(state => state !== 'waiting');
-            }
-        }
-        // ---> КОНЕЦ ИЗМЕНЕНИЙ <---
-        
-        const activeLayers = this.layerHierarchy.filter(l => uniqueStates.includes(l));
-        const priorityLayers = [...activeLayers].reverse();
-        const totalCount = priorityLayers.length;
-        const maxVisible = 3;
-        let pillsToDisplay = [];
-
-        if (totalCount > 0) {
-            let visibleKeys = priorityLayers;
-            if (totalCount > maxVisible) {
-                visibleKeys = priorityLayers.slice(0, maxVisible);
-                const overflowCount = totalCount - maxVisible;
-                pillsToDisplay.push({ 
-                    key: 'overflow', 
-                    title: `+${overflowCount}`, 
-                    icon: this.stateConfig.overflow.icon 
+            if (totalCount > 0) {
+                let visibleKeys = uniqueStates;
+                if (totalCount > maxVisible) {
+                    visibleKeys = uniqueStates.slice(0, maxVisible);
+                    pillsToDisplay.push({ 
+                        key: 'overflow', 
+                        title: `+${totalCount - maxVisible}`, 
+                        icon: this.stateConfig.overflow.icon 
+                    });
+                }
+                visibleKeys.forEach(key => {
+                    // Теперь мы напрямую используем ключ для получения названия и иконки
+                    pillsToDisplay.push({
+                        key: key,
+                        title: this.stateConfig[key]?.title || key,
+                        icon: this.stateConfig[key]?.icon || ''
+                    });
                 });
             }
-
-            visibleKeys.forEach(key => {
-                pillsToDisplay.push({
-                    key: key,
-                    title: this.stateConfig[key]?.title || key,
-                    icon: this.stateConfig[key]?.icon || ''
-                });
-            });
+            
+            return {
+              ...s,
+              pills: pillsToDisplay.reverse(),
+              displayStates: uniqueStates // Теперь здесь английские ключи
+            };
+          });
         }
-        
-        return {
-          ...s,
-          pills: pillsToDisplay.reverse(),
-          displayStates: uniqueStates
-        };
-      });
-    }
-  },
+    },
   methods: {
     _updateIndicatorState(name, isActive) {
         const indicator = this.agentIndicators[name];
@@ -167,6 +123,15 @@ const app = createApp({
             this.agentQueue = await response.json();
         } catch (error) { this.showToast(error.message, 'danger'); }
     },
+
+    async loadDownloadQueue() {
+        try {
+            const response = await fetch('/api/downloads/queue');
+            if (!response.ok) throw new Error('Ошибка загрузки очереди загрузок');
+            this.downloadQueue = await response.json();
+        } catch (error) { this.showToast(error.message, 'danger'); }
+    },
+
     connectEventSource() {
         if (this.eventSource) this.eventSource.close();
         this.eventSource = new EventSource('/api/stream');
@@ -308,39 +273,38 @@ const app = createApp({
     async openStatusModal(id) {
         this.activeSeriesId = id;
         try {
-            const seriesToUpdate = this.seriesWithPills.find(s => s.id === id);
-            if (!seriesToUpdate) return;
+            // 1. Устанавливаем статус 'viewing' при открытии
+            await this.setSeriesState(id, ['viewing']);
 
-            let originalStates = new Set(seriesToUpdate.displayStates);
-            let stateWasChangedByModal = false;
-            
-            if (!originalStates.has('viewing')) {
-                await this.setSeriesState(id, [...originalStates, 'viewing']);
-                stateWasChangedByModal = true;
-            }
+            // 2. Запускаем "пульс" каждые 30 секунд
+            this.viewingHeartbeatInterval = setInterval(() => {
+                fetch(`/api/series/${id}/viewing_heartbeat`, { method: 'POST' });
+            }, 30000);
 
+            // 3. Открываем модальное окно
             const modalComponent = this.$refs.statusModal;
             if (modalComponent) {
                 modalComponent.open(id);
                 const modalEl = modalComponent.$refs.statusModal;
+
+                // 4. Навешиваем событие на ЗАКРЫТИЕ окна
                 modalEl.addEventListener('hidden.bs.modal', async () => {
-                    if (stateWasChangedByModal) {
-                        const currentSeries = this.seriesWithPills.find(s => s.id === id);
-                        if (currentSeries) {
-                            const finalStates = currentSeries.displayStates.filter(st => st !== 'viewing');
-                            await this.setSeriesState(id, finalStates.length > 0 ? finalStates : 'waiting');
-                        }
-                    }
+                    // Останавливаем "пульс"
+                    clearInterval(this.viewingHeartbeatInterval);
+                    this.viewingHeartbeatInterval = null;
+                    
+                    // Снимаем статус 'viewing'
+                    await this.setSeriesState(id, []);
+                    
                     this.activeSeriesId = null;
                 }, { once: true });
-            } else {
-                 this.showToast(`Универсальный компонент модального окна не найден.`, 'danger');
-                 if (stateWasChangedByModal) await this.setSeriesState(id, [...originalStates]);
-                 this.activeSeriesId = null;
             }
         } catch (error) {
             this.showToast('Ошибка при открытии окна статуса: ' + error.message, 'danger');
             this.activeSeriesId = null;
+            if (this.viewingHeartbeatInterval) {
+                clearInterval(this.viewingHeartbeatInterval);
+            }
         }
     },
     openAddModal() {
@@ -355,19 +319,11 @@ const app = createApp({
     },
     async setSeriesState(id, state) {
         try {
-            let finalState;
-            if (Array.isArray(state)) {
-                const stateObject = {};
-                state.forEach((s, i) => stateObject[i] = s);
-                finalState = stateObject;
-            } else {
-                finalState = state;
-            }
-
+            // Теперь мы просто отправляем массив напрямую, без преобразований
             const response = await fetch(`/api/series/${id}/state`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify({ state: finalState })
+                body: JSON.stringify({ state: state })
             });
             if (!response.ok) throw new Error('Ошибка обновления статуса');
         } catch (error) { this.showToast(error.message, 'danger'); }

@@ -22,7 +22,8 @@ def get_media_items_for_series(series_id):
 @media_bp.route('/media-items/<string:unique_id>/chapters', methods=['POST'])
 def fetch_and_save_chapters(unique_id):
     """
-    Получает оглавление для видео, сохраняет его в БД и возвращает клиенту.
+    Получает оглавление для видео, сохраняет его в БД и, если количество глав
+    совпадает с ожидаемым, обновляет статус нарезки на 'pending'.
     """
     item = app.db.get_media_item_by_uid(unique_id)
     if not item:
@@ -37,7 +38,14 @@ def fetch_and_save_chapters(unique_id):
         chapters_json = json.dumps(chapters_list)
         
         app.db.update_media_item_chapters(unique_id, chapters_json)
-        
+
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+        expected_count = (item.get('episode_end', 0) - item.get('episode_start', 0) + 1)
+        if chapters_list and len(chapters_list) == expected_count:
+            app.db.update_media_item_slicing_status(unique_id, 'pending')
+            app.logger.info("media_api", f"Количество глав ({len(chapters_list)}) совпало с ожидаемым. Статус нарезки для UID {unique_id} изменен на 'pending'.")
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         return jsonify(chapters_list)
     except Exception as e:
         app.logger.error("media_api", f"Ошибка получения глав для UID {unique_id}: {e}", exc_info=True)

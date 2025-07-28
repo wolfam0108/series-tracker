@@ -17,6 +17,8 @@
     border-bottom: 1px solid var(--border-color);
     display: flex;
     align-items: center;
+    /* --- ИСПРАВЛЕНИЕ: Добавлено это свойство --- */
+    justify-content: space-between;
 }
 
 .fieldset-title {
@@ -331,6 +333,7 @@
     border-color: #f5c6cb;
     color: #842029;
 }
+
 /* ==================================================================== */
 /* Стили для карточек на вкладке "Нарезка" (ChapterManager)            */
 /* ==================================================================== */
@@ -380,4 +383,15 @@
 .slicing-card-accent.status-danger {
     border-left-color: rgba(var(--bs-danger-rgb), 0.7);
     background: linear-gradient(90deg, rgba(var(--bs-danger-rgb), 0.05) 0%, white 15%);
+}
+
+/* ==================================================================== */
+/* Стили для блока настроек качества в "Композиции"                    */
+/* ==================================================================== */
+
+.quality-settings-block {
+    background-color: var(--bg-light);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 1rem;
 }

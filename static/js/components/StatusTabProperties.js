@@ -128,13 +128,7 @@ template: `
                 <small v-if="siteDataIsStale" class="text-danger d-block mt-2">Не удалось обновить данные с сайта, показана последняя сохраненная версия.</small>
             </div>
             
-             <div class="d-flex justify-content-end mt-4">
-                <button class="btn btn-primary" @click="updateSeries" :disabled="!editableSeries.id || isSaving">
-                     <span v-if="isSaving" class="spinner-border spinner-border-sm me-2"></span>
-                     <i v-else class="bi bi-check-lg me-2"></i>
-                    Сохранить
-                </button>
-            </div>
+            <!-- ИЗМЕНЕНИЕ: Этот блок с кнопкой удален -->
         </div>
     </div>
   `,
@@ -163,7 +157,6 @@ template: `
     }
   },
   computed: {
-    // --- ИЗМЕНЕНИЕ: Генерируемый URL для отображения ---
     reconstructedUrl() {
         if (this.editableSeries.source_type === 'vk_video') {
             return `${this.vkChannelUrl}|${this.vkQuery}`;
@@ -195,7 +188,6 @@ template: `
             if (!response.ok) throw new Error('Сериал не найден');
             const seriesData = await response.json();
             
-            // --- ИЗМЕНЕНИЕ: Логика разбора URL для VK ---
             if (seriesData.source_type === 'vk_video') {
                 const [channel, query] = seriesData.url.split('|', 2);
                 this.vkChannelUrl = channel || '';
@@ -259,7 +251,6 @@ template: `
                 qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
             }
             
-            // --- ИЗМЕНЕНИЕ: Собираем URL и готовим payload ---
             const payload = { ...this.editableSeries };
             payload.season = this.isSeasonless ? '' : this.editableSeries.season;
             payload.quality = qualityString;
@@ -267,7 +258,6 @@ template: `
             if (this.editableSeries.source_type === 'vk_video') {
                 payload.url = this.reconstructedUrl;
             }
-            // --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             const response = await fetch(`/api/series/${this.seriesId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             if (response.ok) { this.$emit('show-toast', 'Изменения сохранены', 'success'); this.$emit('series-updated'); } 

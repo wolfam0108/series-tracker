@@ -13,76 +13,60 @@ class SmartCollector:
     def _get_best_quality_version(self, items: List[Dict[str, Any]], quality_priority: List[int]) -> Dict[str, Any]:
         """
         Из списка дубликатов одного и того же эпизода/компиляции выбирает лучший.
-        Логика выбора:
-        1. По пользовательскому приоритету разрешений.
-        2. Если приоритет не задан, по максимальному разрешению.
-        3. Если разрешения равны, по самой новой дате публикации.
         """
         if not items:
             return None
         if len(items) == 1:
             return items[0]
 
-        # Сортировка по качеству
         def sort_key(item):
-            resolution = item.get('source_data', {}).get('resolution') or 0
+            # --- ИЗМЕНЕНИЕ: Данные теперь в другом формате ---
+            resolution = item.get('resolution') or 0
             
-            # Приоритет №1: Пользовательский порядок
             if quality_priority:
                 try:
-                    # Чем ниже индекс в списке приоритетов, тем лучше (индекс 0 - лучший)
                     priority_index = quality_priority.index(resolution)
                 except ValueError:
-                    # Если разрешения нет в списке, отправляем его в конец
                     priority_index = float('inf')
                 return priority_index
             
-            # Приоритет №2: Максимальное разрешение (сортируем по убыванию, поэтому -resolution)
             return -resolution
 
-        # Сначала сортируем по качеству
         sorted_by_quality = sorted(items, key=sort_key)
-        
-        # Отбираем всех кандидатов с наилучшим качеством
         best_quality_value = sort_key(sorted_by_quality[0])
         top_candidates = [item for item in sorted_by_quality if sort_key(item) == best_quality_value]
 
-        # Если после фильтрации по качеству остался один кандидат, возвращаем его
         if len(top_candidates) == 1:
             return top_candidates[0]
             
-        # Приоритет №3: Если качества одинаковы, выбираем по самой новой дате
-        return max(top_candidates, key=lambda x: x.get('source_data', {}).get('publication_date'))
+        return max(top_candidates, key=lambda x: x.get('publication_date'))
 
-    def _build_plan_for_season(self, singles: List[Dict[str, Any]], compilations: List[Dict[str, Any]], quality_priority: List[int]) -> Dict[str, Dict[str, Any]]:
+    def _build_plan_for_season(self, singles: List[Dict[str, Any]], compilations: List[Dict[str, Any]], quality_priority: List[int]) -> Dict[str, str]:
         """Содержит основную логику построения плана для ОДНОГО сезона."""
         
-        statuses = {}
+        plan_statuses = {}
 
-        # --- ИЗМЕНЕНИЕ: Группируем одиночные серии по номеру эпизода ---
         singles_by_episode = {}
         for s in singles:
-            ep_num = s['result']['extracted']['episode']
+            ep_num = s['episode_start']
             if ep_num not in singles_by_episode:
                 singles_by_episode[ep_num] = []
             singles_by_episode[ep_num].append(s)
 
-        # 1. Создание базового плана из лучших версий одиночных серий
         base_plan_episodes: Dict[int, Dict[str, Any]] = {}
         for ep_num, items in singles_by_episode.items():
             best_version = self._get_best_quality_version(items, quality_priority)
             base_plan_episodes[ep_num] = best_version
-            # Помечаем остальные версии как избыточные
             for item in items:
                 if item != best_version:
-                    statuses[item['source_data']['url']] = {'status': 'redundant', 'reason': 'Найдена версия с лучшим качеством'}
+                    plan_statuses[item['unique_id']] = 'redundant'
 
         all_ep_numbers: Set[int] = set(base_plan_episodes.keys())
         for c in compilations:
-            all_ep_numbers.update(range(c['result']['extracted']['start'], c['result']['extracted']['end'] + 1))
+            all_ep_numbers.update(range(c['episode_start'], c['episode_end'] + 1))
 
         if not all_ep_numbers:
-            return statuses
+            return plan_statuses
 
         min_episode = min(all_ep_numbers)
         max_episode = max(all_ep_numbers)
@@ -91,7 +75,6 @@ class SmartCollector:
         covered_eps = set(base_plan_episodes.keys())
         gaps = sorted(list(full_episode_range - covered_eps))
         
-        # 2. Заполнение пробелов компиляциями
         plan_compilations = []
         processed_gaps: Set[int] = set()
         
@@ -99,7 +82,7 @@ class SmartCollector:
             if gap_ep in processed_gaps:
                 continue
 
-            suitable_compilations = [c for c in compilations if c['result']['extracted']['start'] <= gap_ep <= c['result']['extracted']['end']]
+            suitable_compilations = [c for c in compilations if c['episode_start'] <= gap_ep <= c['episode_end']]
             if not suitable_compilations:
                 continue
 
@@ -108,7 +91,7 @@ class SmartCollector:
             min_range_size = float('inf')
 
             for comp in suitable_compilations:
-                start, end = comp['result']['extracted']['start'], comp['result']['extracted']['end']
+                start, end = comp['episode_start'], comp['episode_end']
                 comp_range = set(range(start, end + 1))
                 cost = len(comp_range.intersection(covered_eps))
                 range_size = end - start + 1
@@ -120,38 +103,49 @@ class SmartCollector:
             
             if best_compilation:
                 plan_compilations.append(best_compilation)
-                start, end = best_compilation['result']['extracted']['start'], best_compilation['result']['extracted']['end']
+                start, end = best_compilation['episode_start'], best_compilation['episode_end']
                 newly_covered = set(range(start, end + 1))
                 processed_gaps.update(newly_covered)
 
-        # 3. Финальная дедупликация и присвоение статусов
         final_plan_items = []
         final_covered_eps = set()
 
         for comp in plan_compilations:
             final_plan_items.append(comp)
-            statuses[comp['source_data']['url']] = {'status': 'in_plan_compilation'}
-            start, end = comp['result']['extracted']['start'], comp['result']['extracted']['end']
+            plan_statuses[comp['unique_id']] = 'in_plan_compilation'
+            start, end = comp['episode_start'], comp['episode_end']
             final_covered_eps.update(range(start, end + 1))
 
         for ep_num, single_item in base_plan_episodes.items():
             if ep_num in final_covered_eps:
-                statuses[single_item['source_data']['url']] = {'status': 'replaced', 'reason': f'Заменено компиляцией'}
+                plan_statuses[single_item['unique_id']] = 'replaced'
             else:
                 final_plan_items.append(single_item)
-                statuses[single_item['source_data']['url']] = {'status': 'in_plan_single'}
+                plan_statuses[single_item['unique_id']] = 'in_plan_single'
 
         for comp in compilations:
             if comp not in final_plan_items:
-                 statuses[comp['source_data']['url']] = {'status': 'redundant', 'reason': 'Выбрана более эффективная компиляция'}
+                 if comp['unique_id'] not in plan_statuses:
+                    plan_statuses[comp['unique_id']] = 'redundant'
         
-        return statuses
+        return plan_statuses
 
+    # --- ИЗМЕНЕНИЕ: Вся логика метода collect переписана ---
+    def collect(self, series_id: int):
+        self.logger.info("smart_collector", f"Запуск планировщика для series_id: {series_id}")
 
-    def collect(self, processed_items: List[Dict[str, Any]], series_data: Dict[str, Any]) -> List[Dict[str, Any]]:
-        self.logger.info("smart_collector", "Запуск НОВОГО сезонно-ориентированного алгоритма с фильтрацией по качеству.")
+        series_data = self.db.get_series(series_id)
+        if not series_data:
+            self.logger.error("smart_collector", f"Не удалось найти сериал с ID {series_id}")
+            return
 
-        # --- ИЗМЕНЕНИЕ: Загружаем приоритет качества из данных сериала ---
+        # 1. Получаем всех кандидатов из БД
+        candidate_items = self.db.get_media_items_by_plan_status(series_id, 'candidate')
+        if not candidate_items:
+            self.logger.info("smart_collector", f"Для series_id {series_id} не найдено новых кандидатов для планирования.")
+            return
+        
+        # 2. Получаем настройки приоритета
         quality_priority = []
         try:
             if series_data.get('vk_quality_priority'):
@@ -161,39 +155,33 @@ class SmartCollector:
         
         self.logger.info("smart_collector", f"Используемый приоритет качества: {quality_priority or 'По убыванию'}")
 
-        # Шаг 1: Группировка всех элементов по сезонам
+        # 3. Группируем кандидатов по сезонам
         seasons: Dict[int, Dict[str, List]] = {}
-        
-        for item in processed_items:
-            # --- ИЗМЕНЕНИЕ: Пропускаем видео без разрешения ---
-            if not item.get('result') or item['result'].get('error') or not item.get('source_data', {}).get('resolution'):
-                continue
-
-            extracted = item['result'].get('extracted', {})
-            season_num = extracted.get('season', 1)
+        for item in candidate_items:
+            season_num = item.get('season', 1)
 
             if season_num not in seasons:
                 seasons[season_num] = {'singles': [], 'compilations': []}
 
-            if extracted.get('episode') is not None:
-                seasons[season_num]['singles'].append(item)
-            elif extracted.get('start') is not None and extracted.get('end') is not None:
+            # Проверяем, является ли элемент компиляцией
+            if item.get('episode_end') and item['episode_end'] > item['episode_start']:
                 seasons[season_num]['compilations'].append(item)
+            else:
+                seasons[season_num]['singles'].append(item)
 
-        # Шаг 2: Независимая обработка каждого сезона
-        final_statuses = {}
+        # 4. Обрабатываем каждый сезон и собираем итоговые статусы плана
+        final_plan_statuses: Dict[str, str] = {}
         for season_num, season_data in seasons.items():
             self.logger.debug(f"smart_collector: Обработка сезона {season_num} ({len(season_data['singles'])} одиночных, {len(season_data['compilations'])} компиляций)")
             season_statuses = self._build_plan_for_season(season_data['singles'], season_data['compilations'], quality_priority)
-            final_statuses.update(season_statuses)
+            final_plan_statuses.update(season_statuses)
 
-        # Шаг 3: Сборка итогового результата
-        result_with_statuses = []
-        for item in processed_items:
-            item_with_status = item.copy()
-            status_info = final_statuses.get(item['source_data']['url'], {'status': 'discarded'})
-            item_with_status.update(status_info)
-            result_with_statuses.append(item_with_status)
-
-        self.logger.info(f"smart_collector: План построен для {len(seasons)} сезонов.")
-        return result_with_statuses
+        # 5. Устанавливаем статус 'discarded' для всех кандидатов, которые не попали в план
+        for item in candidate_items:
+            if item['unique_id'] not in final_plan_statuses:
+                final_plan_statuses[item['unique_id']] = 'discarded'
+        
+        # 6. Обновляем статусы в БД
+        if final_plan_statuses:
+            self.db.update_media_item_plan_statuses(final_plan_statuses)
+            self.logger.info(f"smart_collector: План построен для {len(seasons)} сезонов. Обновлено {len(final_plan_statuses)} записей в БД.")

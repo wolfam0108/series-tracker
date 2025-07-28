@@ -21,17 +21,37 @@ class Series(Base):
     save_path = Column(Text, nullable=False)
     season = Column(Text, nullable=True) 
     quality = Column(Text)
+    # Поле state остается для хранения простого агрегированного статуса для UI
     state = Column(Text, default='waiting') 
     last_scan_time = Column(DateTime)
     auto_scan_enabled = Column(Boolean, default=False, nullable=False)
-    active_status = Column(Text, default='{}')
     quality_override = Column(Text, nullable=True)
     resolution_override = Column(Text, nullable=True)
     source_type = Column(Text, default='torrent', nullable=False)
     parser_profile_id = Column(Integer, ForeignKey('parser_profiles.id'), nullable=True)
     ignored_seasons = Column(Text, default='[]')
-    vk_search_mode = Column(Text, default='search', nullable=False) # 'search' или 'get_all'
-    vk_quality_priority = Column(Text, nullable=True) # JSON-массив с приоритетом разрешений, e.g., "[1080, 720]"
+    vk_search_mode = Column(Text, default='search', nullable=False)
+    vk_quality_priority = Column(Text, nullable=True)
+    
+    statuses = relationship("SeriesStatus", back_populates="series", uselist=False, cascade="all, delete-orphan")
+
+class SeriesStatus(Base):
+    __tablename__ = 'series_statuses'
+    series_id = Column(Integer, ForeignKey('series.id'), primary_key=True)
+    
+    is_waiting = Column(Boolean, default=True, nullable=False)
+    is_scanning = Column(Boolean, default=False, nullable=False)
+    is_metadata = Column(Boolean, default=False, nullable=False)
+    is_renaming = Column(Boolean, default=False, nullable=False)
+    is_checking = Column(Boolean, default=False, nullable=False)
+    is_activating = Column(Boolean, default=False, nullable=False)
+    is_downloading = Column(Boolean, default=False, nullable=False)
+    is_slicing = Column(Boolean, default=False, nullable=False)
+    is_ready = Column(Boolean, default=False, nullable=False)
+    is_error = Column(Boolean, default=False, nullable=False)
+    is_viewing = Column(DateTime, nullable=True) 
+    
+    series = relationship("Series", back_populates="statuses")
 
 class RenamingPattern(Base):
     __tablename__ = 'renaming_patterns'
@@ -171,7 +191,8 @@ class MediaItem(Base):
     episode_start = Column(Integer, nullable=False)
     episode_end = Column(Integer, nullable=True) 
     
-    status = Column(Text, default='pending', nullable=False) 
+    plan_status = Column(Text, default='candidate', nullable=False) # Статус от SmartCollector
+    status = Column(Text, default='pending', nullable=False) # Статус выполнения от Агентов
     is_ignored_by_user = Column(Boolean, default=False, nullable=False)
 
     source_url = Column(Text, nullable=False)
@@ -191,15 +212,24 @@ class MediaItem(Base):
 class DownloadTask(Base):
     __tablename__ = 'download_tasks'
     id = Column(Integer, primary_key=True)
-    unique_id = Column(Text, nullable=False, index=True) # ID из MediaItem
+    task_key = Column(Text, nullable=False, index=True) # Хранит unique_id для VK или хеш для торрента
     series_id = Column(Integer, nullable=False)
-    video_url = Column(Text, nullable=False)
-    save_path = Column(Text, nullable=False)
-    status = Column(Text, default='pending', nullable=False) # pending, downloading, completed, error
+    
+    # Поля для VK-задач
+    video_url = Column(Text, nullable=True)
+    save_path = Column(Text, nullable=True)
+    
+    status = Column(Text, default='pending', nullable=False) # pending, downloading, completed, error | qBit-статус для торрента
     error_message = Column(Text)
     attempts = Column(Integer, default=0)
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
     updated_at = Column(DateTime, default=lambda: datetime.now(timezone.utc), onupdate=lambda: datetime.now(timezone.utc))
+
+    # Новые универсальные поля
+    task_type = Column(Text, default='vk_video', nullable=False) # 'vk_video' или 'torrent'
+    progress = Column(Integer, default=0)  # Хранит прогресс в процентах (0-100)
+    dlspeed = Column(Integer, default=0)   # Скорость загрузки в байтах/с
+    eta = Column(Integer, default=0)       # Оставшееся время в секундах
 
 class SlicingTask(Base):
     __tablename__ = 'slicing_tasks'

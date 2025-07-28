@@ -1,3 +1,5 @@
+# Файл: series.py
+
 import hashlib
 import os
 import json
@@ -11,6 +13,7 @@ from file_cache import delete_from_cache
 from rule_engine import RuleEngine
 from scrapers.vk_scraper import VKScraper
 from smart_collector import SmartCollector
+from filename_formatter import FilenameFormatter
 
 
 series_bp = Blueprint('series_api', __name__, url_prefix='/api/series')
@@ -18,13 +21,6 @@ series_bp = Blueprint('series_api', __name__, url_prefix='/api/series')
 def generate_torrent_id(link, date_time):
     unique_string = f"{link}{date_time or ''}"
     return hashlib.md5(unique_string.encode()).hexdigest()[:16]
-
-def _broadcast_series_update(series_id, event_type):
-    series_data = app.db.get_series(series_id)
-    if series_data:
-        if series_data.get('last_scan_time'):
-            series_data['last_scan_time'] = series_data['last_scan_time'].isoformat()
-        app.sse_broadcaster.broadcast(event_type, series_data)
 
 @series_bp.route('', methods=['GET'])
 def get_series():
@@ -64,63 +60,96 @@ def get_series_details(series_id):
 @series_bp.route('/<int:series_id>/composition', methods=['GET'])
 def get_series_composition(series_id):
     """
-    Эндпоинт для построения и получения "умного" плана загрузки для VK-сериалов,
-    обогащенного локальным статусом каждого файла.
+    Универсальный эндпоинт для получения композиции. Принимает параметр ?refresh=true
+    для запуска полного обновления, а также выполняет ручную синхронизацию файлов.
     """
-    series = app.db.get_series(series_id)
-    if not series:
-        return jsonify({"error": "Сериал не найден"}), 404
-
-    if series.get('source_type') != 'vk_video':
-        return jsonify([]), 200
-
     try:
-        channel_url, query = series['url'].split('|')
-        scraper = VKScraper(app.db, app.logger)
-        scraped_videos = scraper.scrape_video_data(channel_url, query)
-
-        engine = RuleEngine(app.db, app.logger)
-        profile_id = series.get('parser_profile_id')
-        if not profile_id:
-            return jsonify({"error": "Для сериала не назначен профиль правил парсера."}), 400
-        processed_videos = engine.process_videos(profile_id, scraped_videos)
-
-        # Передаем app.db для доступа к данным
-        collector = SmartCollector(app.logger, app.db)
-        # Передаем весь объект series, чтобы коллектор мог узнать приоритет качества
-        download_plan = collector.collect(processed_videos, series)
+        series = app.db.get_series(series_id)
+        if not series:
+            return jsonify({"error": "Сериал не найден"}), 404
+        if series.get('source_type') != 'vk_video':
+            return jsonify([]), 200
         
-        for item in download_plan:
-            pub_date = item.get('source_data', {}).get('publication_date')
-            url = item.get('source_data', {}).get('url')
-            
-            # Статус по умолчанию
-            item['local_status'] = 'pending'
-            # ---> НАЧАЛО ИСПРАВЛЕНИЯ <---
-            item['slicing_status'] = 'none'
-            item['is_ignored_by_user'] = False
-            # ---> КОНЕЦ ИСПРАВЛЕНИЯ <---
+        # Вызываем публичный метод агента для немедленной синхронизации файлов ("ручной" запуск).
+        app.scanner_agent.sync_single_series_filesystem(series_id)
+        
+        force_refresh = request.args.get('refresh', 'false').lower() == 'true'
 
+        if force_refresh:
+            app.logger.info("series_api", f"Запрошено полное обновление композиции для series_id: {series_id}")
+            # Этап 1: Сбор и сохранение кандидатов
+            channel_url, query = series['url'].split('|')
+            search_mode = series.get('vk_search_mode', 'search')
+            scraper = VKScraper(app.db, app.logger)
+            scraped_videos = scraper.scrape_video_data(channel_url, query, search_mode)
 
-            if pub_date and url:
+            engine = RuleEngine(app.db, app.logger)
+            profile_id = series.get('parser_profile_id')
+            if not profile_id:
+                raise ValueError("Для сериала не назначен профиль правил парсера.")
+            processed_videos = engine.process_videos(profile_id, scraped_videos)
+
+            candidates_to_save = []
+            for video_data in processed_videos:
+                extracted = video_data.get('result', {}).get('extracted', {})
+                if extracted.get('episode') is None and extracted.get('start') is None: continue
+                pub_date = video_data.get('source_data', {}).get('publication_date')
+                url = video_data.get('source_data', {}).get('url')
+                if not pub_date or not url: continue
                 unique_id = generate_media_item_id(url, pub_date, series_id)
-                item['unique_id'] = unique_id
-                
-                db_item = app.db.get_media_item_by_uid(unique_id)
-                if db_item:
-                    # Проверяем, скачан ли файл
-                    if db_item.get('final_filename') and os.path.exists(db_item['final_filename']):
-                        item['local_status'] = 'completed'
-                    
-                    item['slicing_status'] = db_item.get('slicing_status', 'none')
-                    item['is_ignored_by_user'] = db_item.get('is_ignored_by_user', False)
-                    item['season'] = db_item.get('season')
-                    item['episode_start'] = db_item.get('episode_start')
-                
-                item['source_data']['publication_date'] = pub_date.isoformat()
+                db_item = {
+                    "series_id": series_id, "unique_id": unique_id,
+                    "source_url": url, "publication_date": pub_date,
+                    "resolution": video_data.get('source_data', {}).get('resolution'),
+                }
+                if 'season' in extracted: db_item['season'] = extracted['season']
+                if 'episode' in extracted:
+                    db_item["episode_start"] = extracted['episode']
+                elif 'start' in extracted:
+                    db_item["episode_start"] = extracted['start']
+                    if 'end' in extracted: db_item["episode_end"] = extracted['end']
+                if 'voiceover' in extracted: db_item['voiceover_tag'] = extracted['voiceover']
+                candidates_to_save.append(db_item)
+
+            if candidates_to_save:
+                app.db.add_or_update_media_items(candidates_to_save)
+
+            # Этап 2: Запуск SmartCollector для обновления plan_status в БД
+            collector = SmartCollector(app.logger, app.db)
+            collector.collect(series_id)
+            
+            # После полного обновления сразу синхронизируем статусы
+            app.status_manager.sync_vk_statuses(series_id)
+
+        # Этап 4: Возвращаем актуальные данные из БД
+        db_items = app.db.get_media_items_for_series(series_id)
+        reconstructed_plan = []
+        for item in db_items:
+            extracted_data = {'season': item.get('season'), 'voiceover': item.get('voiceover_tag')}
+            if item.get('episode_end'):
+                extracted_data['start'] = item.get('episode_start')
+                extracted_data['end'] = item.get('episode_end')
+            else:
+                extracted_data['episode'] = item.get('episode_start')
+
+            reconstructed_item = {
+                'source_data': {
+                    'title': item.get('final_filename') or item.get('source_url'),
+                    'url': item.get('source_url'),
+                    'publication_date': item.get('publication_date').isoformat() if item.get('publication_date') else None,
+                    'resolution': item.get('resolution')
+                },
+                'result': {'extracted': extracted_data},
+                'plan_status': item.get('plan_status'),
+                'status': item.get('status'),
+                'unique_id': item.get('unique_id'),
+                'slicing_status': item.get('slicing_status', 'none'),
+                'is_ignored_by_user': item.get('is_ignored_by_user', False),
+            }
+            reconstructed_plan.append(reconstructed_item)
         
-        return jsonify(download_plan)
-        
+        return jsonify(reconstructed_plan)
+
     except Exception as e:
         app.logger.error("series_api", f"Ошибка при построении композиции для series_id {series_id}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
@@ -170,15 +199,27 @@ def delete_series(series_id):
 @series_bp.route('/<int:series_id>/state', methods=['POST'])
 def set_series_state_route(series_id):
     data = request.get_json()
-    app.db.set_series_state(series_id, data.get('state'))
-    _broadcast_series_update(series_id, 'series_updated')
+    state_list = data.get('state', [])
+    
+    is_viewing = 'viewing' in state_list
+    # Напрямую вызываем метод БД
+    app.db.set_viewing_status(series_id, is_viewing)
+    # И просим StatusManager просто обновить UI
+    app.status_manager._update_and_broadcast(series_id)
+    
+    return jsonify({"success": True})
+
+@series_bp.route('/<int:series_id>/viewing_heartbeat', methods=['POST'])
+def viewing_heartbeat(series_id):
+    """Обновляет временную метку, подтверждая, что окно статуса все еще открыто."""
+    app.db.set_viewing_status(series_id, True) # Просто обновляем время на текущее
     return jsonify({"success": True})
 
 @series_bp.route('/<int:series_id>/scan', methods=['POST'])
 def scan_series_route(series_id):
     debug_force_replace = app.db.get_setting('debug_force_replace', 'false') == 'true'
     
-    result = perform_series_scan(series_id, debug_force_replace)
+    result = perform_series_scan(series_id, app.status_manager, debug_force_replace)
     
     if result["success"]:
         return jsonify(result)
@@ -267,12 +308,9 @@ def update_ignored_seasons(series_id):
     
 @series_bp.route('/<int:series_id>/sliced-files', methods=['GET'])
 def get_sliced_files_for_series(series_id):
-    """Возвращает все нарезанные файлы для указанного сериала."""
     try:
         items = app.db.get_all_sliced_files_for_series(series_id)
         
-        # ---> НАЧАЛО ИСПРАВЛЕНИЯ <---
-        # Кэшируем родительские элементы, чтобы не делать лишних запросов к БД в цикле
         media_items_cache = {}
         for item in items:
             uid = item.get('source_media_item_unique_id')
@@ -281,13 +319,11 @@ def get_sliced_files_for_series(series_id):
             
             parent_item = media_items_cache.get(uid)
             if parent_item:
-                # Добавляем в ответ имя родительского файла и сезон
                 item['parent_filename'] = parent_item.get('final_filename', 'Источник не найден')
                 item['season'] = parent_item.get('season', 1)
             else:
                 item['parent_filename'] = 'Источник не найден'
                 item['season'] = 1
-        # ---> КОНЕЦ ИСПРАВЛЕНИЯ <---
         
         return jsonify(items)
     except Exception as e:
@@ -296,7 +332,6 @@ def get_sliced_files_for_series(series_id):
     
 @series_bp.route('/<int:series_id>/vk-quality-priority', methods=['PUT'])
 def set_vk_quality_priority(series_id):
-    """Сохраняет пользовательский порядок приоритета качеств для VK-сериала."""
     data = request.get_json()
     priority_list = data.get('priority')
     
@@ -304,9 +339,25 @@ def set_vk_quality_priority(series_id):
         return jsonify({"success": False, "error": "Приоритет должен быть списком"}), 400
 
     try:
-        # Сохраняем список в виде JSON-строки
         app.db.update_series(series_id, {'vk_quality_priority': json.dumps(priority_list)})
         return jsonify({"success": True, "message": "Приоритет качества сохранен."})
     except Exception as e:
         app.logger.error("series_api", f"Ошибка обновления vk_quality_priority для series {series_id}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
+
+@series_bp.route('/active_torrents', methods=['GET'])
+def get_active_torrents_monitoring():
+    """Возвращает список всех активных торрентов для мониторинга в UI."""
+    try:
+        tasks = app.db.get_all_active_torrent_tasks()
+        return jsonify(tasks)
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка получения задач мониторинга торрентов: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+def _broadcast_series_update(series_id, event_name):
+    series_data = app.db.get_series(series_id)
+    if series_data:
+        if series_data.get('last_scan_time'):
+            series_data['last_scan_time'] = series_data['last_scan_time'].isoformat()
+        app.sse_broadcaster.broadcast(event_name, series_data)

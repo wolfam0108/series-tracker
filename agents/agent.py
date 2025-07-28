@@ -9,18 +9,18 @@ from renamer import Renamer
 from auth import AuthManager
 from sse import ServerSentEvent
 from scanner import perform_series_scan
-# --- ИЗМЕНЕНИЕ: Добавлены импорты для работы со временем ---
 from datetime import datetime, timezone
-# --- КОНЕЦ ИЗМЕНЕНИЯ ---
+from status_manager import StatusManager
 
 class Agent(threading.Thread):
-    def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent):
+    def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent, status_manager: StatusManager):
         super().__init__(daemon=True)
         self.name = "StatefulAgent"
         self.app = app
         self.logger = logger
         self.db = db
         self.broadcaster = broadcaster
+        self.status_manager = status_manager
         self.processing_torrents = {}
         self.lock = threading.RLock()
         self.shutdown_flag = threading.Event()
@@ -47,15 +47,12 @@ class Agent(threading.Thread):
                 self.logger.debug("agent", f"Трансляция обновления очереди: {len(queue_info)} задач.")
 
     def add_task(self, torrent_hash: str, series_id: int, torrent_id: str, old_torrent_id: str, link_type: str):
-        with self.lock:
+        with self.lock, self.app.app_context():
             if torrent_hash in self.processing_torrents:
                 self.logger.warning("agent", f"Задача для хеша {torrent_hash} уже обрабатывается.")
                 return
 
-            if link_type == 'file':
-                initial_stage = 'awaiting_pause_before_rename'
-            else: 
-                initial_stage = 'awaiting_metadata'
+            initial_stage = 'awaiting_pause_before_rename' if link_type == 'file' else 'awaiting_metadata'
 
             db_task_data = {
                 'torrent_hash': torrent_hash,
@@ -71,12 +68,14 @@ class Agent(threading.Thread):
                 'last_logged_str': '',
                 'recheck_initiated': False
             }
+            # Шаг 1: Обновляем таблицу задач
             self.db.add_or_update_agent_task(db_task_data)
             
             self.logger.info("agent", f"Новая задача добавлена для хеша {torrent_hash[:8]} на стадии '{initial_stage}'.")
+            
+            # Шаг 2: Просим StatusManager синхронизировать статусы
+            self.status_manager.sync_agent_statuses(series_id)
             self._broadcast_queue_update()
-            with self.app.app_context():
-                self._update_series_state(series_id)
 
     def get_queue_info(self):
         with self.lock:
@@ -86,53 +85,27 @@ class Agent(threading.Thread):
         return [{'hash': h, **d} for h, d in self.processing_torrents.items()]
 
     def clear_queue(self):
-        with self.lock:
+        with self.lock, self.app.app_context():
             self.processing_torrents.clear()
             all_tasks = self.db.get_all_agent_tasks()
+            series_ids_to_update = {t['series_id'] for t in all_tasks}
+
             for task in all_tasks:
                 self.db.remove_agent_task(task['torrent_hash'])
+            
+            for series_id in series_ids_to_update:
+                self.status_manager.sync_agent_statuses(series_id)
+
             self.logger.info("agent", "Очередь обработки агента и таблица в БД были очищены.")
             self._broadcast_queue_update()
-
-    def _update_series_state(self, series_id):
-        active_tasks = {}
-        with self.lock:
-            for h, t in self.processing_torrents.items():
-                if t['series_id'] == series_id:
-                    active_tasks[h] = t['stage']
-
-        with self.app.app_context():
-            if active_tasks:
-                def map_stage_for_ui(stage):
-                    if stage in ['awaiting_metadata', 'polling_for_size', 'awaiting_pause_before_rename']:
-                        return 'metadata'
-                    if stage == 'rechecking':
-                        return 'checking'
-                    return stage
-                final_states = {h: map_stage_for_ui(s) for h, s in active_tasks.items()}
-                self.db.set_series_state(series_id, final_states)
-            else:
-                series_data = self.db.get_series(series_id)
-                if not series_data: return
-                current_series_state_raw = series_data['state']
-                try:
-                    if isinstance(json.loads(current_series_state_raw), dict):
-                        self.db.set_series_state(series_id, 'waiting')
-                except (json.JSONDecodeError, TypeError): pass
-            
-            updated_series_data = self.db.get_series(series_id)
-            if updated_series_data:
-                if updated_series_data.get('last_scan_time'):
-                    updated_series_data['last_scan_time'] = updated_series_data['last_scan_time'].isoformat()
-                self.broadcaster.broadcast('series_updated', updated_series_data)
 
     def _process_task_update(self, torrent_hash, qb_client, renamer):
         with self.lock:
             task = self.processing_torrents.get(torrent_hash)
             if not task: return
             
-            current_info = task['last_info']
-            stage = task['stage']
+            current_info = task.get('last_info', {})
+            stage = task.get('stage')
             last_logged_str = task.get('last_logged_str', '')
 
         current_log_str = f"[{torrent_hash[:8]}] Стадия: {stage}, Статус qBit: {current_info.get('state')}"
@@ -209,45 +182,40 @@ class Agent(threading.Thread):
                     qb_client.resume_torrents([torrent_hash])
                     task_completed = True
 
-            with self.lock:
+            with self.lock, self.app.app_context():
                 current_task_in_memory = self.processing_torrents.get(torrent_hash)
-                if current_task_in_memory:
-                    if next_stage:
-                        current_task_in_memory['stage'] = next_stage
-                        db_task_data = {
-                            'torrent_hash': torrent_hash,
-                            'series_id': current_task_in_memory['series_id'],
-                            'torrent_id': current_task_in_memory['torrent_id'],
-                            'old_torrent_id': current_task_in_memory['old_torrent_id'],
-                            'stage': current_task_in_memory['stage']
-                        }
-                        self.db.add_or_update_agent_task(db_task_data)
-                        self._broadcast_queue_update()
-                    if task_completed:
-                        # --- ИЗМЕНЕНИЕ: Обновляем время сканирования при завершении задачи ---
-                        self.db.update_series(task['series_id'], {'last_scan_time': datetime.now(timezone.utc)})
-                        self.logger.info("agent", f"Обновлено время сканирования для series_id: {task['series_id']}")
-                        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
-                        del self.processing_torrents[torrent_hash]
-                        self.db.remove_agent_task(torrent_hash)
-                        self._broadcast_queue_update()
+                if not current_task_in_memory: return
 
-            if next_stage or task_completed:
-                self._update_series_state(task['series_id'])
-            
-            if task_completed:
-                torrent_entry = self.db.get_torrent_by_hash(torrent_hash)
-                if torrent_entry: self.db.update_torrent_by_id(torrent_entry['id'], {'is_active': True})
+                if next_stage:
+                    current_task_in_memory['stage'] = next_stage
+                    db_task_data = {k: v for k, v in current_task_in_memory.items() if k in ['torrent_hash', 'series_id', 'torrent_id', 'old_torrent_id', 'stage']}
+                    
+                    self.db.add_or_update_agent_task(db_task_data)
+                    self.status_manager.sync_agent_statuses(task['series_id'])
+                    self._broadcast_queue_update()
+
+                if task_completed:
+                    del self.processing_torrents[torrent_hash]
+                    self.db.remove_agent_task(torrent_hash)
+                    
+                    self.status_manager.sync_agent_statuses(task['series_id'])
+                    self._broadcast_queue_update()
+                    
+                    # Обновляем связанные записи уже после завершения основной логики
+                    self.db.update_series(task['series_id'], {'last_scan_time': datetime.now(timezone.utc)})
+                    torrent_entry = self.db.get_torrent_by_hash(torrent_hash)
+                    if torrent_entry: self.db.update_torrent_by_id(torrent_entry['id'], {'is_active': True})
 
         except Exception as e:
             self.logger.error("agent", f"Ошибка при обработке задачи {torrent_hash}: {e}", exc_info=True)
-            self.db.set_series_state(task['series_id'], 'error')
-            with self.lock:
+            with self.lock, self.app.app_context():
                 if torrent_hash in self.processing_torrents:
                     del self.processing_torrents[torrent_hash]
                     self.db.remove_agent_task(torrent_hash)
-                    self._broadcast_queue_update()
-            self._update_series_state(task['series_id'])
+                
+                self.status_manager.set_status(task['series_id'], 'error', True)
+                self.status_manager.sync_agent_statuses(task['series_id'])
+                self._broadcast_queue_update()
 
     def _recover_agent_tasks_from_db(self, qb_client: QBittorrentClient):
         self.logger.info("agent", "Запуск восстановления незавершенных ЗАДАЧ АГЕНТА из БД.")
@@ -272,8 +240,10 @@ class Agent(threading.Thread):
         current_infos = qb_client.get_torrents_info(hashes_to_check)
         info_map = {info['hash']: info for info in current_infos} if current_infos else {}
 
+        series_ids_to_sync = set()
         for task_data in restored_tasks:
             h = task_data['torrent_hash']
+            series_ids_to_sync.add(task_data['series_id'])
             if h not in info_map:
                 self.logger.warning("agent", f"Задача агента для хеша {h} найдена в БД, но торрент отсутствует в qBittorrent. Удаление устаревшей задачи.")
                 with self.lock:
@@ -284,7 +254,11 @@ class Agent(threading.Thread):
             with self.lock:
                 if self.processing_torrents.get(h): self.processing_torrents[h]['last_info'] = info_map[h]
         
-        self.logger.info("agent", "Восстановление задач агента завершено.")
+        self.logger.info("agent", "Восстановление задач агента завершено. Синхронизация статусов...")
+        with self.app.app_context():
+            for series_id in series_ids_to_sync:
+                self.status_manager.sync_agent_statuses(series_id)
+
         self._broadcast_queue_update()
 
     def _recover_scan_tasks_from_db(self):
@@ -299,11 +273,13 @@ class Agent(threading.Thread):
         for task in incomplete_scans:
             try:
                 self.logger.info("agent", f"Восстановление ScanTask ID: {task['id']} для Series ID: {task['series_id']}")
-                perform_series_scan(
-                    series_id=task['series_id'],
-                    recovery_mode=True,
-                    existing_task=task
-                )
+                with self.app.app_context():
+                    perform_series_scan(
+                        series_id=task['series_id'],
+                        status_manager=self.status_manager,
+                        recovery_mode=True,
+                        existing_task=task
+                    )
             except Exception as e:
                 self.logger.error("agent", f"Критическая ошибка при восстановлении ScanTask ID {task['id']}: {e}", exc_info=True)
 
@@ -328,19 +304,24 @@ class Agent(threading.Thread):
         self.logger.info("agent", "Переход в штатный режим Long-Polling.")
         while not self.shutdown_flag.is_set():
             with self.app.app_context():
-                if not self.processing_torrents:
-                    pass
-                else:
+                # Логика выполняется, только если в очереди есть задачи.
+                if self.processing_torrents:
+                    # Это блокирующий сетевой запрос, который ждет обновлений от qBittorrent.
+                    # Он сам по себе является основной "паузой" в цикле.
                     updates = qb_client.sync_main_data(rid)
 
-                    if self.shutdown_flag.is_set(): break
+                    # Проверяем флаг сразу после возврата из долгого запроса
+                    if self.shutdown_flag.is_set(): 
+                        break
                     
                     if updates is None:
                         self.logger.warning("agent", "Ошибка или таймаут long-polling, повторная попытка.")
-                        time.sleep(self.RECONNECT_DELAY)
+                        # Вносим паузу только в случае сетевой ошибки, чтобы не спамить запросами.
+                        time.sleep(self.RECONNECT_DELAY) 
                         rid = 0
                         continue
 
+                    # Обработка полученных обновлений
                     rid = updates.get('server_state', {}).get('rid', rid)
                     updated_torrents = updates.get('torrents', {})
                     
@@ -358,10 +339,13 @@ class Agent(threading.Thread):
                                 if self.processing_torrents.get(h): self.processing_torrents[h]['last_info'].update(updated_torrents[h])
                             self._process_task_update(h, qb_client, renamer)
             
+            # Эта строка КЛЮЧЕВАЯ.
+            # Она создает короткую (1 сек) прерываемую паузу между итерациями цикла.
+            # Это предотвращает 100% нагрузку на CPU, если long-polling по какой-то причине начнет
+            # возвращаться мгновенно, и позволяет грациозно завершить работу.
             self.shutdown_flag.wait(1)
 
-        self.logger.info("agent", f"{self.name} был остановлен.")
-
+        self.logger.info(f"{self.name} был остановлен.")
     def shutdown(self):
         self.logger.info("agent", "Получен сигнал на остановку агента.")
         self.shutdown_flag.set()

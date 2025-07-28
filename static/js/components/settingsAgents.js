@@ -139,22 +139,22 @@ const SettingsAgentsTab = {
                     </div>
                     <div class="div-table-body position-relative">
                         <transition-group name="list" tag="div">
-                            <div v-for="status in flatTorrentStatuses" :key="status.hash" class="div-table-row">
-                                <div class="div-table-cell" :title="status.seriesName">{{ status.seriesName }}</div>
-                                <div class="div-table-cell" :title="status.hash" style="word-break: break-all;">{{ status.hash.substring(0, 12) }}...</div>
-                                <div class="div-table-cell" :title="status.state">{{ translateStatus(status.state) }}</div>
+                            <div v-for="task in activeTorrents" :key="task.task_key" class="div-table-row">
+                                <div class="div-table-cell" :title="task.series_name">{{ task.series_name }}</div>
+                                <div class="div-table-cell" :title="task.task_key" style="word-break: break-all;">{{ task.task_key.substring(0, 12) }}...</div>
+                                <div class="div-table-cell" :title="task.status">{{ translateStatus(task.status) }}</div>
                                 <div class="div-table-cell">
                                     <div class="progress" style="height: 20px; width: 100%; font-size: 12px;">
-                                        <div class="progress-bar" role="progressbar" :style="{width: (status.progress * 100) + '%'}" :aria-valuenow="status.progress * 100" aria-valuemin="0" aria-valuemax="100">
-                                            {{ (status.progress * 100).toFixed(1) }}%
+                                        <div class="progress-bar" role="progressbar" :style="{width: task.progress + '%'}" :aria-valuenow="task.progress" aria-valuemin="0" aria-valuemax="100">
+                                            {{ task.progress }}%
                                         </div>
                                     </div>
                                 </div>
-                                <div class="div-table-cell">{{ formatSpeed(status.dlspeed) }}</div>
-                                <div class="div-table-cell">{{ formatEta(status.eta) }}</div>
+                                <div class="div-table-cell">{{ formatSpeed(task.dlspeed) }}</div>
+                                <div class="div-table-cell">{{ formatEta(task.eta) }}</div>
                             </div>
                         </transition-group>
-                         <div v-if="!flatTorrentStatuses.length" class="div-table-row">
+                         <div v-if="!activeTorrents.length" class="div-table-row">
                             <div class="div-table-cell text-center" style="grid-column: 1 / -1;">Нет активных торрентов для мониторинга.</div>
                         </div>
                     </div>
@@ -164,37 +164,26 @@ const SettingsAgentsTab = {
     </div>
   `,
   data() {
-    return {}
-  },
-  computed: {
-    flatTorrentStatuses() {
-        const statuses = [];
-        this.series.forEach(s => {
-            if (s.active_status && typeof s.active_status === 'string' && s.active_status !== '{}') {
-                try {
-                    const activeStatus = JSON.parse(s.active_status);
-                    Object.entries(activeStatus).forEach(([hash, statusData]) => {
-                        statuses.push({
-                            seriesName: s.name,
-                            hash: hash,
-                            ...statusData
-                        });
-                    });
-                } catch (e) {
-                    console.error("Ошибка парсинга active_status для сериала:", s.name, e);
-                }
-            }
-        });
-        return statuses;
+    return {
+      activeTorrents: [],
+      updateInterval: null,
     }
   },
   methods: {
+    async loadActiveTorrents() {
+        try {
+            const response = await fetch('/api/series/active_torrents');
+            if (!response.ok) throw new Error('Ошибка загрузки активных торрентов');
+            this.activeTorrents = await response.json();
+        } catch (error) {
+            console.error(error); // Ошибку покажем в консоли, т.к. нет доступа к show-toast
+        }
+    },
     formatSlicingProgress(task) {
         try {
             const progress = JSON.parse(task.progress_chapters || '{}');
             const total = Object.keys(progress).length;
             if (total === 0) {
-                // Если прогресса еще нет, пытаемся посчитать по главам из media_item (может быть неточно)
                 return '0 / ?';
             }
             const completed = Object.values(progress).filter(s => s === 'completed').length;
@@ -269,5 +258,12 @@ const SettingsAgentsTab = {
         };
         return statuses[state] || state || 'Неизвестно';
     }
+  },
+  mounted() {
+    this.loadActiveTorrents();
+    this.updateInterval = setInterval(this.loadActiveTorrents, 5000); // Обновляем каждые 5 секунд
+  },
+  beforeUnmount() {
+    clearInterval(this.updateInterval);
   }
 };
