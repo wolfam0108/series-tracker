@@ -3,26 +3,49 @@
 /* ==================================================================== */
 
 :root {
-    /* --- Настройки карточек --- */
-    --card-animation-duration: 0.3s;
-    --card-border-radius: 12px;
+    /* --- 1. Основная цветовая палитра (из вашего конструктора) --- */
+    --color-text: #212529;
+    --color-gray-100: #f8f9fa; /* Светло-серый фон (метка) */
+    --color-gray-200: #e9ecef; /* Серая рамка по умолчанию */
+    --color-gray-600: #495057; /* Текст метки */
+    
+    --color-blue: #0d6efd;     /* Акцентный синий (фокус, кнопки) */
+    --color-green-1: #198754;   /* Зеленый для валидации и кнопок */
+    --color-green-2: #20c997;
+    --color-yellow-1: #ffc107;
+    --color-yellow-2: #ffda6a;
+    --color-red-1: #dc3545;     /* Красный для ошибок и кнопок */
+    --color-red-2: #fd7e14;
+    --color-blue-1: #0d6efd;
+    --color-blue-2: #0dcaf0;
+    --color-purple-1: #6f42c1;
+    --color-purple-2: #845ef7;
+
+    /* --- 2. Размеры и радиусы (объединенные) --- */
+    --control-height: 56px;          /* Высота элементов конструктора */
+    --border-radius: 9px;            /* Внешнее скругление конструктора */
+    --inner-border-radius: 7px;      /* Внутреннее скругление конструктора */
+    --border-width: 2px;             /* Толщина рамки конструктора */
+    --card-border-radius: 12px;        /* Скругление для карточек */
+
+    /* --- 3. Тени и эффекты --- */
     --card-shadow: 0 2px 8px rgba(0, 0, 0, 0.1);
     --card-hover-shadow: 0 4px 16px rgba(0, 0, 0, 0.15);
-    
-    /* --- Цвета статусов (убраны, т.к. теперь в card.css) --- */
 
-    /* --- Настройки анимаций --- */
+    /* --- 4. Анимации --- */
+    --card-animation-duration: 0.3s;
     --row-animation-speed: 0.5s;
-
-    /* --- Цвета границ и фонов --- */
-    --border-color: #e9ecef;
-    --border-color-focus: #007bff;
-    --bg-light: #f8f9fa;
+    
+    /* --- 5. Старые переменные (для обратной совместимости) --- */
+    /* Они ссылаются на новые, чтобы старые стили не сломались */
+    --border-color: var(--color-gray-200);
+    --border-color-focus: var(--color-blue);
+    --bg-light: var(--color-gray-100);
     --bg-white: #fff;
-    --text-color: #495057;
+    --text-color: var(--color-gray-600);
     --text-muted: #6c757d;
 
-    /* --- Настройки из примера test_bar.html --- */
+    /* Переменные для анимации полосок на карточках */
     --color-intensity: 0.7;
     --stripe-intensity: 0.3;
 }

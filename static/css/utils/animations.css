@@ -25,14 +25,29 @@
 .badge-fade-enter-active {
     transition: all 0.3s ease-out;
 }
+/* ИЗМЕНЕНИЕ 1: Убираем 'position: absolute' */
 .badge-fade-leave-active {
-    transition: all 0.3s ease-in;
-    position: absolute; 
+    transition: all 0.4s ease-in;
 }
-.badge-fade-enter-from,
-.badge-fade-leave-to {
+
+.badge-fade-move {
+    transition: transform 0.4s ease;
+}
+
+.badge-fade-enter-from {
     opacity: 0;
     transform: scale(0.8);
+}
+/* ИЗМЕНЕНИЕ 2: Добавляем свойства для "схлопывания" */
+.badge-fade-leave-to {
+    opacity: 0;
+    transform: scale(0.6);
+    /* Добавляем обнуление горизонтальных отступов и ширины */
+    padding-left: 0;
+    padding-right: 0;
+    margin-left: 0;
+    margin-right: 0;
+    max-width: 0px;
 }
 
 
@@ -169,4 +184,16 @@
 
 .skeleton-line.long {
     width: 100%;
+}
+/* Анимация плавного появления (fade) */
+.fade-enter-active,
+.fade-leave-active {
+  /* Длительность и тип перехода для появления и исчезновения */
+  transition: opacity 0.8s ease;
+}
+
+.fade-enter-from,
+.fade-leave-to {
+  /* Начальное/конечное состояние - элемент полностью прозрачен */
+  opacity: 0;
 }

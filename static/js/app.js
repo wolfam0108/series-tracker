@@ -433,6 +433,9 @@ const app = createApp({
   }
 });
 
+app.component('ConstructorGroup', ConstructorGroup);
+app.component('ConstructorItemSelect', ConstructorItemSelect);
+
 app.component('draggable', vuedraggable);
 
 app.mount('#app');

@@ -12,7 +12,7 @@ const StatusModal = {
         <div class="modal-dialog modal-xl" :class="{'modal-fullscreen': isFullscreen}">
             <div class="modal-content modern-modal" style="max-height: 90vh; display: flex; flex-direction: column;">
                 <div class="modal-header modern-header">
-                    <h5 class="modal-title" id="statusModalLabel"><i class="bi bi-info-circle me-2"></i>Статус: {{ series.name }}</h5>
+                    <h5 class="modal-title" id="statusModalLabel"><i class="bi bi-info-circle me-2"></i>Статус</h5>
                     
                     <ul class="nav modern-nav-tabs" id="statusTab" role="tablist">
                         <li class="nav-item" role="presentation">

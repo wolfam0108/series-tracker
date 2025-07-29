@@ -881,20 +881,24 @@ class Database:
                     if not unique_id: continue
 
                     if existing_item := existing_items_map.get(unique_id):
-                        # Обновляем существующий элемент
-                        file_path = existing_item.final_filename
-                        if file_path and os.path.exists(file_path):
-                            if existing_item.status != 'completed':
-                                existing_item.status = 'completed'
-                        else:
-                            # Если файла нет, статус может быть обновлен (например, на 'pending')
-                            if 'status' in item_data:
-                                existing_item.status = item_data['status']
+                        # --- НАЧАЛО ИЗМЕНЕНИЯ: Логика обновления существующего элемента ---
+                        
+                        # Принудительно обновляем все распарсенные поля новыми данными
+                        existing_item.season = item_data.get('season')
+                        existing_item.episode_start = item_data.get('episode_start')
+                        existing_item.episode_end = item_data.get('episode_end')
+                        existing_item.publication_date = item_data.get('publication_date')
+                        existing_item.voiceover_tag = item_data.get('voiceover_tag')
+                        existing_item.resolution = item_data.get('resolution')
 
-                        existing_item.publication_date = item_data.get('publication_date', existing_item.publication_date)
+                        # КРИТИЧЕСКИ ВАЖНО: Сбрасываем статус планирования.
+                        # Это заставит SmartCollector пересмотреть этот элемент с новыми данными.
+                        existing_item.plan_status = 'candidate'
+                        
                         items_updated += 1
+                        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
                     else:
-                        # Добавляем новый элемент
+                        # Добавляем новый элемент, если его не было
                         new_item = MediaItem(**item_data)
                         session.add(new_item)
                         items_added += 1
@@ -1319,3 +1323,9 @@ class Database:
         with self.Session() as session:
             items = session.query(MediaItem).filter_by(series_id=series_id, status=status).all()
             return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in items]
+        
+    def update_download_task_progress(self, task_id: int, progress_data: Dict[str, Any]):
+        """Атомарно обновляет все поля прогресса для задачи на загрузку."""
+        with self.Session() as session:
+            session.query(DownloadTask).filter_by(id=task_id).update(progress_data)
+            session.commit()

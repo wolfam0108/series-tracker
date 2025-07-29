@@ -1,51 +1,38 @@
+// static/js/components/settingsAuth.js
 const SettingsAuthTab = {
-  template: `
+template: `
     <div class="settings-tab-content">
-      <form @submit.prevent="saveAuthSettings">
         <div class="modern-fieldset">
             <div class="fieldset-header">
                 <i class="bi bi-download me-2"></i>
                 <span class="fieldset-title">qBittorrent</span>
             </div>
             <div class="fieldset-content">
-                <div class="modern-form-group">
-                    <label for="qbUrl" class="modern-label">URL-адрес</label>
-                    <div class="modern-input-group">
-                        <span class="input-group-text"><i class="bi bi-link-45deg"></i></span>
-                        <input v-model.trim="credentials.qbittorrent.url" 
-                               type="text" 
-                               class="modern-input" 
-                               id="qbUrl" 
-                               placeholder="https://qb.example.com"
-                               autocomplete="off">
-                    </div>
+                <div class="field-group">
+                    <constructor-group>
+                        <div class="constructor-item item-label item-label-icon" title="URL"><i class="bi bi-link-45deg"></i></div>
+                        <div class="constructor-item item-floating-label">
+                            <input type="text" class="item-input" id="qb-url-input" placeholder=" " v-model.trim="credentials.qbittorrent.url">
+                            <label for="qb-url-input">URL-адрес</label>
+                        </div>
+                    </constructor-group>
                 </div>
-                <div class="modern-form-group">
-                    <label for="qbUsername" class="modern-label">Учетные данные</label>
-                    <div class="modern-input-group">
-                        <span class="input-group-text"><i class="bi bi-person"></i></span>
-                        <input v-model.trim="credentials.qbittorrent.username" 
-                               type="text" 
-                               class="modern-input" 
-                               id="qbUsername" 
-                               placeholder="Логин"
-                               autocomplete="username">
-                        <div class="modern-input-group-divider"></div>
-                        <span class="input-group-text"><i class="bi bi-shield-lock"></i></span>
-                        <input v-model="credentials.qbittorrent.password" 
-                               :type="qbPasswordVisible ? 'text' : 'password'" 
-                               class="modern-input" 
-                               id="qbPassword" 
-                               placeholder="Пароль"
-                               autocomplete="current-password">
-                        <button class="btn bg-transparent border-0 text-secondary" 
-                                style="margin-left: -40px; z-index: 100;"
-                                type="button" 
-                                @click="togglePasswordVisibility('qb')"
-                                :title="qbPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'">
-                            <i class="bi" :class="qbPasswordVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
-                        </button>
-                    </div>
+                <div class="field-group">
+                    <constructor-group>
+                        <div class="constructor-item item-label item-label-icon" title="Логин"><i class="bi bi-person"></i></div>
+                        <div class="constructor-item item-floating-label">
+                            <input type="text" class="item-input" id="qb-login-input" placeholder=" " v-model.trim="credentials.qbittorrent.username">
+                            <label for="qb-login-input">Логин</label>
+                        </div>
+                        <div class="constructor-item item-label item-label-icon" title="Пароль"><i class="bi bi-shield-lock"></i></div>
+                        <div class="constructor-item item-floating-label">
+                            <input :type="qbPasswordVisible ? 'text' : 'password'" class="item-input" id="qb-password-input" placeholder=" " v-model="credentials.qbittorrent.password">
+                            <label for="qb-password-input">Пароль</label>
+                            <button class="password-toggle-btn" @click="togglePasswordVisibility('qb')" :title="qbPasswordVisible ? 'Скрыть' : 'Показать'">
+                                <i class="bi" :class="qbPasswordVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
+                            </button>
+                        </div>
+                    </constructor-group>
                 </div>
             </div>
         </div>
@@ -56,32 +43,22 @@ const SettingsAuthTab = {
                 <span class="fieldset-title">Kinozal.me</span>
             </div>
             <div class="fieldset-content">
-                <div class="modern-form-group">
-                    <label for="kinozalUsername" class="modern-label">Учетные данные</label>
-                     <div class="modern-input-group">
-                        <span class="input-group-text"><i class="bi bi-person"></i></span>
-                        <input v-model.trim="credentials.kinozal.username" 
-                               type="text" 
-                               class="modern-input" 
-                               id="kinozalUsername" 
-                               placeholder="Логин"
-                               autocomplete="username">
-                        <div class="modern-input-group-divider"></div>
-                        <span class="input-group-text"><i class="bi bi-shield-lock"></i></span>
-                        <input v-model="credentials.kinozal.password" 
-                               :type="kinozalPasswordVisible ? 'text' : 'password'" 
-                               class="modern-input" 
-                               id="kinozalPassword" 
-                               placeholder="Пароль"
-                               autocomplete="current-password">
-                        <button class="btn bg-transparent border-0 text-secondary" 
-                                style="margin-left: -40px; z-index: 100;"
-                                type="button" 
-                                @click="togglePasswordVisibility('kinozal')"
-                                :title="kinozalPasswordVisible ? 'Скрыть пароль' : 'Показать пароль'">
-                            <i class="bi" :class="kinozalPasswordVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
-                        </button>
-                    </div>
+                <div class="field-group">
+                     <constructor-group>
+                        <div class="constructor-item item-label item-label-icon" title="Логин"><i class="bi bi-person"></i></div>
+                        <div class="constructor-item item-floating-label">
+                            <input type="text" class="item-input" id="kz-login-input" placeholder=" " v-model.trim="credentials.kinozal.username">
+                            <label for="kz-login-input">Логин</label>
+                        </div>
+                        <div class="constructor-item item-label item-label-icon" title="Пароль"><i class="bi bi-shield-lock"></i></div>
+                        <div class="constructor-item item-floating-label">
+                            <input :type="kinozalPasswordVisible ? 'text' : 'password'" class="item-input" id="kz-password-input" placeholder=" " v-model="credentials.kinozal.password">
+                            <label for="kz-password-input">Пароль</label>
+                            <button class="password-toggle-btn" @click="togglePasswordVisibility('kinozal')" :title="kinozalPasswordVisible ? 'Скрыть' : 'Показать'">
+                                <i class="bi" :class="kinozalPasswordVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
+                            </button>
+                        </div>
+                    </constructor-group>
                 </div>
             </div>
         </div>
@@ -91,30 +68,23 @@ const SettingsAuthTab = {
                 <i class="bi bi-youtube me-2"></i> <span class="fieldset-title">VK Video</span>
             </div>
             <div class="fieldset-content">
-                <div class="modern-form-group">
-                    <label for="vkToken" class="modern-label">Access Token</label>
-                     <div class="modern-input-group">
-                        <span class="input-group-text"><i class="bi bi-key"></i></span>
-                        <input v-model="credentials.vk.token" 
-                               :type="vkTokenVisible ? 'text' : 'password'" 
-                               class="modern-input" 
-                               id="vkToken" 
-                               placeholder="vk1.a.******************"
-                               autocomplete="off">
-                        <button class="btn bg-transparent border-0 text-secondary" 
-                                style="margin-left: -40px; z-index: 100;"
-                                type="button" 
-                                @click="togglePasswordVisibility('vk')"
-                                :title="vkTokenVisible ? 'Скрыть токен' : 'Показать токен'">
-                            <i class="bi" :class="vkTokenVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
-                        </button>
-                    </div>
-                    <small class="form-text text-muted">Необходим для поиска видео через официальный API VK. Получить токен можно <a href="https://dev.vk.com/ru/api/access-token/getting-started" target="_blank">здесь</a>.</small>
+                <div class="field-group">
+                    <constructor-group>
+                        <div class="constructor-item item-label item-label-icon" title="Токен"><i class="bi bi-key"></i></div>
+                        <div class="constructor-item item-floating-label">
+                            <input :type="vkTokenVisible ? 'text' : 'password'" class="item-input" id="vk-token-input" placeholder=" " v-model="credentials.vk.token">
+                            <label for="vk-token-input">Access Token</label>
+                            <button class="password-toggle-btn" @click="togglePasswordVisibility('vk')" :title="vkTokenVisible ? 'Скрыть' : 'Показать'">
+                                <i class="bi" :class="vkTokenVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
+                            </button>
+                        </div>
+                    </constructor-group>
+                    <small class="form-text text-muted mt-2 d-block">
+                        Необходим для поиска видео через официальный API VK.
+                    </small>
                 </div>
             </div>
         </div>
-
-      </form>
     </div>
   `,
   data() {
@@ -123,11 +93,11 @@ const SettingsAuthTab = {
       credentials: { 
         qbittorrent: { url: '', username: '', password: '' }, 
         kinozal: { username: '', password: '' },
-        vk: { token: '' } // Добавлено
+        vk: { token: '' }
       },
       qbPasswordVisible: false, 
       kinozalPasswordVisible: false,
-      vkTokenVisible: false, // Добавлено
+      vkTokenVisible: false,
     };
   },
   emits: ['show-toast', 'saving-state'],
@@ -135,7 +105,7 @@ const SettingsAuthTab = {
     togglePasswordVisibility(type) {
         if (type === 'qb') this.qbPasswordVisible = !this.qbPasswordVisible;
         else if (type === 'kinozal') this.kinozalPasswordVisible = !this.kinozalPasswordVisible;
-        else if (type === 'vk') this.vkTokenVisible = !this.vkTokenVisible; // Добавлено
+        else if (type === 'vk') this.vkTokenVisible = !this.vkTokenVisible;
     },
     async load() {
       try {
@@ -144,7 +114,7 @@ const SettingsAuthTab = {
         const data = await response.json();
         if (data.qbittorrent) this.credentials.qbittorrent = { ...this.credentials.qbittorrent, ...data.qbittorrent };
         if (data.kinozal) this.credentials.kinozal = { ...this.credentials.kinozal, ...data.kinozal };
-        if (data.vk) this.credentials.vk.token = data.vk.password || ''; // API отдает токен в поле password
+        if (data.vk) this.credentials.vk.token = data.vk.password || '';
       } catch (error) { 
         this.$emit('show-toast', error.message, 'danger'); 
       }

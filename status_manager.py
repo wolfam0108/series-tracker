@@ -135,24 +135,34 @@ class StatusManager:
         Атомарно синхронизирует все флаги статусов для VK-сериала на основе
         состояния его медиа-элементов.
         """
-        planned_items = self.db.get_media_items_by_plan_statuses(series_id, ['in_plan_single', 'in_plan_compilation'])
+        # <<< НАЧАЛО ИЗМЕНЕНИЯ >>>
 
-        # Шаг 1: Вычисляем состояние всех флагов
+        # Шаг 1: Получаем ДВА набора данных для разных проверок
+        # Элементы, которые сейчас в плане на загрузку/обработку
+        planned_items = self.db.get_media_items_by_plan_statuses(series_id, ['in_plan_single', 'in_plan_compilation'])
+        # ВСЕ медиа-элементы для этого сериала, чтобы проверить наличие уже готовых
+        all_items = self.db.get_media_items_for_series(series_id)
+
+        # Шаг 2: Вычисляем состояние всех флагов, используя правильные источники данных
         final_flags = {
+            # Эти статусы зависят только от элементов в плане
             'downloading': any(item['status'] == 'downloading' for item in planned_items),
             'slicing': any(item['slicing_status'] == 'slicing' for item in planned_items),
             'error': any(item['status'] == 'error' or item['slicing_status'] == 'error' for item in planned_items),
-            'ready': any(item['status'] == 'completed' for item in planned_items)
+            
+            # Статус 'Готов' зависит от ВСЕХ элементов, а не только от тех, что в плане
+            'ready': any(item['status'] == 'completed' for item in all_items)
         }
         
-        # Шаг 2: Определяем статус 'waiting' на основе других активных состояний
+        # Шаг 3: Определяем статус 'waiting' на основе других активных состояний
         has_active_tasks = final_flags['downloading'] or final_flags['slicing'] or final_flags['error']
+        # Статус 'Ожидание' выставляется, если есть ожидающие файлы И нет других активных задач
         final_flags['waiting'] = any(item['status'] == 'pending' for item in planned_items) and not has_active_tasks
 
-        # Шаг 3: Выполняем одно атомарное обновление в БД
+        # Шаг 4: Выполняем одно атомарное обновление в БД
         self.db.update_vk_series_status_flags(series_id, final_flags)
 
-        # Шаг 4: Один раз обновляем UI
+        # Шаг 5: Один раз обновляем UI
         self._update_and_broadcast(series_id)
 
     def _sync_waiting_status(self, series_id: int):

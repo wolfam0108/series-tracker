@@ -115,6 +115,7 @@
     border-radius: 8px;
     box-shadow: 0 0 8px rgba(0, 0, 0, 0.15);
     color: #2c3e50 !important;
+    overflow: hidden;
 }
 
 .status-pill .bi {

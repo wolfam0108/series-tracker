@@ -60,8 +60,10 @@ def get_series_details(series_id):
 @series_bp.route('/<int:series_id>/composition', methods=['GET'])
 def get_series_composition(series_id):
     """
-    Универсальный эндпоинт для получения композиции. Принимает параметр ?refresh=true
-    для запуска полного обновления, а также выполняет ручную синхронизацию файлов.
+    Универсальный эндпоинт для получения композиции. Выполняет операции в правильном порядке:
+    1. (Если нужно) Обновление данных из VK и их сохранение в БД.
+    2. Синхронизация с файловой системой ("усыновление" и проверка файлов).
+    3. Возврат финального состояния из БД.
     """
     try:
         series = app.db.get_series(series_id)
@@ -70,14 +72,12 @@ def get_series_composition(series_id):
         if series.get('source_type') != 'vk_video':
             return jsonify([]), 200
         
-        # Вызываем публичный метод агента для немедленной синхронизации файлов ("ручной" запуск).
-        app.scanner_agent.sync_single_series_filesystem(series_id)
-        
         force_refresh = request.args.get('refresh', 'false').lower() == 'true'
 
+        # --- ЭТАП 1: Обновление данных из VK (если требуется) ---
         if force_refresh:
             app.logger.info("series_api", f"Запрошено полное обновление композиции для series_id: {series_id}")
-            # Этап 1: Сбор и сохранение кандидатов
+            # ... (вся логика скрапинга, обработки правил и сохранения кандидатов)
             channel_url, query = series['url'].split('|')
             search_mode = series.get('vk_search_mode', 'search')
             scraper = VKScraper(app.db, app.logger)
@@ -114,14 +114,15 @@ def get_series_composition(series_id):
             if candidates_to_save:
                 app.db.add_or_update_media_items(candidates_to_save)
 
-            # Этап 2: Запуск SmartCollector для обновления plan_status в БД
             collector = SmartCollector(app.logger, app.db)
             collector.collect(series_id)
-            
-            # После полного обновления сразу синхронизируем статусы
-            app.status_manager.sync_vk_statuses(series_id)
 
-        # Этап 4: Возвращаем актуальные данные из БД
+        # --- ЭТАП 2: Синхронизация с файловой системой ("усыновление") ---
+        # Этот блок теперь выполняется ПОСЛЕ обновления из VK,
+        # гарантируя, что он будет работать с актуальными данными в БД.
+        app.scanner_agent.sync_single_series_filesystem(series_id)
+        
+        # --- ЭТАП 3: Возвращаем финальное состояние из БД ---
         db_items = app.db.get_media_items_for_series(series_id)
         reconstructed_plan = []
         for item in db_items:

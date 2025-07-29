@@ -1,3 +1,5 @@
+// static/js/components/settingsAgents.js
+
 const SettingsAgentsTab = {
   name: 'SettingsAgentsTab',
   props: {
@@ -62,22 +64,39 @@ const SettingsAgentsTab = {
                 </div>
             </div>
             <div class="fieldset-content">
-                 <div class="div-table table-download-queue">
+                 <div class="div-table table-download-queue-expanded">
                     <div class="div-table-header">
-                        <div class="div-table-cell">Сериал</div>
-                        <div class="div-table-cell">Файл</div>
+                        <div class="div-table-cell">Сериал / Файл</div>
                         <div class="div-table-cell">Статус</div>
-                        <div class="div-table-cell">Ошибка</div>
+                        <div class="div-table-cell">Прогресс</div>
                     </div>
                     <div class="div-table-body position-relative">
                         <transition-group name="list" tag="div">
                             <div v-for="task in downloadQueue" :key="task.id" class="div-table-row">
-                                <div class="div-table-cell" :title="getSeriesName(task.series_id)">{{ getSeriesName(task.series_id) }}</div>
-                                <div class="div-table-cell" :title="task.save_path">{{ getBaseName(task.save_path) }}</div>
+                                <div class="div-table-cell" style="flex-direction: column; align-items: flex-start; gap: 4px;">
+                                    <strong :title="getSeriesName(task.series_id)">{{ getSeriesName(task.series_id) }}</strong>
+                                    <small class="text-muted" :title="task.save_path">{{ getBaseName(task.save_path) }}</small>
+                                </div>
                                 <div class="div-table-cell">
                                     <span class="badge" :class="getDownloadStatusClass(task.status)">{{ task.status }}</span>
+                                    <small v-if="task.status === 'error'" class="d-block error-cell mt-1" :title="task.error_message">
+                                        {{ task.error_message }}
+                                    </small>
                                 </div>
-                                <div class="div-table-cell error-cell" :title="task.error_message">{{ task.error_message }}</div>
+                                <div class="div-table-cell" style="flex-direction: column; align-items: stretch; gap: 8px;">
+                                    <div class="progress" style="height: 20px; font-size: 12px;" v-if="task.status === 'downloading' || task.status === 'completed'">
+                                        <div class="progress-bar progress-bar-striped progress-bar-animated" role="progressbar" 
+                                             :style="{width: task.progress + '%'}" 
+                                             :aria-valuenow="task.progress" aria-valuemin="0" aria-valuemax="100">
+                                            {{ task.progress }}%
+                                        </div>
+                                    </div>
+                                    <div v-if="task.status === 'downloading' && task.progress > 0" class="d-flex justify-content-between" style="font-size: 12px; font-family: monospace;">
+                                        <span class="text-success">{{ formatSize(task.dlspeed) }}/s</span>
+                                        <span class="text-muted">{{ (task.progress / 100 * task.total_size_mb).toFixed(1) }} / {{ task.total_size_mb }} MB</span>
+                                        <span class="text-primary">ETA: {{ formatEta(task.eta) }}</span>
+                                    </div>
+                                </div>
                             </div>
                         </transition-group>
                         <div v-if="!downloadQueue.length" class="div-table-row">
@@ -87,7 +106,6 @@ const SettingsAgentsTab = {
                 </div>
             </div>
         </div>
-        
         <div class="modern-fieldset mb-4">
             <div class="fieldset-header">
                 <i class="bi bi-scissors me-2"></i>
@@ -176,7 +194,7 @@ const SettingsAgentsTab = {
             if (!response.ok) throw new Error('Ошибка загрузки активных торрентов');
             this.activeTorrents = await response.json();
         } catch (error) {
-            console.error(error); // Ошибку покажем в консоли, т.к. нет доступа к show-toast
+            console.error(error);
         }
     },
     formatSlicingProgress(task) {
@@ -226,6 +244,15 @@ const SettingsAgentsTab = {
         }
         return '';
     },
+    // <<< НОВЫЙ МЕТОД ДЛЯ ФОРМАТИРОВАНИЯ СКОРОСТИ ИЗ БАЙТ >>>
+    formatSize(bytes) {
+        if (!bytes || bytes === 0) return '0 B';
+        const k = 1024;
+        const sizes = ['B', 'KB', 'MB', 'GB'];
+        const i = Math.floor(Math.log(bytes) / Math.log(k));
+        return parseFloat((bytes / Math.pow(k, i)).toFixed(2)) + ' ' + sizes[i];
+    },
+    // Этот метод был для торрентов, теперь он универсален
     formatSpeed(bytes) {
         if (!bytes || bytes === 0) return '0 B/s';
         const k = 1024;
@@ -235,6 +262,7 @@ const SettingsAgentsTab = {
     },
     formatEta(seconds) {
         if (seconds === 8640000 || !seconds) return '∞';
+        if (seconds < 0) return '-';
         const d = Math.floor(seconds / (3600*24));
         const h = Math.floor(seconds % (3600*24) / 3600);
         const m = Math.floor(seconds % 3600 / 60);
@@ -261,7 +289,7 @@ const SettingsAgentsTab = {
   },
   mounted() {
     this.loadActiveTorrents();
-    this.updateInterval = setInterval(this.loadActiveTorrents, 5000); // Обновляем каждые 5 секунд
+    this.updateInterval = setInterval(this.loadActiveTorrents, 5000);
   },
   beforeUnmount() {
     clearInterval(this.updateInterval);

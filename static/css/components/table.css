@@ -191,3 +191,17 @@
 .div-table.table-slicing-queue .div-table-row {
     grid-template-columns: 3fr 1.5fr 1.5fr 4fr;
 }
+
+/* Стили для НОВОЙ расширенной таблицы очереди загрузок */
+.div-table.table-download-queue-expanded .div-table-header,
+.div-table.table-download-queue-expanded .div-table-row {
+    grid-template-columns: 2.5fr 1.5fr 4fr; /* Сериал/Файл | Статус | Прогресс */
+}
+
+.div-table.table-download-queue-expanded .error-cell {
+    color: #842029;
+    font-size: 0.9em;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}

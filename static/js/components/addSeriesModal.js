@@ -61,7 +61,9 @@ const AddSeriesModal = {
                                 <div class="row">
                                     <div class="col-md-6">
                                         <label class="modern-label">Ссылка на канал</label>
-                                        <input v-model.trim="vkChannelUrl" type="text" class="modern-input" placeholder="https://vkvideo.ru/@канал">
+                                        <input v-model.trim="vkChannelUrl" type="text" 
+                                               @input="autoCorrectSlash($event, 'vkChannelUrl')"
+                                               class="modern-input" placeholder="https://vkvideo.ru/@канал">
                                     </div>
                                     <div class="col-md-6">
                                         <label class="modern-label">Поисковые запросы (через /)</label>
@@ -106,6 +108,7 @@ const AddSeriesModal = {
                                         <div class="modern-form-group">
                                             <label for="savePath" class="modern-label">Путь сохранения</label>
                                             <input v-model.trim="newSeries.save_path" type="text" 
+                                                   @input="autoCorrectSlash($event, 'newSeries', 'save_path')"
                                                    class="modern-input" 
                                                    :class="{'is-invalid': !isSavePathValid && showValidation, 'is-valid': isSavePathValid && showValidation}" 
                                                    id="savePath" placeholder="/path/to/save">
@@ -276,6 +279,22 @@ const AddSeriesModal = {
             this.$emit('show-toast', error.message, 'danger');
         }
     },
+    autoCorrectSlash(event, modelKey, fieldKey = null) {
+        const start = event.target.selectionStart;
+        const correctedValue = event.target.value.replace(/\\/g, '/');
+    
+        if (fieldKey) {
+            this[modelKey][fieldKey] = correctedValue;
+        } else {
+            this[modelKey] = correctedValue;
+        }
+    
+        this.$nextTick(() => {
+            event.target.value = correctedValue;
+            event.target.setSelectionRange(start, start);
+    });
+    },
+
     debounceParseUrl() {
         clearTimeout(this.debounceTimeout);
         this.debounceTimeout = setTimeout(() => { this.handleUrlInput(); }, 500);

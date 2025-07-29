@@ -80,7 +80,7 @@ textarea.modern-input {
     display: flex;
     border-radius: 8px;
     overflow: hidden;
-    border: 2px solid var(--border-color);
+/*    border: 2px solid var(--border-color);*/
     transition: all 0.3s ease;
     position: relative; /* 1. Делаем группу-обертку контейнером для позиционирования */
 }

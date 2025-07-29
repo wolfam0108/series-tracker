@@ -8,7 +8,7 @@ const SeriesCompositionManager = {
         <div class="modern-fieldset mb-4">
             <div class="fieldset-header">
                 <h6 class="fieldset-title"><i class="bi bi-toggles2 me-2"></i>Настройки композиции</h6>
-                <button class="btn btn-primary" @click="loadComposition(true)" :disabled="isLoading">
+                <button class="btn btn-primary" @click="handleManualRefresh" :disabled="isLoading">
                     <span v-if="isLoading && isManualRefresh" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                     <i v-else class="bi bi-arrow-clockwise"></i>
                     <span class="ms-1">Обновить</span>
@@ -288,6 +288,11 @@ const SeriesCompositionManager = {
     },
   },
   methods: {
+    handleManualRefresh() {
+        this.isManualRefresh = true;
+        this.$emit('show-toast', 'Запущено полное обновление композиции из VK...', 'info');
+        this.loadComposition(true);
+    },
     formatResolution(resolution) {
         if (!resolution) return { text: 'N/A' };
         if (resolution >= 2160) return { text: `4K ${resolution}` };
@@ -358,11 +363,9 @@ const SeriesCompositionManager = {
         }
     },
     async loadComposition(forceRefresh = false) {
-        this.isManualRefresh = forceRefresh;
-        if (forceRefresh) {
-            this.$emit('show-toast', 'Запущено полное обновление композиции из VK...', 'info');
-        } else {
-            this.$emit('show-toast', 'Загрузка локальной композиции из БД...', 'info');
+        // ИЗМЕНЕНИЕ: Убрана строка this.isManualRefresh = forceRefresh;
+        if (!this.isManualRefresh) { // Не показываем тост, если обновление ручное (тост уже показан в handleManualRefresh)
+            this.$emit('show-toast', forceRefresh ? 'Запущено обновление из VK...' : 'Загрузка локальной композиции...', 'info');
         }
         
         this.isLoading = true;
@@ -384,7 +387,7 @@ const SeriesCompositionManager = {
             this.$emit('show-toast', error.message, 'danger');
         } finally {
             this.isLoading = false;
-            this.isManualRefresh = false;
+            this.isManualRefresh = false; // Сбрасываем флаг в конце
         }
     },
     async loadAndVerifySlicedFiles() {

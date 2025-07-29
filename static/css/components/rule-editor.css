@@ -126,6 +126,13 @@
     background-color: #e9ecef;
     height: auto;
 }
+.block-type-operation {
+    background-color: #ffedd5; /* Оранжевый цвет для операций */
+    color: #9a3412;
+    font-weight: bold;
+    height: auto;
+}
+
 .block-type-number { background-color: #cfe2ff; color: #004085; font-weight: bold; }
 .block-type-whitespace { background-color: #f8f9fa; border: 1px dashed #ced4da; }
 .block-type-any_text, .block-type-start_of_line, .block-type-end_of_line { background-color: #d1e7dd; color: #0f5132; }
@@ -176,6 +183,14 @@
 }
 .palette-btn.block-type-text { background-color: #e9ecef; border: 1px solid #dee2e6;}
 .palette-btn.block-type-number { background-color: #cfe2ff; color: #004085; font-weight: bold; border: 1px solid #b8daff; }
+
+.palette-btn.block-type-add,
+.palette-btn.block-type-subtract {
+    background-color: #ffedd5; /* Оранжевый фон */
+    color: #9a3412;           /* Темно-оранжевый текст */
+    font-weight: bold;
+    border: 1px solid #fed7aa; /* Светло-оранжевая обводка */
+}
 .palette-btn.block-type-whitespace { background-color: #f8f9fa; border: 1px dashed #ced4da; }
 .palette-btn.block-type-any_text, 
 .palette-btn.block-type-start_of_line, 
@@ -255,4 +270,21 @@
 .test-result-card-compact.excluded .card-rule-name {
     color: #842029;
     background-color: rgba(132, 32, 41, 0.08);
+}
+/* Стили для разделения знака и значения в блоках операций */
+.pattern-block .operation-sign {
+    padding-right: 0.5rem;
+    font-weight: bold;
+}
+
+.pattern-block .operation-value {
+    padding: 2px 4px;
+    border-radius: 4px;
+    min-width: 2ch;
+    text-align: center;
+}
+
+.pattern-block .operation-value:focus {
+    background-color: #fff;
+    box-shadow: 0 0 0 2px var(--border-color-focus);
 }

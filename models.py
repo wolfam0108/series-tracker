@@ -1,5 +1,5 @@
 from datetime import datetime, timezone
-from sqlalchemy import Column, Integer, Text, Boolean, ForeignKey, DateTime, func
+from sqlalchemy import Column, Integer, Text, Boolean, ForeignKey, DateTime, func, Float
 from sqlalchemy.orm import declarative_base, relationship
 
 Base = declarative_base()
@@ -230,6 +230,8 @@ class DownloadTask(Base):
     progress = Column(Integer, default=0)  # Хранит прогресс в процентах (0-100)
     dlspeed = Column(Integer, default=0)   # Скорость загрузки в байтах/с
     eta = Column(Integer, default=0)       # Оставшееся время в секундах
+
+    total_size_mb = Column(Float, nullable=True) # Размер файла в мегабайтах
 
 class SlicingTask(Base):
     __tablename__ = 'slicing_tasks'

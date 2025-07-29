@@ -18,6 +18,10 @@ class RuleEngine:
         for block in blocks:
             b_type = block.get('type')
             
+            # --- ИЗМЕНЕНИЕ: Пропускаем блоки операций при построении регулярного выражения ---
+            if b_type in ['add', 'subtract']:
+                continue
+            
             if b_type == 'text':
                 regex_parts.append(re.escape(block.get('value', '')))
             elif b_type == 'number':
@@ -72,33 +76,32 @@ class RuleEngine:
             final_result['error'] = "Некорректный JSON в action_pattern."
             return final_result
 
+        capture_group_index = 1
         for action in actions:
             action_type = action.get('action_type')
-            action_pattern = action.get('action_pattern', '[]')
+            action_pattern_json = action.get('action_pattern', '[]')
 
             if action_type == 'exclude':
-                return {'action': 'exclude', 'extracted': {}} # Если есть exclude, сразу выходим
+                return {'action': 'exclude', 'extracted': {}}
 
+            # Блок для действий-назначений (assign)
             if action_type == 'assign_voiceover':
-                final_result['extracted']['voiceover'] = action_pattern
-            
-            # --- ИЗМЕНЕНИЕ: Обработка разделенных действий ---
+                final_result['extracted']['voiceover'] = action_pattern_json
             elif action_type == 'assign_episode':
                 try:
-                    final_result['extracted']['episode'] = int(action_pattern)
+                    final_result['extracted']['episode'] = int(action_pattern_json)
                 except (ValueError, TypeError):
-                    final_result.setdefault('error', []).append(f"Ошибка назначения номера серии: некорректное значение '{action_pattern}'")
-            
+                    final_result.setdefault('error', []).append(f"Ошибка назначения номера серии: некорректное значение '{action_pattern_json}'")
             elif action_type == 'assign_season':
                 try:
-                    final_result['extracted']['season'] = int(action_pattern)
+                    final_result['extracted']['season'] = int(action_pattern_json)
                 except (ValueError, TypeError):
-                    final_result.setdefault('error', []).append(f"Ошибка назначения номера сезона: некорректное значение '{action_pattern}'")
+                    final_result.setdefault('error', []).append(f"Ошибка назначения номера сезона: некорректное значение '{action_pattern_json}'")
             
-            else: # Логика для извлечения
-                regex_str = self._build_regex_from_blocks(action_pattern, for_extraction=True)
+            # Блок для действий-извлечений (extract) с новой логикой
+            else:
+                regex_str = self._build_regex_from_blocks(action_pattern_json, for_extraction=True)
                 if not regex_str:
-                    final_result.setdefault('error', []).append(f"Паттерн для '{action_type}' пуст.")
                     continue
 
                 match = re.search(regex_str, title, re.IGNORECASE)
@@ -106,13 +109,48 @@ class RuleEngine:
                     continue
 
                 try:
-                    if action_type == 'extract_single':
-                        final_result['extracted']['episode'] = int(match.group(1))
-                    elif action_type == 'extract_range':
-                        final_result['extracted']['start'] = int(match.group(1))
-                        final_result['extracted']['end'] = int(match.group(2))
-                    elif action_type == 'extract_season':
-                        final_result['extracted']['season'] = int(match.group(1))
+                    action_blocks = json.loads(action_pattern_json)
+                    number_blocks_indices = [i for i, block in enumerate(action_blocks) if block.get('type') == 'number']
+                    
+                    current_match_index = 0
+                    for block_index in number_blocks_indices:
+                        original_value_str = match.group(capture_group_index + current_match_index)
+                        original_value = int(original_value_str)
+                        final_value = original_value
+
+                        # Проверяем, есть ли следующий блок и является ли он операцией
+                        if block_index + 1 < len(action_blocks):
+                            modifier_block = action_blocks[block_index + 1]
+                            mod_type = modifier_block.get('type')
+                            
+                            if mod_type in ['add', 'subtract']:
+                                try:
+                                    mod_value = int(modifier_block.get('value', 0))
+                                    temp_result = original_value + mod_value if mod_type == 'add' else original_value - mod_value
+                                    
+                                    # ВАШЕ ПРАВИЛО: Не выполнять операцию, если результат < 0
+                                    if temp_result >= 0:
+                                        final_value = temp_result
+                                    else:
+                                        self.logger.warning("rule_engine", f"Операция '{mod_type} {mod_value}' для числа {original_value} проигнорирована, т.к. результат ({temp_result}) < 0.")
+                                except (ValueError, TypeError):
+                                    pass # Игнорируем, если значение в блоке операции - не число
+
+                        # Присваиваем результат в зависимости от типа действия
+                        if action_type == 'extract_single':
+                            final_result['extracted']['episode'] = final_value
+                        elif action_type == 'extract_season':
+                            final_result['extracted']['season'] = final_value
+                        elif action_type == 'extract_range':
+                            if current_match_index == 0:
+                                final_result['extracted']['start'] = final_value
+                            elif current_match_index == 1:
+                                final_result['extracted']['end'] = final_value
+
+                        current_match_index += 1
+                    
+                    capture_group_index += len(number_blocks_indices)
+
                 except (IndexError, ValueError) as e:
                     final_result.setdefault('error', []).append(f"Ошибка извлечения для '{action_type}': {e}")
         

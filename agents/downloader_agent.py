@@ -11,6 +11,7 @@ from concurrent.futures import ThreadPoolExecutor
 from sse import ServerSentEvent
 from datetime import datetime, timezone
 from status_manager import StatusManager
+from functools import partial
 
 class DownloaderAgent(threading.Thread):
     def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent, status_manager: StatusManager):
@@ -26,8 +27,9 @@ class DownloaderAgent(threading.Thread):
         self.CHECK_INTERVAL = 5
         self.broadcaster = broadcaster
         self.status_manager = status_manager
-        # 2. Создаем "канал пробуждения"
         self._shutdown_pipe_r, self._shutdown_pipe_w = os.pipe()
+        self._last_update_times = {} # {task_id: timestamp}
+        self.UPDATE_THROTTLE_SECONDS = 2.0 # Обновляем БД не чаще, чем раз в 2 сек
 
     def _broadcast_queue_update(self):
         """Собирает активные задачи и транслирует их через SSE."""
@@ -49,12 +51,31 @@ class DownloaderAgent(threading.Thread):
             self.executor = ThreadPoolExecutor(max_workers=limit, thread_name_prefix='downloader_worker')
             self.logger.info("downloader_agent", f"Пул потоков создан с лимитом {limit} воркеров.")
 
+    def _update_download_progress(self, task_id, progress_data):
+        """Коллбэк для обновления прогресса в БД с троттлингом."""
+        with self.app.app_context():
+            now = time.time()
+            last_update = self._last_update_times.get(task_id, 0)
+            
+            # Проверяем, прошло ли достаточно времени с последнего обновления
+            if (now - last_update) > self.UPDATE_THROTTLE_SECONDS or progress_data.get('progress') == 100:
+                self.db.update_download_task_progress(task_id, progress_data)
+                self._last_update_times[task_id] = now
+
     def _download_task_worker(self, task_id, video_url, save_path, unique_id, series_id):
         with self.app.app_context():
             try:
-                self.status_manager.set_status(series_id, 'downloading', True)
+                # <<< НАЧАЛО ИЗМЕНЕНИЯ >>>
+                # Вместо прямого выставления флага, запускаем полную синхронизацию.
+                # Она увидит media_item в статусе 'downloading' и сама выставит флаг.
+                self.status_manager.sync_vk_statuses(series_id)
+                # <<< КОНЕЦ ИЗМЕНЕНИЯ >>>
+                
                 downloader = Downloader(self.logger)
-                success, error_msg = downloader.download_video(video_url, save_path)
+                
+                progress_callback = partial(self._update_download_progress, task_id)
+
+                success, error_msg = downloader.download_video(video_url, save_path, progress_callback)
                 
                 if success:
                     self.db.update_media_item_filename(unique_id, save_path)
@@ -62,18 +83,26 @@ class DownloaderAgent(threading.Thread):
                     self.db.delete_download_task(task_id)
                     self.db.update_series(series_id, {'last_scan_time': datetime.now(timezone.utc)})
                 else:
-                    self.logger.error("downloader_agent", f"Задача {task_id} завершилась с ошибкой. Статус будет обновлен. Ошибка: {error_msg}")
                     self.db.update_download_task_status(task_id, 'error', error_message=error_msg)
                     self.db.update_media_item_download_status(unique_id, 'error')
-                    self.status_manager.set_status(series_id, 'error', True)
+                    # При ошибке тоже нужна полная синхронизация, чтобы выставить флаг is_error
+                    self.status_manager.sync_vk_statuses(series_id)
 
             except Exception as e:
                 self.logger.error("downloader_agent", f"Критическая ошибка в воркере для задачи {task_id}: {e}", exc_info=True)
                 self.db.update_download_task_status(task_id, 'error', error_message="Internal worker error")
                 self.db.update_media_item_download_status(unique_id, 'error')
-                self.status_manager.set_status(series_id, 'error', True)
+                # И здесь тоже
+                self.status_manager.sync_vk_statuses(series_id)
             finally:
-                self.status_manager.set_status(series_id, 'downloading', False)
+                if task_id in self._last_update_times:
+                    del self._last_update_times[task_id]
+                
+                # <<< НАЧАЛО ИЗМЕНЕНИЯ >>>
+                # В конце также запускаем полную синхронизацию.
+                # Она проверит, остались ли другие загрузки, и примет правильное решение.
+                self.status_manager.sync_vk_statuses(series_id)
+                # <<< КОНЕЦ ИЗМЕНЕНИЯ >>>
         return task_id
 
     def _task_done_callback(self, future):

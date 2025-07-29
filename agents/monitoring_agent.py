@@ -117,14 +117,24 @@ class MonitoringAgent(threading.Thread):
         self.db.set_media_item_ignored_status_by_uid(unique_id, False)
 
     def _update_active_statuses(self):
+        # --- НОВЫЙ БЛОК: Периодическая синхронизация статусов для VK-сериалов ---
+        all_vk_series = [s for s in self.db.get_all_series() if s['source_type'] == 'vk_video']
+        for series in all_vk_series:
+            self.status_manager.sync_vk_statuses(series['id'])
+        # --- КОНЕЦ НОВОГО БЛОКА ---
+
+        # --- Существующая логика для торрентов остаётся без изменений ---
         if not self.qb_client: return
 
         all_series_for_torrents = [s for s in self.db.get_all_series() if s['source_type'] == 'torrent']
-        if not all_series_for_torrents: return
+        if not all_series_for_torrents:
+            for series in all_series_for_torrents:
+                self.db.remove_stale_torrent_tasks(series['id'], [])
+                self.status_manager.sync_torrent_statuses(series['id'])
+            return
 
         all_hashes = {t['qb_hash'] for s in all_series_for_torrents for t in self.db.get_torrents(s['id'], is_active=True) if t.get('qb_hash')}
         if not all_hashes:
-            # Если активных хешей нет, нужно проверить, не остались ли "зависшие" задачи в БД
             for series in all_series_for_torrents:
                 self.db.remove_stale_torrent_tasks(series['id'], [])
                 self.status_manager.sync_torrent_statuses(series['id'])
@@ -149,7 +159,6 @@ class MonitoringAgent(threading.Thread):
 
             self.db.remove_stale_torrent_tasks(series_id, active_hashes_from_qbit)
             
-            # После обновления всех данных для сериала, запускаем синхронизацию статусов
             self.status_manager.sync_torrent_statuses(series_id)
 
     def run(self):

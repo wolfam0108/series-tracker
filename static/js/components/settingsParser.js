@@ -3,7 +3,7 @@ const SettingsParserTab = {
   components: {
     'draggable': vuedraggable,
   },
-  template: `
+template: `
     <div class="accordion" id="parserEditorAccordion">
         <div class="accordion-item">
             <h2 class="accordion-header" id="headingProfiles">
@@ -14,9 +14,7 @@ const SettingsParserTab = {
             <div id="collapseProfiles" class="accordion-collapse collapse show" aria-labelledby="headingProfiles" data-bs-parent="#parserEditorAccordion">
                 <div class="accordion-body">
                     <p class="text-muted small">Выберите профиль для редактирования или создайте новый. Правила и тестирование появятся ниже после выбора профиля.</p>
-                    
                     <div class="modern-input-group">
-                        <!-- Режим отображения -->
                         <template v-if="!editingProfileId">
                             <select v-model="selectedProfileId" class="modern-select" :disabled="isLoading">
                                 <option :value="null" disabled>-- Выберите профиль --</option>
@@ -27,24 +25,15 @@ const SettingsParserTab = {
                             <button @click="startEditingProfile" class="btn btn-warning" :disabled="!selectedProfileId || isLoading" title="Переименовать"><i class="bi bi-pencil"></i></button>
                             <button @click="deleteProfile" class="btn btn-danger" :disabled="!selectedProfileId || isLoading" title="Удалить"><i class="bi bi-trash"></i></button>
                         </template>
-                        
                         <template v-else>
-                             <input v-model.trim="editingProfileName" 
-                                   @keyup.enter="saveProfileName" 
-                                   @keyup.esc="cancelEditing"
-                                   type="text" 
-                                   class="modern-input" 
-                                   placeholder="Новое имя профиля..."
-                                   ref="editProfileInput">
+                             <input v-model.trim="editingProfileName" @keyup.enter="saveProfileName" @keyup.esc="cancelEditing" type="text" class="modern-input" placeholder="Новое имя профиля..." ref="editProfileInput">
                             <button @click="saveProfileName" class="btn btn-success" :disabled="!editingProfileName" title="Сохранить"><i class="bi bi-check-lg"></i></button>
                             <button @click="cancelEditing" class="btn btn-secondary" title="Отмена"><i class="bi bi-x-lg"></i></button>
                         </template>
                     </div>
-
                 </div>
             </div>
         </div>
-
         <template v-if="selectedProfileId">
             <div class="accordion-item">
                 <h2 class="accordion-header" id="headingRules">
@@ -91,40 +80,22 @@ const SettingsParserTab = {
                                                     </div>
                                                     <div class="modern-input-group">
                                                         <div class="pattern-constructor">
-                                                            <draggable
-                                                                :list="cond._blocks"
-                                                                class="pattern-blocks-container"
-                                                                group="blocks"
-                                                                handle=".drag-handle"
-                                                                item-key="id"
-                                                                ghost-class="ghost-block"
-                                                                animation="200">
+                                                            <draggable :list="cond._blocks" class="pattern-blocks-container" group="blocks" handle=".drag-handle" item-key="id" ghost-class="ghost-block" animation="200">
                                                                 <template #item="{ element, index }">
                                                                     <div :class="getBlockClasses(element)">
-                                                                        <span class="drag-handle">
-                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M7 2a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-3 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg>
-                                                                        </span>
-                                                                        <div :contenteditable="element.type === 'text'"
-                                                                            @blur="element.type === 'text' ? updateBlockValue(cond._blocks[index], $event.target.innerText) : null"
-                                                                            @keydown.enter.prevent
-                                                                            class="pattern-block-input"
-                                                                            :class="{'focus:ring-2 focus:ring-blue-400 rounded-sm': element.type === 'text'}">{{ element.type === 'text' ? element.value : getBlockLabel(element, 'if') }}</div>
+                                                                        <span class="drag-handle"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M7 2a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-3 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg></span>
+                                                                        <div :contenteditable="isBlockEditable(element)" 
+                                                                             @blur="isBlockEditable(element) ? updateBlockValue(element, $event.target.innerText) : null" 
+                                                                             @keydown.enter.prevent 
+                                                                             class="pattern-block-input">{{ getBlockDisplayText(element) }}</div>
                                                                         <button @click="removePatternBlock(cond._blocks, index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
                                                                     </div>
                                                                 </template>
                                                             </draggable>
                                                             <div class="palette-footer">
-                                                                <draggable
-                                                                    :list="blockPalette"
-                                                                    class="pattern-palette"
-                                                                    :group="{ name: 'blocks', pull: 'clone', put: false }"
-                                                                    :clone="cloneBlock"
-                                                                    item-key="type"
-                                                                    :sort="false">
+                                                                <draggable :list="ifBlockPalette" class="pattern-palette" :group="{ name: 'blocks', pull: 'clone', put: false }" :clone="cloneBlock" item-key="type" :sort="false">
                                                                     <template #item="{ element }">
-                                                                        <div :class="['palette-btn', 'block-type-' + element.type]" :title="element.title">
-                                                                            {{ element.label }}
-                                                                        </div>
+                                                                        <div :class="['palette-btn', 'block-type-' + element.type]" :title="element.title">{{ element.label }}</div>
                                                                     </template>
                                                                 </draggable>
                                                             </div>
@@ -133,10 +104,7 @@ const SettingsParserTab = {
                                                     </div>
                                                </div>
                                                <div class="logical-operator-container" v-if="c_index < rule.conditions.length - 1">
-                                                   <select v-model="cond.logical_operator" class="modern-select rule-select-compact">
-                                                       <option value="AND">И</option>
-                                                       <option value="OR">ИЛИ</option>
-                                                   </select>
+                                                   <select v-model="cond.logical_operator" class="modern-select rule-select-compact"><option value="AND">И</option><option value="OR">ИЛИ</option></select>
                                                </div>
                                            </div>
                                         </div>
@@ -158,40 +126,25 @@ const SettingsParserTab = {
                                                 <div class="action-content" v-if="action.action_type !== 'exclude'">
                                                     <div v-if="['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)" class="modern-input-group">
                                                         <div class="pattern-constructor">
-                                                            <draggable
-                                                                :list="action._action_blocks"
-                                                                class="pattern-blocks-container"
-                                                                group="blocks"
-                                                                handle=".drag-handle"
-                                                                item-key="id"
-                                                                ghost-class="ghost-block"
-                                                                animation="200">
+                                                            <draggable :list="action._action_blocks" class="pattern-blocks-container" group="blocks" handle=".drag-handle" item-key="id" ghost-class="ghost-block" animation="200">
                                                                 <template #item="{ element, index }">
                                                                     <div :class="getBlockClasses(element)">
-                                                                        <span class="drag-handle">
-                                                                            <svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M7 2a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-3 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg>
-                                                                        </span>
-                                                                        <div :contenteditable="element.type === 'text'"
-                                                                            @blur="element.type === 'text' ? updateBlockValue(action._action_blocks[index], $event.target.innerText) : null"
-                                                                            @keydown.enter.prevent
-                                                                            class="pattern-block-input"
-                                                                            :class="{'focus:ring-2 focus:ring-blue-400 rounded-sm': element.type === 'text'}">{{ element.type === 'text' ? element.value : getBlockLabel(element, 'then', action._action_blocks) }}</div>
+                                                                        <span class="drag-handle"><svg xmlns="http://www.w3.org/2000/svg" width="16" height="16" fill="currentColor" viewBox="0 0 16 16"><path d="M7 2a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 5a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zM7 8a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm-3 3a1 1 0 1 1-2 0 1 1 0 0 1 2 0zm3 0a1 1 0 1 1-2 0 1 1 0 0 1 2 0z"/></svg></span>
+                                                                        <template v-if="['add', 'subtract'].includes(element.type)">
+                                                                            <span class="operation-sign">{{ element.type === 'add' ? '+' : '-' }}</span>
+                                                                            <div contenteditable="true" @blur="updateBlockValue(element, $event.target.innerText)" @keydown.enter.prevent class="pattern-block-input operation-value">{{ element.value }}</div>
+                                                                        </template>
+                                                                        <template v-else>
+                                                                            <div :contenteditable="isBlockEditable(element)" @blur="isBlockEditable(element) ? updateBlockValue(element, $event.target.innerText) : null" @keydown.enter.prevent class="pattern-block-input">{{ getBlockDisplayText(element, 'then', action._action_blocks) }}</div>
+                                                                        </template>
                                                                         <button @click="removePatternBlock(action._action_blocks, index)" class="pattern-block-remove" title="Удалить блок">&times;</button>
                                                                     </div>
                                                                 </template>
                                                             </draggable>
                                                             <div class="palette-footer">
-                                                                 <draggable
-                                                                    :list="blockPalette"
-                                                                    class="pattern-palette"
-                                                                    :group="{ name: 'blocks', pull: 'clone', put: false }"
-                                                                    :clone="cloneBlock"
-                                                                    item-key="type"
-                                                                    :sort="false">
+                                                                 <draggable :list="thenBlockPalette" class="pattern-palette" :group="{ name: 'blocks', pull: 'clone', put: false }" :clone="cloneBlock" item-key="type" :sort="false">
                                                                     <template #item="{ element }">
-                                                                        <div :class="['palette-btn', 'block-type-' + element.type]" :title="element.title">
-                                                                            {{ element.label }}
-                                                                        </div>
+                                                                        <div :class="['palette-btn', 'block-type-' + element.type]" :title="element.title">{{ element.label }}</div>
                                                                     </template>
                                                                 </draggable>
                                                             </div>
@@ -220,7 +173,6 @@ const SettingsParserTab = {
                     </div>
                 </div>
             </div>
-
             <div class="accordion-item">
                 <h2 class="accordion-header" id="headingTest">
                     <button class="accordion-button collapsed" type="button" data-bs-toggle="collapse" data-bs-target="#collapseTest" aria-expanded="false" aria-controls="collapseTest">
@@ -230,7 +182,6 @@ const SettingsParserTab = {
                 <div id="collapseTest" class="accordion-collapse collapse" aria-labelledby="headingTest" data-bs-parent="#parserEditorAccordion">
                     <div class="accordion-body">
                         <p class="text-muted small">Вставьте "сырые" названия видео в поле ниже или получите их с VK, а затем запустите тест.</p>
-                        
                         <div class="modern-fieldset mb-3">
                             <div class="fieldset-content">
                                 <div class="mb-3">
@@ -238,7 +189,6 @@ const SettingsParserTab = {
                                     <div class="btn-group w-100">
                                         <input type="radio" class="btn-check" name="vk_search_mode_test" id="vk_search_test" value="search" v-model="scrapeSearchMode" autocomplete="off">
                                         <label class="btn btn-outline-primary" for="vk_search_test"><i class="bi bi-search me-2"></i>Быстрый поиск</label>
-                                        
                                         <input type="radio" class="btn-check" name="vk_search_mode_test" id="vk_get_all_test" value="get_all" v-model="scrapeSearchMode" autocomplete="off">
                                         <label class="btn btn-outline-primary" for="vk_get_all_test"><i class="bi bi-card-list me-2"></i>Полное сканирование</label>
                                     </div>
@@ -255,7 +205,6 @@ const SettingsParserTab = {
                                 </div>
                             </div>
                         </div>
-
                         <textarea v-model="testTitles" class="modern-input mb-3" rows="8" placeholder="Название видео 1\nНазвание видео 2"></textarea>
                         <div class="text-end">
                             <button @click="runTest" class="btn btn-success" :disabled="!testTitles || isTesting">
@@ -265,7 +214,6 @@ const SettingsParserTab = {
                             </button>
                         </div>
                         <div v-if="isTesting" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
-                        
                         <transition-group v-else name="list" tag="div" class="test-results-container mt-3">
                             <div v-for="(res, index) in testResults" :key="index" class="test-result-card-compact" :class="getResultClass(res)">
                                 <div class="card-line">
@@ -274,11 +222,9 @@ const SettingsParserTab = {
                                         <span>{{ formatResolution(res.source_data.resolution).text }}</span>
                                     </div>
                                 </div>
-                                
                                 <div v-if="!res.match_events || res.match_events.length === 0" class="card-line">
                                     <span>Правила не применились</span>
                                 </div>
-                                
                                 <div v-else class="card-details">
                                     <template v-for="(event, event_index) in res.match_events" :key="event_index">
                                         <div v-if="event.action === 'exclude'" class="card-line">
@@ -295,7 +241,6 @@ const SettingsParserTab = {
                                 </div>
                             </div>
                         </transition-group>
-
                     </div>
                 </div>
             </div>
@@ -316,6 +261,8 @@ const SettingsParserTab = {
       blockPalette: [
         { type: 'text', label: 'Текст', title: 'Точный текст' },
         { type: 'number', label: 'Число', title: 'Любое число (1, 2, 10, 155...)' },
+        { type: 'add', label: '+', title: 'Сложение' },
+        { type: 'subtract', label: '-', title: 'Вычитание' },
         { type: 'whitespace', label: 'Пробел', title: 'Один или несколько пробелов' },
         { type: 'any_text', label: '*', title: 'Любой текст (нежадный поиск)' },
         { type: 'start_of_line', label: 'Начало', title: 'Соответствует началу названия' },
@@ -333,6 +280,14 @@ const SettingsParserTab = {
   },
   emits: ['show-toast'],
   computed: {
+    ifBlockPalette() {
+        // Палитра для условий "ЕСЛИ" - без математических операций
+        return this.blockPalette.filter(b => !['add', 'subtract'].includes(b.type));
+    },
+    thenBlockPalette() {
+        // Палитра для действий "ТО" - все блоки
+        return this.blockPalette;
+    },
     scrapedTitlesOnly() {
         return this.scrapedItems.map(item => item.title).join('\n');
     },
@@ -544,14 +499,54 @@ const SettingsParserTab = {
             return Array.isArray(blocks) ? blocks.map(b => ({...b, id: Date.now() + Math.random()})) : [];
         } catch (e) { return []; }
     },
-    cloneBlock(original) { return { id: Date.now() + Math.random(), type: original.type, value: original.type === 'text' ? '' : undefined }; },
+    cloneBlock(original) {
+        const newBlock = { id: Date.now() + Math.random(), type: original.type };
+        if (original.type === 'text') {
+            newBlock.value = '';
+        }
+        if (original.type === 'add' || original.type === 'subtract') {
+            newBlock.value = '1'; 
+        }
+        return newBlock;
+    },
     removePatternBlock(targetBlocks, blockIndex) { targetBlocks.splice(blockIndex, 1); },
-    updateBlockValue(block, newText) { if (block) { block.value = newText.trim(); } },
+    updateBlockValue(block, newText) {
+        if (!block) return;
+        let processedText = newText.trim();
+        
+        // Теперь сюда будет приходить ТОЛЬКО число, парсинг упрощается
+        if (block.type === 'add' || block.type === 'subtract') {
+            const intValue = parseInt(processedText, 10);
+            block.value = isNaN(intValue) ? '0' : String(intValue);
+        } else {
+            block.value = processedText;
+        }
+    },
+    isBlockEditable(block) {
+        return ['text', 'add', 'subtract'].includes(block.type);
+    },
     getBlockClasses(block) {
-        let classes = 'pattern-block';
-        if (block.type === 'text') { classes += ' block-type-text'; } 
-        else { classes += ` block-type-${block.type}`; }
-        return classes;
+        let classes = ['pattern-block'];
+        if (['add', 'subtract'].includes(block.type)) {
+            classes.push('block-type-operation');
+        } 
+        else if (block.type === 'text') { classes.push('block-type-text'); } 
+        else { classes.push(`block-type-${block.type}`); }
+        return classes.join(' ');
+    },
+    getBlockDisplayText(element, context = 'if', container = []) {
+        // Убираем особую логику для +/-. Теперь для всех редактируемых полей просто возвращаем их значение.
+        if (this.isBlockEditable(element)) {
+            return element.value;
+        }
+        
+        // Для остальных блоков - как раньше
+        if (element.type === 'number' && context === 'then') {
+            const numberBlocks = container.filter(b => b.type === 'number');
+            const captureIndex = numberBlocks.indexOf(element) + 1;
+            return `Число #${captureIndex}`;
+        }
+        return this.blockPalette.find(p => p.type === element.type)?.label || 'Неизвестный';
     },
     addCondition(rule, index) {
         const newCondition = { condition_type: 'contains', _blocks: [], logical_operator: 'AND' };
@@ -575,6 +570,10 @@ const SettingsParserTab = {
         }
     },
     getBlockLabel(block, context, container) {
+        // --- ИЗМЕНЕНИЕ: Добавляем отображение значения для блоков операций ---
+        if (block.type === 'add') return `+ ${block.value || ''}`;
+        if (block.type === 'subtract') return `- ${block.value || ''}`;
+        
         if (block.type === 'number' && context === 'then') {
             const numberBlocks = container.filter(b => b.type === 'number');
             const captureIndex = numberBlocks.indexOf(block) + 1;
