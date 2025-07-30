@@ -1,6 +1,7 @@
 const SettingsDebugTab = {
   components: {
-    'database-viewer-modal': DatabaseViewerModal
+    'database-viewer-modal': DatabaseViewerModal,
+    'constructor-item-select': ConstructorItemSelect
   },
   template: `
     <div class="settings-tab-content">
@@ -42,36 +43,50 @@ const SettingsDebugTab = {
                 
                 <div class="row">
                     <div class="col-md-6">
-                        <label for="scanIntervalInput" class="modern-label">Интервал сканирования (мин)</label>
-                        <input type="number" id="scanIntervalInput" v-model.number="scannerStatus.scan_interval" class="modern-input" min="1" @change="saveScannerSettings">
+                        <div class="field-group">
+                            <constructor-group>
+                                <div class="constructor-item item-label">Интервал сканирования (мин)</div>
+                                <input type="text" inputmode="numeric" class="constructor-item item-input" :value="scannerStatus.scan_interval" @input="handleNumericInput($event, 'scannerStatus', 'scan_interval')" @change="saveScannerSettings">
+                            </constructor-group>
+                        </div>
                     </div>
                     <div class="col-md-6">
-                        <label for="parallelDownloadsInput" class="modern-label">Максимум параллельных загрузок (yt-dlp)</label>
-                        <input type="number" id="parallelDownloadsInput" v-model.number="parallelDownloads" class="modern-input" min="1" max="10" @change="saveParallelDownloads">
+                        <div class="field-group">
+                            <constructor-group>
+                                <div class="constructor-item item-label">Максимум параллельных загрузок (yt-dlp)</div>
+                                <input type="text" inputmode="numeric" class="constructor-item item-input" :value="parallelDownloads" @input="handleNumericInput($event, 'parallelDownloads')" @change="saveParallelDownloads">
+                            </constructor-group>
+                        </div>
                     </div>
                 </div>
                 <hr>
-                <div class="modern-input-group">
-                    <div class="alert alert-info py-2 px-3 m-0 d-flex align-items-center" role="alert" style="flex: 1 1 auto; border-radius: 6px 0 0 6px; border-top-width: 0; border-bottom-width: 0; min-width: 200px;">
-                        <div v-if="scannerStatus.is_scanning" class="w-100">
-                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                            <strong>Сканирование...</strong>
+                
+                <div class="field-group">
+                    <constructor-group>
+                        <div class="constructor-item item-label" style="flex-grow: 1; justify-content: start;">
+                             <div v-if="scannerStatus.is_scanning" class="w-100">
+                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                <strong>Сканирование...</strong>
+                            </div>
+                            <div v-else-if="scannerStatus.is_awaiting_tasks" class="w-100">
+                                <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                                <strong>Завершение задач...</strong>
+                            </div>
+                            <div v-else-if="scannerStatus.scanner_enabled" class="w-100">
+                                <i class="bi bi-clock me-2"></i>
+                                Следующий запуск ~ <strong>{{ nextScanCountdown }}</strong>
+                            </div>
+                            <div v-else class="w-100">
+                                <i class="bi bi-pause-circle me-2"></i>
+                                Авто-сканирование выключено.
+                            </div>
                         </div>
-                        <div v-else-if="scannerStatus.is_awaiting_tasks" class="w-100">
-                            <span class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
-                            <strong>Завершение задач...</strong>
+                        <div class="constructor-item item-button-group">
+                            <button @click="scanAllNow" :disabled="scannerStatus.is_scanning || scannerStatus.is_awaiting_tasks" class="btn-icon btn-confirm btn-text-icon" style="width: auto;">
+                                <i class="bi bi-fast-forward-fill me-2"></i>Сканировать всё
+                            </button>
                         </div>
-                        <div v-else-if="scannerStatus.scanner_enabled" class="w-100">
-                            <i class="bi bi-clock me-2"></i>
-                            Следующий запуск ~ <strong>{{ nextScanCountdown }}</strong>
-                        </div>
-                        <div v-else class="w-100">
-                            <i class="bi bi-pause-circle me-2"></i>
-                            Авто-сканирование выключено.
-                        </div>
-                    </div>
-
-                    <button class="btn btn-primary" @click="scanAllNow" :disabled="scannerStatus.is_scanning || scannerStatus.is_awaiting_tasks" style="border-radius: 0 6px 6px 0;"><i class="bi bi-fast-forward-fill me-2"></i>Сканировать всё</button>
+                    </constructor-group>
                 </div>
             </div>
         </div>
@@ -107,15 +122,16 @@ const SettingsDebugTab = {
             </div>
             <div class="fieldset-content">
                 <p class="text-muted small">Используйте с осторожностью. Это действие необратимо и удалит все данные из выбранной таблицы.</p>
-                <div class="modern-input-group">
-                    <select class="modern-select" v-model="selectedTableToClear" style="flex: 0.4;">
-                        <option disabled value="">Выберите таблицу...</option>
-                        <option v-for="table in tables" :key="table" :value="table">{{ table }}</option>
-                    </select>
-                    <span class="input-group-text" style="flex: 0.6; text-align: left; justify-content: left; white-space: normal;">{{ getTableDescription(selectedTableToClear) }}</span>
-                    <button class="btn btn-danger" @click="clearSelectedTable" :disabled="!selectedTableToClear">
-                        <i class="bi bi-trash"></i>
-                    </button>
+                <div class="field-group">
+                    <constructor-group>
+                        <constructor-item-select :options="tableOptionsForSelect" v-model="selectedTableToClear"></constructor-item-select>
+                        <div class="constructor-item item-label" style="flex-grow: 1; justify-content: start; white-space: normal;">{{ getTableDescription(selectedTableToClear) }}</div>
+                        <div class="constructor-item item-button-group">
+                             <button @click="clearSelectedTable" :disabled="!selectedTableToClear" class="btn-icon btn-delete" title="Очистить таблицу">
+                                <i class="bi bi-trash"></i>
+                            </button>
+                        </div>
+                    </constructor-group>
                 </div>
             </div>
         </div>
@@ -156,10 +172,40 @@ const SettingsDebugTab = {
       }
     };
   },
+  computed: {
+    tableOptionsForSelect() {
+        if (!this.tables || this.tables.length === 0) {
+            return [{ value: '', text: 'Таблицы не загружены' }];
+        }
+        const options = this.tables.map(table => ({
+            value: table,
+            text: table
+        }));
+        return [{ value: '', text: 'Выберите таблицу...' }, ...options];
+    }
+  },
   emits: ['show-toast', 'reload-series'],
   methods: {
     openDbViewer() {
         this.$refs.dbViewer.open();
+    },
+    handleNumericInput(event, modelKey, subKey = null) {
+        // Удаляем все символы, кроме цифр
+        const sanitizedValue = event.target.value.replace(/[^0-9]/g, '');
+        const numericValue = sanitizedValue ? parseInt(sanitizedValue, 10) : null;
+
+        if (subKey) {
+            this[modelKey][subKey] = numericValue;
+        } else {
+            this[modelKey] = numericValue;
+        }
+
+        // Обновляем значение в самом поле ввода, если оно было изменено
+        this.$nextTick(() => {
+            if (event.target.value !== sanitizedValue) {
+                event.target.value = sanitizedValue;
+            }
+        });
     },
     load() {
         this.loadForceReplaceSetting();

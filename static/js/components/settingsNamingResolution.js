@@ -11,7 +11,7 @@ const SettingsNamingResolutionTab = {
                 
                 <div class="field-group">
                     <constructor-group>
-                        <div class="constructor-item item-label item-label-icon" title="Новый стандарт"><i class="bi bi-plus-circle"></i></div>
+                        <div class="constructor-item item-label-icon" title="Новый стандарт"><i class="bi bi-plus-circle"></i></div>
                         <div class="constructor-item item-floating-label">
                             <input type="text" class="item-input" id="resolution-standard-new" placeholder=" " v-model="newPattern.standard_value" @keyup.enter="addPattern">
                             <label for="resolution-standard-new">Новый стандарт разрешения, напр: 1080p</label>
@@ -49,7 +49,7 @@ const SettingsNamingResolutionTab = {
                             </div>
                         </div>
                         <constructor-group>
-                            <div class="constructor-item item-label item-label-icon" title="Поисковый паттерн"><i class="bi bi-file-earmark-text"></i></div>
+                            <div class="constructor-item item-label-icon" title="Поисковый паттерн"><i class="bi bi-file-earmark-text"></i></div>
                             <div class="constructor-item item-floating-label">
                                 <input type="text" class="item-input" placeholder=" " v-model="rp.newSearchPattern" @keyup.enter="addSearchPattern(rp)" :ref="'patternInput' + rp.id">
                                 <label>Новый поисковый паттерн...</label>
@@ -75,7 +75,7 @@ const SettingsNamingResolutionTab = {
             <div class="fieldset-content">
                 <div class="field-group">
                     <constructor-group>
-                        <div class="constructor-item item-label item-label-icon" title="Имя файла"><i class="bi bi-file-earmark-text"></i></div>
+                        <div class="constructor-item item-label-icon" title="Имя файла"><i class="bi bi-file-earmark-text"></i></div>
                         <input type="text" class="constructor-item item-input" v-model="testData.filename" placeholder="Введите имя файла для теста..." @keyup.enter="testPatterns">
                         <div class="constructor-item item-button-group">
                             <button class="btn-icon btn-search btn-text-icon" @click="testPatterns" :disabled="!testData.filename">

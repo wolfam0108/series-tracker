@@ -10,7 +10,7 @@ template: `
             <div class="fieldset-content">
                 <div class="field-group">
                     <constructor-group>
-                        <div class="constructor-item item-label item-label-icon" title="URL"><i class="bi bi-link-45deg"></i></div>
+                        <div class="constructor-item item-label-icon" title="URL"><i class="bi bi-link-45deg"></i></div>
                         <div class="constructor-item item-floating-label">
                             <input type="text" class="item-input" id="qb-url-input" placeholder=" " v-model.trim="credentials.qbittorrent.url">
                             <label for="qb-url-input">URL-адрес</label>
@@ -19,19 +19,21 @@ template: `
                 </div>
                 <div class="field-group">
                     <constructor-group>
-                        <div class="constructor-item item-label item-label-icon" title="Логин"><i class="bi bi-person"></i></div>
+                        <div class="constructor-item item-label-icon" title="Логин"><i class="bi bi-person"></i></div>
                         <div class="constructor-item item-floating-label">
                             <input type="text" class="item-input" id="qb-login-input" placeholder=" " v-model.trim="credentials.qbittorrent.username">
                             <label for="qb-login-input">Логин</label>
                         </div>
-                        <div class="constructor-item item-label item-label-icon" title="Пароль"><i class="bi bi-shield-lock"></i></div>
+                        <div class="constructor-item item-label-icon" title="Пароль"><i class="bi bi-shield-lock"></i></div>
                         <div class="constructor-item item-floating-label">
-                            <input :type="qbPasswordVisible ? 'text' : 'password'" class="item-input" id="qb-password-input" placeholder=" " v-model="credentials.qbittorrent.password">
-                            <label for="qb-password-input">Пароль</label>
-                            <button class="password-toggle-btn" @click="togglePasswordVisibility('qb')" :title="qbPasswordVisible ? 'Скрыть' : 'Показать'">
-                                <i class="bi" :class="qbPasswordVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
-                            </button>
-                        </div>
+                            <div class="item-input-wrapper">
+                                <input :type="qbPasswordVisible ? 'text' : 'password'" class="item-input" id="qb-password-input" placeholder=" " v-model="credentials.qbittorrent.password">
+                                <label for="qb-password-input">Пароль</label>
+                                <button class="password-toggle-btn" @click="togglePasswordVisibility('qb')" :title="qbPasswordVisible ? 'Скрыть' : 'Показать'">
+                                    <i class="bi" :class="qbPasswordVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
+                                </button>
+                            </div>
+                            </div>
                     </constructor-group>
                 </div>
             </div>
@@ -45,19 +47,21 @@ template: `
             <div class="fieldset-content">
                 <div class="field-group">
                      <constructor-group>
-                        <div class="constructor-item item-label item-label-icon" title="Логин"><i class="bi bi-person"></i></div>
+                        <div class="constructor-item item-label-icon" title="Логин"><i class="bi bi-person"></i></div>
                         <div class="constructor-item item-floating-label">
                             <input type="text" class="item-input" id="kz-login-input" placeholder=" " v-model.trim="credentials.kinozal.username">
                             <label for="kz-login-input">Логин</label>
                         </div>
-                        <div class="constructor-item item-label item-label-icon" title="Пароль"><i class="bi bi-shield-lock"></i></div>
+                        <div class="constructor-item item-label-icon" title="Пароль"><i class="bi bi-shield-lock"></i></div>
                         <div class="constructor-item item-floating-label">
-                            <input :type="kinozalPasswordVisible ? 'text' : 'password'" class="item-input" id="kz-password-input" placeholder=" " v-model="credentials.kinozal.password">
-                            <label for="kz-password-input">Пароль</label>
-                            <button class="password-toggle-btn" @click="togglePasswordVisibility('kinozal')" :title="kinozalPasswordVisible ? 'Скрыть' : 'Показать'">
-                                <i class="bi" :class="kinozalPasswordVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
-                            </button>
-                        </div>
+                            <div class="item-input-wrapper">
+                                <input :type="kinozalPasswordVisible ? 'text' : 'password'" class="item-input" id="kz-password-input" placeholder=" " v-model="credentials.kinozal.password">
+                                <label for="kz-password-input">Пароль</label>
+                                <button class="password-toggle-btn" @click="togglePasswordVisibility('kinozal')" :title="kinozalPasswordVisible ? 'Скрыть' : 'Показать'">
+                                    <i class="bi" :class="kinozalPasswordVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
+                                </button>
+                            </div>
+                            </div>
                     </constructor-group>
                 </div>
             </div>
@@ -70,14 +74,16 @@ template: `
             <div class="fieldset-content">
                 <div class="field-group">
                     <constructor-group>
-                        <div class="constructor-item item-label item-label-icon" title="Токен"><i class="bi bi-key"></i></div>
+                        <div class="constructor-item item-label-icon" title="Токен"><i class="bi bi-key"></i></div>
                         <div class="constructor-item item-floating-label">
-                            <input :type="vkTokenVisible ? 'text' : 'password'" class="item-input" id="vk-token-input" placeholder=" " v-model="credentials.vk.token">
-                            <label for="vk-token-input">Access Token</label>
-                            <button class="password-toggle-btn" @click="togglePasswordVisibility('vk')" :title="vkTokenVisible ? 'Скрыть' : 'Показать'">
-                                <i class="bi" :class="vkTokenVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
-                            </button>
-                        </div>
+                            <div class="item-input-wrapper">
+                                <input :type="vkTokenVisible ? 'text' : 'password'" class="item-input" id="vk-token-input" placeholder=" " v-model="credentials.vk.token">
+                                <label for="vk-token-input">Access Token</label>
+                                <button class="password-toggle-btn" @click="togglePasswordVisibility('vk')" :title="vkTokenVisible ? 'Скрыть' : 'Показать'">
+                                    <i class="bi" :class="vkTokenVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
+                                </button>
+                            </div>
+                            </div>
                     </constructor-group>
                     <small class="form-text text-muted mt-2 d-block">
                         Необходим для поиска видео через официальный API VK.

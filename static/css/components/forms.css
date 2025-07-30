@@ -1,164 +1,16 @@
 /* ==================================================================== */
-/* Базовые стили для элементов форм                                    */
+/* Базовые стили для элементов форм (Очищенная версия)                 */
 /* ==================================================================== */
+
+/* Все стили для .modern-input, .modern-label, .modern-select, 
+   .modern-input-group и .modern-form-group были удалены, 
+   так как их заменили компоненты конструктора.
+   Остались только стили для переключателей (.modern-form-check).
+*/
 
 .settings-tab-content {
     padding: 0;
 }
-
-.modern-form-group {
-    margin-bottom: 20px;
-}
-
-.modern-form-group:last-child {
-    margin-bottom: 0;
-}
-
-.modern-label {
-    display: flex;
-    align-items: center;
-    margin-bottom: 8px;
-    font-weight: 500;
-    color: var(--text-color);
-    font-size: 14px;
-}
-
-.modern-input {
-    width: 100%;
-    padding: 12px 16px;
-    border: 2px solid var(--border-color);
-    border-radius: 8px;
-    font-size: 14px;
-    transition: all 0.3s ease;
-    background: var(--bg-white);
-    color: var(--text-color);
-}
-
-textarea.modern-input {
-    resize: vertical;
-}
-
-.modern-input:focus {
-    outline: none;
-    border-color: var(--border-color-focus);
-    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
-    background: var(--bg-white);
-}
-
-.modern-input.is-invalid {
-    border-color: #dc3545;
-    padding-right: calc(1.5em + 0.75rem);
-    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 12 12' width='12' height='12' fill='none' stroke='%23dc3545'%3e%3ccircle cx='6' cy='6' r='4.5'/%3e%3cpath stroke-linejoin='round' d='M5.8 3.6h.4L6 6.5z'/%3e%3ccircle cx='6' cy='8.2' r='.6' fill='%23dc3545' stroke='none'/%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right calc(0.375em + 0.1875rem) center;
-    background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
-    box-shadow: 0 0 0 3px rgba(220, 53, 69, 0.1);
-}
-
-.modern-input.is-valid {
-    border-color: #198754;
-    padding-right: calc(1.5em + 0.75rem);
-    background-image: url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' viewBox='0 0 8 8'%3e%3cpath fill='%23198754' d='M2.3 6.73L.6 4.53c-.4-1.04.46-1.4 1.1-.8l1.1 1.4 3.4-3.8c.6-.63 1.6-.27 1.2.7l-4 4.6c-.43.5-.8.4-1.1.1z'/%3e%3c/svg%3e");
-    background-repeat: no-repeat;
-    background-position: right calc(0.375em + 0.1875rem) center;
-    background-size: calc(0.75em + 0.375rem) calc(0.75em + 0.375rem);
-    box-shadow: 0 0 0 3px rgba(25, 135, 84, 0.1);
-}
-
-.modern-input::placeholder {
-    color: #adb5bd;
-}
-
-.invalid-feedback {
-    color: #dc3545;
-    font-size: 12px;
-    margin-top: 4px;
-    display: block;
-}
-
-.modern-input-group {
-    display: flex;
-    border-radius: 8px;
-    overflow: hidden;
-/*    border: 2px solid var(--border-color);*/
-    transition: all 0.3s ease;
-    position: relative; /* 1. Делаем группу-обертку контейнером для позиционирования */
-}
-
-.modern-input-group:focus-within {
-    border-color: var(--border-color-focus);
-    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
-}
-
-.modern-input-group .modern-input {
-    border: none;
-    border-radius: 0;
-    flex: 1;
-}
-
-.modern-input-group .modern-input:focus {
-    box-shadow: none;
-}
-
-.modern-input-group .btn {
-    border-radius: 0;
-    border-left: 1px solid var(--border-color);
-    min-height: auto;
-    padding: 8px 12px;
-}
-
-.modern-input-group .modern-symbol-btn {
-    border-radius: 0;
-    box-shadow: none;
-    border-left: 1px solid var(--border-color);
-    height: auto;
-}
-
-.modern-input-group .input-group-text {
-    background: var(--bg-light);
-    border: none;
-    color: var(--text-muted);
-    padding: 12px 16px;
-    display: flex;
-    align-items: center;
-}
-
-.modern-input-group-divider {
-    width: 1px;
-    background: var(--border-color);
-    flex-shrink: 0;
-}
-
-/* Селекты */
-.modern-select {
-    width: 100%;
-    padding: 12px 16px;
-    border: 2px solid var(--border-color);
-    border-radius: 8px;
-    font-size: 14px;
-    transition: all 0.3s ease;
-    background: var(--bg-white) url("data:image/svg+xml,%3csvg xmlns='http://www.w3.org/2000/svg' fill='none' viewBox='0 0 20 20'%3e%3cpath stroke='%236b7280' stroke-linecap='round' stroke-linejoin='round' stroke-width='1.5' d='m6 8 4 4 4-4'/%3e%3c/svg%3e") no-repeat right 8px center/16px 16px;
-    color: var(--text-color);
-    appearance: none;
-    cursor: pointer;
-}
-
-.modern-select:focus {
-    outline: none;
-    border-color: var(--border-color-focus);
-    box-shadow: 0 0 0 3px rgba(0, 123, 255, 0.1);
-}
-
-.modern-input-group .modern-select {
-    border: none;
-    border-radius: 0;
-    flex: 1;
-}
-
-.modern-input-group .modern-select:focus {
-    box-shadow: none;
-}
-
 
 /* Чекбоксы и переключатели */
 .modern-form-check {
@@ -197,25 +49,4 @@ textarea.modern-input {
     color: var(--text-color);
     cursor: pointer;
     line-height: 1.4;
-}
-
-/* 2. Позиционируем кнопку абсолютно внутри группы.
-   Используем специфичный селектор для прозрачной кнопки, чтобы не затронуть другие. */
-.modern-input-group > .btn[class*="bg-transparent"] {
-    position: absolute;
-    right: 1px;
-    top: 50%;
-    transform: translateY(-50%);
-    height: calc(100% - 4px); /* Высота с небольшим отступом */
-    width: 40px;
-    z-index: 5;
-    margin-left: 0 !important; /* Отменяем инлайновый стиль, который ломает позиционирование */
-    border: none;
-    border-radius: 8px;
-}
-
-/* 3. Добавляем отступ справа ТОЛЬКО в те поля ввода, за которыми идет наша кнопка.
-   Это предотвратит добавление лишнего отступа к другим полям в группе. */
-.modern-input-group > .modern-input:has(+ .btn[class*="bg-transparent"]) {
-    padding-right: 48px;
 }

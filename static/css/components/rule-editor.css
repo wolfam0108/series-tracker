@@ -2,10 +2,21 @@
 /* Стили для конструктора правил парсера (Rule Editor)                 */
 /* ==================================================================== */
 
-.modern-input-group .pattern-constructor {
-    border: none;
-    flex-grow: 1;
-    border-radius: 0;
+.input-constructor-group.group-auto-height {
+    height: auto;
+    min-height: 64px;
+    align-items: stretch;
+}
+
+.pattern-constructor {
+    flex: 1 1 auto;
+    border: none; /* Убираем собственную рамку */
+    border-radius: 6px;
+    padding: 0.5rem;
+    background-color: #fff;
+    display: flex;
+    flex-direction: column;
+    height: 100%;
 }
 
 .rule-card {
@@ -99,7 +110,6 @@
 
 .pattern-constructor {
     flex: 1 1 auto;
-    border: 1px solid #ced4da;
     border-radius: 6px;
     padding: 0.5rem;
     background-color: #fff;
@@ -287,4 +297,33 @@
 .pattern-block .operation-value:focus {
     background-color: #fff;
     box-shadow: 0 0 0 2px var(--border-color-focus);
+}
+.label-if, .label-then {
+    font-size: 1.1rem !important;
+    font-weight: 600 !important;
+    border-radius: 6px !important;
+}
+
+.label-if {
+    color: #0d6efd !important;
+    background-color: #cfe2ff !important;
+}
+
+.label-then {
+    color: #198754 !important;
+    background-color: #d1e7dd !important;
+}
+/* --- КОНЕЦ ИЗМЕНЕНИЙ --- */
+
+.item-pattern-editor {
+    /* Занимает всё доступное место по горизонтали */
+    flex-grow: 1; 
+
+    /* ВАЖНО: Вместо min-width мы явно ограничиваем ширину, чтобы
+       гарантированно заставить контент переноситься. 
+       52px = 50px (ширина кнопки) + 2px (отступ). */
+    width: calc(100% - 52px); 
+
+    /* Растягивает дочерний .pattern-constructor на всю высоту */
+    align-items: stretch; 
 }

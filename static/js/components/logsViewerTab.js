@@ -1,27 +1,24 @@
 const LogsViewerTab = {
 template: `
     <div class="d-flex flex-column h-100">
-        <div class="row mb-3">
+                <div class="row mb-3">
             <div class="col-md-4">
-                <label for="logGroupFilter" class="modern-label">Фильтр по группе</label>
-                <select v-model="logFilter.group" class="modern-select" @change="loadLogs">
-                    <option value="">Все группы</option>
-                    <option v-for="group in logGroups" :key="group" :value="group">{{ group }}</option>
-                </select>
+                <constructor-group>
+                    <div class="constructor-item item-label-icon" title="Фильтр по группе"><i class="bi bi-folder2-open"></i></div>
+                    <constructor-item-select :options="groupOptions" v-model="logFilter.group" @update:modelValue="loadLogs"></constructor-item-select>
+                </constructor-group>
             </div>
             <div class="col-md-4">
-                <label for="logLevelFilter" class="modern-label">Фильтр по уровню</label>
-                <select v-model="logFilter.level" class="modern-select" @change="loadLogs">
-                    <option value="">Все уровни</option>
-                    <option value="INFO">INFO</option>
-                    <option value="DEBUG">DEBUG</option>
-                    <option value="WARNING">WARNING</option>
-                    <option value="ERROR">ERROR</option>
-                </select>
+                <constructor-group>
+                    <div class="constructor-item item-label-icon" title="Фильтр по уровню"><i class="bi bi-bar-chart-steps"></i></div>
+                    <constructor-item-select :options="levelOptions" v-model="logFilter.level" @update:modelValue="loadLogs"></constructor-item-select>
+                </constructor-group>
             </div>
             <div class="col-md-4">
-                <label for="logLimitInput" class="modern-label">Лимит записей</label>
-                <input type="number" id="logLimitInput" v-model.lazy="logLimit" @change="saveLogLimit" class="modern-input" min="100" max="10000" step="100">
+                <constructor-group>
+                    <div class="constructor-item item-label-icon" title="Лимит записей"><i class="bi bi-list-ol"></i></div>
+                    <input type="text" inputmode="numeric" class="constructor-item item-input" :value="logLimit" @input="handleNumericInput($event, 'logLimit')" @change="saveLogLimit">
+                </constructor-group>
             </div>
         </div>
         
@@ -78,11 +75,35 @@ template: `
   },
   emits: ['show-toast'],
   computed: {
+    // --- НАЧАЛО ИЗМЕНЕНИЙ: Замените старый computed на этот блок ---
     paginatedLogs() {
         return this.logs.slice(0, this.logLimit);
     },
+    groupOptions() {
+        const options = this.logGroups.map(g => ({ text: g, value: g }));
+        return [{ text: 'Все группы', value: '' }, ...options];
+    },
+    levelOptions() {
+        return [
+            { text: 'Все уровни', value: '' },
+            { text: 'INFO', value: 'INFO' },
+            { text: 'DEBUG', value: 'DEBUG' },
+            { text: 'WARNING', value: 'WARNING' },
+            { text: 'ERROR', value: 'ERROR' }
+        ];
+    }
+    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
   },
   methods: {
+    handleNumericInput(event, modelKey) {
+        const sanitizedValue = event.target.value.replace(/[^0-9]/g, '');
+        this[modelKey] = sanitizedValue ? parseInt(sanitizedValue, 10) : null;
+        this.$nextTick(() => {
+            if (event.target.value !== sanitizedValue) {
+                event.target.value = sanitizedValue;
+            }
+        });
+    },
     async load() {
         this.isLoading = true;
         this.loadLogLimitFromStorage();

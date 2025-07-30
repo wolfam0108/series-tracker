@@ -13,12 +13,12 @@ const SettingsNamingSeasonTab = {
                 
                 <div class="field-group">
                     <constructor-group>
-                        <div class="constructor-item item-label item-label-icon" title="Имя паттерна"><i class="bi bi-tag-fill"></i></div>
+                        <div class="constructor-item item-label-icon" title="Имя паттерна"><i class="bi bi-tag-fill"></i></div>
                         <div class="constructor-item item-floating-label">
                             <input type="text" class="item-input" id="season-pattern-name" placeholder=" " v-model.trim="newPattern.name">
                             <label for="season-pattern-name">Имя паттерна</label>
                         </div>
-                        <div class="constructor-item item-label item-label-icon" title="Паттерн"><i class="bi bi-diagram-3"></i></div>
+                        <div class="constructor-item item-label-icon" title="Паттерн"><i class="bi bi-diagram-3"></i></div>
                         <div class="constructor-item item-floating-label">
                             <input type="text" class="item-input" id="season-pattern-value" placeholder=" " v-model.trim="newPattern.pattern" ref="patternInput" @keyup.enter="addPattern">
                             <label for="season-pattern-value">Паттерн, напр: * сезон X *</label>
@@ -64,7 +64,7 @@ const SettingsNamingSeasonTab = {
             <div class="fieldset-content">
                 <div class="field-group">
                     <constructor-group>
-                        <div class="constructor-item item-label item-label-icon" title="Имя файла"><i class="bi bi-file-earmark-text"></i></div>
+                        <div class="constructor-item item-label-icon" title="Имя файла"><i class="bi bi-file-earmark-text"></i></div>
                         <input type="text" class="constructor-item item-input" placeholder="Введите имя файла для теста..." v-model="testData.filename" @keyup.enter="testPatterns">
                         <div class="constructor-item item-button-group">
                             <button class="btn-icon btn-search btn-text-icon" @click="testPatterns" :disabled="!testData.filename">

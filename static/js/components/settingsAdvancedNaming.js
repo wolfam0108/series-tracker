@@ -19,7 +19,7 @@ const SettingsAdvancedNamingTab = {
                         <div class="field-group">
                             <label class="modern-label">Имя правила</label>
                             <constructor-group :class="validationClasses.name">
-                                <div class="constructor-item item-label item-label-icon" title="Имя правила"><i class="bi bi-tag-fill"></i></div>
+                                <div class="constructor-item item-label-icon" title="Имя правила"><i class="bi bi-tag-fill"></i></div>
                                 <input type="text" class="constructor-item item-input" placeholder="Напр: Исправить нумерацию" v-model.trim="newPattern.name">
                             </constructor-group>
                         </div>
@@ -28,7 +28,7 @@ const SettingsAdvancedNamingTab = {
                         <div class="field-group">
                             <label class="modern-label">1. Поиск файла (фильтр, поддерживает *)</label>
                             <constructor-group :class="validationClasses.file_filter">
-                                <div class="constructor-item item-label item-label-icon" title="Фильтр файла"><i class="bi bi-files"></i></div>
+                                <div class="constructor-item item-label-icon" title="Фильтр файла"><i class="bi bi-files"></i></div>
                                 <input type="text" class="constructor-item item-input" placeholder="*S01E155*" v-model.trim="newPattern.file_filter" ref="fileFilterInput">
                                 <div class="constructor-item item-button-group">
                                     <button class="btn-icon btn-settings" @click="insertSymbol('file_filter', '*')" title="Вставить '*'">*</button>
@@ -42,7 +42,7 @@ const SettingsAdvancedNamingTab = {
                         <div class="field-group">
                             <label class="modern-label">2. Область поиска паттерна (с X для числа)</label>
                             <constructor-group :class="validationClasses.pattern_search">
-                                <div class="constructor-item item-label item-label-icon" title="Область поиска"><i class="bi bi-search"></i></div>
+                                <div class="constructor-item item-label-icon" title="Область поиска"><i class="bi bi-search"></i></div>
                                 <input type="text" class="constructor-item item-input" placeholder="*-PX" v-model.trim="newPattern.pattern_search" ref="patternSearchInput">
                                 <div class="constructor-item item-button-group">
                                     <button class="btn-icon btn-settings" @click="insertSymbol('pattern_search', 'X')" title="Вставить 'X'">X</button>
@@ -55,7 +55,7 @@ const SettingsAdvancedNamingTab = {
                         <div class="field-group">
                             <label class="modern-label">3. Заменяемая область (с Y для символа)</label>
                              <constructor-group :class="validationClasses.area_to_replace">
-                                <div class="constructor-item item-label item-label-icon" title="Заменяемая область"><i class="bi bi-back"></i></div>
+                                <div class="constructor-item item-label-icon" title="Заменяемая область"><i class="bi bi-back"></i></div>
                                 <input type="text" class="constructor-item item-input" placeholder="S01E155 или S02SYY" v-model.trim="newPattern.area_to_replace" ref="areaToReplaceInput">
                                 <div class="constructor-item item-button-group">
                                     <button class="btn-icon btn-settings" @click="insertSymbol('area_to_replace', 'Y')" title="Вставить 'Y'">Y</button>
@@ -69,7 +69,7 @@ const SettingsAdvancedNamingTab = {
                         <div class="field-group">
                             <label class="modern-label">4. Замена (шаблон с X для вставки)</label>
                              <constructor-group :class="validationClasses.replacement_template">
-                                <div class="constructor-item item-label item-label-icon" title="Шаблон замены"><i class="bi bi-pencil-square"></i></div>
+                                <div class="constructor-item item-label-icon" title="Шаблон замены"><i class="bi bi-pencil-square"></i></div>
                                 <input type="text" class="constructor-item item-input" placeholder="s00eXX" v-model.trim="newPattern.replacement_template" ref="replacementTemplateInput">
                                 <div class="constructor-item item-button-group">
                                     <button class="btn-icon btn-settings" @click="insertSymbol('replacement_template', 'X')" title="Вставить 'X'">X</button>
@@ -81,7 +81,7 @@ const SettingsAdvancedNamingTab = {
                         <div class="field-group">
                             <label class="modern-label">5. Арифметика (+/- число, необязательно)</label>
                             <constructor-group>
-                                <div class="constructor-item item-label item-label-icon" title="Арифметическая операция"><i class="bi bi-calculator"></i></div>
+                                <div class="constructor-item item-label-icon" title="Арифметическая операция"><i class="bi bi-calculator"></i></div>
                                 <input type="text" class="constructor-item item-input" placeholder="Напр: +155 или -1" v-model="newPattern.arithmetic_op" ref="arithmeticOpInput">
                                 <div class="constructor-item item-button-group">
                                     <button class="btn-icon btn-settings" @click="insertSymbol('arithmetic_op', '+')" title="Вставить '+'">+</button>
@@ -154,7 +154,7 @@ const SettingsAdvancedNamingTab = {
                 <p class="text-muted small mb-3">Проверяет введенное имя файла по всем <b>активным</b> правилам из списка выше.</p>
                 <div class="field-group">
                     <constructor-group>
-                        <div class="constructor-item item-label item-label-icon" title="Имя файла"><i class="bi bi-file-earmark-text"></i></div>
+                        <div class="constructor-item item-label-icon" title="Имя файла"><i class="bi bi-file-earmark-text"></i></div>
                         <input type="text" class="constructor-item item-input" placeholder="Введите имя файла для теста" v-model="testData.filename">
                         <div class="constructor-item item-button-group">
                             <button class="btn-icon btn-search btn-text-icon" @click="testAllPatterns" :disabled="!testData.filename">
