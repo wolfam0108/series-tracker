@@ -44,6 +44,11 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
             app.logger.error("scanner", f"Ошибка сканирования: Сериал с ID {series_id} не найден.")
             return {"success": False, "error": "Сериал не найден"}
 
+        if series.get('source_type') == 'torrent' and not series.get('parser_profile_id'):
+            error_msg = f"Сканирование прервано: для торрент-сериала '{series.get('name')}' не назначен профиль правил."
+            app.logger.error("scanner", error_msg)
+            return {"success": False, "error": error_msg}
+
         status_manager.set_status(series_id, 'scanning', True)
 
         try:
@@ -114,10 +119,9 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                         else:
                             extracted_data['episode'] = item.get('episode_start')
                         
-                        temp_data_for_formatter = {'result': {'extracted': extracted_data}}
-                        
-                        final_filename = formatter.format_filename(series, temp_data_for_formatter)
+                        final_filename = formatter.format_filename(series, extracted_data)
                         save_path = os.path.join(series['save_path'], final_filename)
+                        
                         
                         task_data = {
                             "unique_id": item['unique_id'],
@@ -267,12 +271,14 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                     
                     existing_db_entry = next((t for t in app.db.get_torrents(series_id) if t['torrent_id'] == site_torrent['torrent_id']), None)
                     if existing_db_entry:
-                        app.db.update_torrent_by_id(existing_db_entry['id'], {'is_active': False, 'qb_hash': new_hash})
+                        # Обновляем существующую запись, делая её активной
+                        app.db.update_torrent_by_id(existing_db_entry['id'], {'is_active': True, 'qb_hash': new_hash})
                     else:
-                        app.db.add_torrent(series_id, site_torrent, is_active=False, qb_hash=new_hash)
+                        # Добавляем новый торрент, и он ОБЯЗАТЕЛЬНО должен быть активным
+                        app.db.add_torrent(series_id, site_torrent, is_active=True, qb_hash=new_hash)
 
                     if old_torrent_to_replace:
-                        app.db.update_torrent_by_id(old_torrent_to_replace['id'], {'is_active': False})
+                        app.db.deactivate_torrent_and_clear_files(old_torrent_to_replace['id'])
                         qb_client.delete_torrents([old_torrent_to_replace['qb_hash']], delete_files=False)
 
                     app.agent.add_task(

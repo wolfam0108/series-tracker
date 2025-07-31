@@ -50,3 +50,23 @@
     cursor: pointer;
     line-height: 1.4;
 }
+
+.modern-input {
+    display: block;
+    width: 100%;
+    padding: 0.75rem 1rem;
+    font-size: 1rem;
+    font-weight: 400;
+    line-height: 1.5;
+    color: var(--color-text);
+    background-color: #fff;
+    border: var(--border-width) solid var(--color-gray-200);
+    border-radius: var(--border-radius);
+    transition: border-color 0.2s ease, box-shadow 0.2s ease;
+}
+
+.modern-input:focus {
+    outline: 0;
+    border-color: var(--color-blue);
+    box-shadow: 0 0 0 3px rgba(13, 110, 253, 0.25);
+}

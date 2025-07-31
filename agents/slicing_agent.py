@@ -68,7 +68,12 @@ class SlicingAgent(threading.Thread):
                 
                 for i, chapter in enumerate(chapters):
                     episode_number = media_item['episode_start'] + i
-                    temp_media_item_data = { 'result': { 'extracted': { 'season': media_item['season'], 'episode': episode_number } } }
+
+                    # Создаем "плоский" словарь с метаданными
+                    metadata = {
+                        'season': media_item.get('season'),
+                        'episode': episode_number
+                    }
                     expected_filename = formatter.format_filename(series, temp_media_item_data)
                     expected_path = os.path.join(os.path.dirname(source_file), expected_filename)
                     if os.path.exists(expected_path):

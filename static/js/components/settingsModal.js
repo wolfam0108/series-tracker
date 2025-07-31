@@ -1,7 +1,6 @@
 const SettingsModal = {
   components: {
     'settings-auth-tab': SettingsAuthTab,
-    'settings-naming-tab': SettingsNamingTab,
     'settings-agents-tab': SettingsAgentsTab,
     'settings-debug-tab': SettingsDebugTab,
     'settings-parser-tab': SettingsParserTab,

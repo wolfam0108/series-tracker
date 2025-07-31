@@ -1,6 +1,7 @@
 const SeriesCompositionManager = {
   props: {
     seriesId: { type: Number, required: true },
+    series: { type: Object, required: true },
     isActive: { type: Boolean, default: false },
   },
   template: `
@@ -107,36 +108,38 @@ const SeriesCompositionManager = {
                     <transition-group name="list" tag="div" class="composition-cards-container">
                         <div v-for="item in filteredGroupedItems[seasonNumber]" :key="item.unique_id">
                             
-                            <div v-if="item.type === 'compilation'"
+                            <div v-if="item.type === 'compilation' && !(item.slicing_status === 'completed' && item.is_ignored_by_user)"
                                  class="test-result-card-compact"
                                  :class="getCardClass(item)">
                                 
                                 <div class="card-line">
-                                    <div class="d-flex align-items-center gap-2">
-                                        <strong class="card-title" :title="item.source_data.title">{{ item.source_data.title }}</strong>
-                                        <div v-if="item.source_data.resolution" class="quality-badge ms-auto">
-                                            <span>{{ formatResolution(item.source_data.resolution).text }}</span>
+                                    <strong class="card-title" style="font-size: 16px;">{{ series.name }} {{ formatEpisode(item) }}</strong>
+                                    
+                                    <div class="d-flex align-items-center">
+                                        <div v-if="item.source_data.resolution" class="quality-badge me-2">
+                                            <span>{{ item.source_data.resolution }}p</span>
+                                        </div>
+                                        <div class="modern-form-check form-switch m-0" :title="item.is_ignored_by_user ? 'Снова включить в план' : 'Исключить из плана'">
+                                            <input 
+                                                class="form-check-input" 
+                                                type="checkbox" 
+                                                role="switch" 
+                                                :id="'ignore-switch-' + item.unique_id"
+                                                :checked="!item.is_ignored_by_user"
+                                                @change="toggleItemIgnored(item)">
                                         </div>
                                     </div>
-                                    <div class="form-check form-switch">
-                                        <input class="form-check-input" type="checkbox" role="switch"
-                                               :id="'check-' + item.unique_id"
-                                               :checked="isItemInPlan(item)"
-                                               :disabled="isSeasonIgnored(seasonNumber) || item.is_ignored_by_user || item.slicing_status === 'completed'"
-                                               @change="toggleItemIgnored(item)">
-                                        <label class="form-check-label" :for="'check-' + item.unique_id"></label>
-                                    </div>
                                 </div>
+
                                 <div class="card-line text-muted small">
-                                    <span class="card-url" :title="item.source_data.url">{{ item.source_data.url }}</span>
-                                    <span>{{ formatDate(item.source_data.publication_date) }}</span>
+                                    <span><strong>Файл:</strong> {{ item.final_filename || 'Ожидает загрузки' }}</span>
                                 </div>
+
                                 <div class="card-line small">
-                                    <span class="card-episode-info">
-                                        <i class="bi me-1" :class="formatItemType(item).icon"></i>
-                                        {{ formatEpisode(item) }} ({{ getVoiceoverTag(item) }})
-                                    </span>
-                                    <span class="card-rule-name" :title="item.unique_id">{{ item.unique_id }}</span>
+                                    <span>Качество: <strong>{{ item.source_data.resolution ? item.source_data.resolution + 'p' : 'N/A' }}</strong></span>
+                                    <span>Тег: <strong>{{ getVoiceoverTag(item) }}</strong></span>
+                                    <span>Статус: <strong>{{ item.status }}</strong></span>
+                                    <span class="card-rule-name" :title="item.unique_id">ID: {{ item.unique_id.substring(0, 8) }}</span>
                                 </div>
                             </div>
 
@@ -466,25 +469,31 @@ const SeriesCompositionManager = {
         return plannedStatuses.includes(item.plan_status);
     },
     getCardClass(item) {
+        // ПРИОРИТЕТ №1: Если нарезка завершена, карточка всегда серая ("архивная").
         if (item.slicing_status === 'completed') {
-            return 'archived';
-        }
-        
-        const season = item.season ?? item.result?.extracted?.season ?? 1;
-        if (item.is_ignored_by_user || this.isSeasonIgnored(season)) {
             return 'no-match';
+        }
+
+        // Остальная логика остается без изменений
+        if (item.status === 'error') {
+            return 'pending'; // Желтый для ошибки
+        }
+        if (item.is_ignored_by_user || this.isSeasonIgnored(item.season ?? item.result?.extracted?.season ?? 1)) {
+            return 'no-match'; // Серый для игнорируемых вручную
         }
 
         const isPlanned = ['in_plan_single', 'in_plan_compilation'].includes(item.plan_status);
 
         if (isPlanned) {
             if (item.status === 'completed') {
-                return 'success';
+                return 'success'; // Зеленый для скачанных, но еще НЕ НАРЕЗАННЫХ
             }
-            return 'pending';
-        } else {
-            return 'no-match';
+            // Для статусов pending и downloading
+            return 'pending'; 
         }
+
+        // Все остальное (redundant, discarded, и т.д.) будет серым
+        return 'no-match';
     },
     getSeasonTitle(seasonNumber) {
         if (seasonNumber === 'undefined') return 'Не определено';

@@ -1,16 +1,18 @@
 import threading
 import time
 import json
+import os
 from flask import Flask, current_app as app
 from db import Database
 from logger import Logger
 from qbittorrent import QBittorrentClient
-from renamer import Renamer
 from auth import AuthManager
 from sse import ServerSentEvent
 from scanner import perform_series_scan
 from datetime import datetime, timezone
 from status_manager import StatusManager
+from rule_engine import RuleEngine
+from filename_formatter import FilenameFormatter
 
 class Agent(threading.Thread):
     def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent, status_manager: StatusManager):
@@ -25,6 +27,7 @@ class Agent(threading.Thread):
         self.lock = threading.RLock()
         self.shutdown_flag = threading.Event()
         self.RECONNECT_DELAY = 10 
+        self.qb_client = None
 
         self.POST_RECHECK_TARGET_STATES = {
             'queuedUP', 'queuedDL', 'stalledUP', 'stalledDL', 
@@ -68,12 +71,9 @@ class Agent(threading.Thread):
                 'last_logged_str': '',
                 'recheck_initiated': False
             }
-            # Шаг 1: Обновляем таблицу задач
             self.db.add_or_update_agent_task(db_task_data)
-            
             self.logger.info("agent", f"Новая задача добавлена для хеша {torrent_hash[:8]} на стадии '{initial_stage}'.")
             
-            # Шаг 2: Просим StatusManager синхронизировать статусы
             self.status_manager.sync_agent_statuses(series_id)
             self._broadcast_queue_update()
 
@@ -98,8 +98,91 @@ class Agent(threading.Thread):
 
             self.logger.info("agent", "Очередь обработки агента и таблица в БД были очищены.")
             self._broadcast_queue_update()
+    
+    def reprocess_and_rename_files_for_series(self, series_id: int):
+        """
+        Централизованная функция для переобработки и переименования файлов
+        для всех торрентов указанного сериала.
+        """
+        with self.app.app_context():
+            self.logger.info("agent", f"Запуск переобработки файлов для series_id: {series_id}")
+            series = self.db.get_series(series_id)
+            if not series:
+                self.logger.error("agent", f"Сериал с ID {series_id} не найден. Переобработка отменена.")
+                return
 
-    def _process_task_update(self, torrent_hash, qb_client, renamer):
+            profile_id = series.get('parser_profile_id')
+            if not profile_id:
+                self.logger.warning("agent", f"Для сериала ID {series_id} не назначен профиль правил. Переобработка отменена.")
+                return
+
+            engine = RuleEngine(self.db, self.logger)
+            formatter = FilenameFormatter(self.logger)
+
+            active_torrents = self.db.get_torrents(series_id, is_active=True)
+            for torrent_db_entry in active_torrents:
+                qb_hash = torrent_db_entry.get('qb_hash')
+                if not qb_hash: continue
+
+                self.logger.info("agent", f"Обработка торрента {qb_hash[:8]} для сериала {series_id}")
+                current_files_in_qbit = self.qb_client.get_torrent_files_by_hash(qb_hash)
+                if not current_files_in_qbit: continue
+
+                files_in_db = self.db.get_torrent_files_for_torrent(torrent_db_entry['id'])
+                db_file_map = {(f.get('renamed_path') or f['original_path']): f for f in files_in_db}
+
+                files_to_save_in_db = []
+                video_extensions = ['.mkv', '.avi', '.mp4', '.mov', '.wmv', '.webm']
+
+                for current_path_from_qbit in current_files_in_qbit:
+                    if not any(current_path_from_qbit.lower().endswith(ext) for ext in video_extensions):
+                        continue
+
+                    db_record = db_file_map.get(current_path_from_qbit)
+                    final_renamed_path = None
+
+                    # Определяем "источник правды" для оригинального пути
+                    source_of_truth_original_path = db_record['original_path'] if db_record else current_path_from_qbit
+
+                    basename_for_rules = os.path.basename(source_of_truth_original_path)
+                    processed_result = engine.process_videos(profile_id, [{'title': basename_for_rules}])[0]
+                    extracted_data = processed_result.get('result', {}).get('extracted', {})
+
+                    has_episode = extracted_data.get('episode') is not None or extracted_data.get('start') is not None
+                    has_season = bool(series.get('season')) or (extracted_data.get('season') is not None)
+                    has_essentials = has_episode and has_season
+
+                    file_status = 'pending_rename' if has_essentials else 'skipped'
+
+                    if file_status == 'pending_rename':
+                        target_new_path = formatter.format_filename(series, extracted_data, source_of_truth_original_path)
+
+                        if current_path_from_qbit != target_new_path:
+                            self.logger.info("agent", f"Переименование: '{current_path_from_qbit}' -> '{target_new_path}'")
+                            success = self.qb_client.rename_file(qb_hash, current_path_from_qbit, target_new_path)
+                            if success:
+                                file_status = 'renamed'
+                                final_renamed_path = target_new_path
+                            else:
+                                file_status = 'rename_error'
+                        else:
+                            file_status = 'renamed'
+                            final_renamed_path = current_path_from_qbit
+
+                    db_payload = {
+                        "original_path": source_of_truth_original_path,
+                        "renamed_path": final_renamed_path,
+                        "status": file_status,
+                        "extracted_metadata": json.dumps(extracted_data)
+                    }
+                    files_to_save_in_db.append(db_payload)
+
+                if files_to_save_in_db:
+                    self.db.add_or_update_torrent_files(torrent_db_entry['id'], files_to_save_in_db)
+
+            self.logger.info("agent", f"Переобработка файлов для series_id {series_id} завершена.")
+
+    def _process_task_update(self, torrent_hash):
         with self.lock:
             task = self.processing_torrents.get(torrent_hash)
             if not task: return
@@ -121,13 +204,13 @@ class Agent(threading.Thread):
 
             if stage == 'awaiting_metadata':
                 self.logger.info("agent", f"[{torrent_hash[:8]}] Снятие с паузы для получения метаданных.")
-                qb_client.resume_torrents([torrent_hash])
+                self.qb_client.resume_torrents([torrent_hash])
                 next_stage = 'polling_for_size'
             
             elif stage == 'polling_for_size':
                 if current_info.get('total_size', 0) > 0:
                     self.logger.info("agent", f"[{torrent_hash[:8]}] Метаданные получены. Постановка на паузу.")
-                    qb_client.pause_torrents([torrent_hash])
+                    self.qb_client.pause_torrents([torrent_hash])
                     next_stage = 'awaiting_pause_before_rename'
 
             elif stage == 'awaiting_pause_before_rename':
@@ -138,21 +221,11 @@ class Agent(threading.Thread):
                     next_stage = 'renaming'
                 elif current_state:
                     self.logger.warning("agent", f"[{torrent_hash[:8]}] Торрент в неожиданном состоянии '{current_state}' вместо паузы. Принудительная остановка.")
-                    qb_client.pause_torrents([torrent_hash])
+                    self.qb_client.pause_torrents([torrent_hash])
 
             elif stage == 'renaming':
-                self.logger.info("agent", f"[{torrent_hash[:8]}] Запуск переименования.")
-                series = self.db.get_series(task['series_id'])
-                if not series:
-                    raise Exception(f"Сериал с ID {task['series_id']} не найден для задачи переименования.")
-                files = qb_client.get_torrent_files_by_hash(torrent_hash)
-                if files:
-                    preview = renamer.get_rename_preview(files, series)
-                    for item in preview:
-                        if item.get('renamed') and "Ошибка" not in item.get('renamed') and item.get('original') != item.get('renamed'):
-                            qb_client.rename_file(torrent_hash, item['original'], item['renamed'])
-                
-                time.sleep(1)
+                self.logger.info("agent", f"[{torrent_hash[:8]}] Этап 'renaming'. Запуск централизованной функции переобработки.")
+                self.reprocess_and_rename_files_for_series(task['series_id'])
                 next_stage = 'rechecking'
 
             elif stage == 'rechecking':
@@ -161,7 +234,7 @@ class Agent(threading.Thread):
 
                 if not recheck_initiated:
                     self.logger.info("agent", f"[{torrent_hash[:8]}] Инициация recheck.")
-                    qb_client.recheck_torrents([torrent_hash])
+                    self.qb_client.recheck_torrents([torrent_hash])
                     with self.lock:
                         if self.processing_torrents.get(torrent_hash):
                             self.processing_torrents[torrent_hash]['recheck_initiated'] = True
@@ -179,7 +252,7 @@ class Agent(threading.Thread):
                     task_completed = True
                 elif state in self.ACTIVATING_PAUSED_STATES:
                     self.logger.info("agent", f"[{torrent_hash[:8]}] Торрент на паузе. Запуск и завершение.")
-                    qb_client.resume_torrents([torrent_hash])
+                    self.qb_client.resume_torrents([torrent_hash])
                     task_completed = True
 
             with self.lock, self.app.app_context():
@@ -201,7 +274,6 @@ class Agent(threading.Thread):
                     self.status_manager.sync_agent_statuses(task['series_id'])
                     self._broadcast_queue_update()
                     
-                    # Обновляем связанные записи уже после завершения основной логики
                     self.db.update_series(task['series_id'], {'last_scan_time': datetime.now(timezone.utc)})
                     torrent_entry = self.db.get_torrent_by_hash(torrent_hash)
                     if torrent_entry: self.db.update_torrent_by_id(torrent_entry['id'], {'is_active': True})
@@ -262,7 +334,6 @@ class Agent(threading.Thread):
         self._broadcast_queue_update()
 
     def _recover_scan_tasks_from_db(self):
-        """Восстанавливает прерванные задачи сканирования."""
         self.logger.info("agent", "Запуск восстановления незавершенных ЗАДАЧ СКАНИРОВАНИЯ из БД.")
         incomplete_scans = self.db.get_incomplete_scan_tasks()
         if not incomplete_scans:
@@ -284,7 +355,6 @@ class Agent(threading.Thread):
                 self.logger.error("agent", f"Критическая ошибка при восстановлении ScanTask ID {task['id']}: {e}", exc_info=True)
 
     def _recover_tasks(self, qb_client):
-        """Запускает все процедуры восстановления при старте."""
         self.logger.info("agent", "--- НАЧАЛО ПРОЦЕДУРЫ ВОССТАНОВЛЕНИЯ ---")
         self._recover_scan_tasks_from_db()
         self._recover_agent_tasks_from_db(qb_client)
@@ -297,31 +367,24 @@ class Agent(threading.Thread):
         
         with self.app.app_context():
             auth_manager = AuthManager(self.db, self.logger)
-            qb_client = QBittorrentClient(auth_manager, self.db, self.logger)
-            renamer = Renamer(self.logger, self.db)
-            self._recover_tasks(qb_client)
+            self.qb_client = QBittorrentClient(auth_manager, self.db, self.logger)
+            self._recover_tasks(self.qb_client)
 
         self.logger.info("agent", "Переход в штатный режим Long-Polling.")
         while not self.shutdown_flag.is_set():
             with self.app.app_context():
-                # Логика выполняется, только если в очереди есть задачи.
                 if self.processing_torrents:
-                    # Это блокирующий сетевой запрос, который ждет обновлений от qBittorrent.
-                    # Он сам по себе является основной "паузой" в цикле.
-                    updates = qb_client.sync_main_data(rid)
+                    updates = self.qb_client.sync_main_data(rid)
 
-                    # Проверяем флаг сразу после возврата из долгого запроса
                     if self.shutdown_flag.is_set(): 
                         break
                     
                     if updates is None:
                         self.logger.warning("agent", "Ошибка или таймаут long-polling, повторная попытка.")
-                        # Вносим паузу только в случае сетевой ошибки, чтобы не спамить запросами.
                         time.sleep(self.RECONNECT_DELAY) 
                         rid = 0
                         continue
 
-                    # Обработка полученных обновлений
                     rid = updates.get('server_state', {}).get('rid', rid)
                     updated_torrents = updates.get('torrents', {})
                     
@@ -331,21 +394,18 @@ class Agent(threading.Thread):
                              if h in updated_torrents:
                                 with self.lock:
                                     if self.processing_torrents.get(h): self.processing_torrents[h]['last_info'].update(updated_torrents[h])
-                                self._process_task_update(h, qb_client, renamer)
+                                self._process_task_update(h)
                     else:
                         with self.lock: hashes_to_check = [h for h in updated_torrents.keys() if h in self.processing_torrents]
                         for h in hashes_to_check:
                             with self.lock:
                                 if self.processing_torrents.get(h): self.processing_torrents[h]['last_info'].update(updated_torrents[h])
-                            self._process_task_update(h, qb_client, renamer)
+                            self._process_task_update(h)
             
-            # Эта строка КЛЮЧЕВАЯ.
-            # Она создает короткую (1 сек) прерываемую паузу между итерациями цикла.
-            # Это предотвращает 100% нагрузку на CPU, если long-polling по какой-то причине начнет
-            # возвращаться мгновенно, и позволяет грациозно завершить работу.
             self.shutdown_flag.wait(1)
 
         self.logger.info(f"{self.name} был остановлен.")
+    
     def shutdown(self):
         self.logger.info("agent", "Получен сигнал на остановку агента.")
         self.shutdown_flag.set()

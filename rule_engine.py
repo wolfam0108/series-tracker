@@ -97,7 +97,12 @@ class RuleEngine:
                     final_result['extracted']['season'] = int(action_pattern_json)
                 except (ValueError, TypeError):
                     final_result.setdefault('error', []).append(f"Ошибка назначения номера сезона: некорректное значение '{action_pattern_json}'")
-            
+            elif action_type == 'assign_quality':
+                final_result['extracted']['quality'] = action_pattern_json
+            elif action_type == 'assign_resolution':
+                final_result['extracted']['resolution'] = action_pattern_json
+
+                
             # Блок для действий-извлечений (extract) с новой логикой
             else:
                 regex_str = self._build_regex_from_blocks(action_pattern_json, for_extraction=True)

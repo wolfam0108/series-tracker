@@ -3,9 +3,8 @@ const StatusModal = {
       'series-composition-manager': SeriesCompositionManager,
       'chapter-manager': ChapterManager,
       'status-tab-properties': StatusTabProperties,
-      'status-tab-qbit': StatusTabQbit,
-      'status-tab-naming': StatusTabNaming,
       'status-tab-history': StatusTabHistory,
+      'status-tab-torrent-composition': StatusTabTorrentComposition,
   },
   template: `
     <div class="modal fade" ref="statusModal" tabindex="-1" aria-labelledby="statusModalLabel" aria-hidden="true">
@@ -24,11 +23,8 @@ const StatusModal = {
                         <li v-if="series.source_type === 'vk_video'" class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link" data-bs-toggle="tab" data-bs-target="#pane-slicing" type="button" role="tab" @click="setActiveTab('slicing')"><i class="bi bi-scissors me-2"></i>Нарезка</button>
                         </li>
-                        <li v-if="series.source_type !== 'vk_video'" class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" data-bs-toggle="tab" data-bs-target="#pane-qbit" type="button" role="tab" @click="setActiveTab('qbit')"><i class="bi bi-download me-2"></i>Торренты qBit</button>
-                        </li>
-                        <li v-if="series.source_type !== 'vk_video'" class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" data-bs-toggle="tab" data-bs-target="#pane-naming" type="button" role="tab" @click="setActiveTab('naming')"><i class="bi bi-tag me-2"></i>Нейминг</button>
+                        <li v-if="series.source_type === 'torrent'" class="nav-item" role="presentation">
+                            <button class="nav-link modern-tab-link" data-bs-toggle="tab" data-bs-target="#pane-torrent-composition" type="button" role="tab" @click="setActiveTab('torrent-composition')"><i class="bi bi-diagram-3 me-2"></i>Композиция</button>
                         </li>
                         <li class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link" data-bs-toggle="tab" data-bs-target="#pane-history" type="button" role="tab" @click="setActiveTab('history')"><i class="bi bi-clock-history me-2"></i>История</button>
@@ -41,25 +37,20 @@ const StatusModal = {
                     <div v-if="!series.id" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
                     <div v-else class="tab-content modern-tab-content" id="statusTabContent">
                         
-                        <!-- ИЗМЕНЕНИЕ: Добавлен ref="propertiesTab" -->
                         <div class="tab-pane fade show active" id="pane-properties" role="tabpanel">
                             <status-tab-properties ref="propertiesTab" v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'properties'" @show-toast="emitToast" @series-updated="emitSeriesUpdated" />
                         </div>
 
                         <div class="tab-pane fade" id="pane-composition" role="tabpanel">
-                            <series-composition-manager ref="compositionTab" v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'composition'" @show-toast="emitToast" />
+                            <series-composition-manager ref="compositionTab" v-if="seriesId" :series-id="seriesId" :series="series" :is-active="activeTab === 'composition'" @show-toast="emitToast" />
                         </div>
 
                         <div class="tab-pane fade" id="pane-slicing" role="tabpanel">
                             <chapter-manager v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'slicing'" @show-toast="emitToast" />
                         </div>
 
-                        <div class="tab-pane fade" id="pane-qbit" role="tabpanel">
-                             <status-tab-qbit v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'qbit'" @show-toast="emitToast" />
-                        </div>
-
-                        <div class="tab-pane fade" id="pane-namingа" role="tabpanel">
-                            <status-tab-naming v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'naming'" @show-toast="emitToast" />
+                        <div class="tab-pane fade" id="pane-torrent-composition" role="tabpanel">
+                             <status-tab-torrent-composition v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'torrent-composition'" @show-toast="emitToast" />
                         </div>
                         
                         <div class="tab-pane fade" id="pane-history" role="tabpanel">
@@ -67,7 +58,6 @@ const StatusModal = {
                         </div>
                     </div>
                 </div>
-                <!-- ИЗМЕНЕНИЕ: Футер теперь динамический -->
                 <div class="modal-footer modern-footer">
                     <button v-if="activeTab === 'properties'" class="btn btn-primary" @click="saveProperties">
                         <i class="bi bi-check-lg me-2"></i>Сохранить

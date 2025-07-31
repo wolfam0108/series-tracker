@@ -53,34 +53,6 @@ class SeriesStatus(Base):
     
     series = relationship("Series", back_populates="statuses")
 
-class RenamingPattern(Base):
-    __tablename__ = 'renaming_patterns'
-    id = Column(Integer, primary_key=True)
-    name = Column(Text, nullable=False, unique=True)
-    pattern = Column(Text, nullable=False)
-    priority = Column(Integer, default=0, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-
-class SeasonPattern(Base):
-    __tablename__ = 'season_patterns'
-    id = Column(Integer, primary_key=True)
-    name = Column(Text, nullable=False, unique=True)
-    pattern = Column(Text, nullable=False)
-    priority = Column(Integer, default=0, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    
-class AdvancedRenamingPattern(Base):
-    __tablename__ = 'advanced_renaming_patterns'
-    id = Column(Integer, primary_key=True)
-    name = Column(Text, nullable=False, unique=True)
-    file_filter = Column(Text, nullable=False)
-    pattern_search = Column(Text, nullable=False)
-    area_to_replace = Column(Text, nullable=False)
-    replacement_template = Column(Text, nullable=False)
-    arithmetic_op = Column(Integer, nullable=True)
-    priority = Column(Integer, default=0, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-
 class Torrent(Base):
     __tablename__ = 'torrents'
     id = Column(Integer, primary_key=True)
@@ -93,6 +65,7 @@ class Torrent(Base):
     is_active = Column(Boolean, default=True)
     qb_hash = Column(Text)
     series = relationship("Series")
+    files = relationship("TorrentFile", back_populates="torrent", cascade="all, delete-orphan")
 
 class Setting(Base):
     __tablename__ = 'settings'
@@ -106,36 +79,6 @@ class Log(Base):
     group = Column(Text, nullable=False)
     level = Column(Text, nullable=False)
     message = Column(Text, nullable=False)
-
-class QualityPattern(Base):
-    __tablename__ = 'quality_patterns'
-    id = Column(Integer, primary_key=True)
-    standard_value = Column(Text, nullable=False, unique=True)
-    priority = Column(Integer, default=0, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    search_patterns = relationship("QualitySearchPattern", back_populates="quality_pattern", cascade="all, delete-orphan")
-
-class QualitySearchPattern(Base):
-    __tablename__ = 'quality_search_patterns'
-    id = Column(Integer, primary_key=True)
-    quality_pattern_id = Column(Integer, ForeignKey('quality_patterns.id'), nullable=False)
-    pattern = Column(Text, nullable=False)
-    quality_pattern = relationship("QualityPattern", back_populates="search_patterns")
-
-class ResolutionPattern(Base):
-    __tablename__ = 'resolution_patterns'
-    id = Column(Integer, primary_key=True)
-    standard_value = Column(Text, nullable=False, unique=True)
-    priority = Column(Integer, default=0, nullable=False)
-    is_active = Column(Boolean, default=True, nullable=False)
-    search_patterns = relationship("ResolutionSearchPattern", back_populates="resolution_pattern", cascade="all, delete-orphan")
-
-class ResolutionSearchPattern(Base):
-    __tablename__ = 'resolution_search_patterns'
-    id = Column(Integer, primary_key=True)
-    resolution_pattern_id = Column(Integer, ForeignKey('resolution_patterns.id'), nullable=False)
-    pattern = Column(Text, nullable=False)
-    resolution_pattern = relationship("ResolutionPattern", back_populates="search_patterns")
 
 class AgentTask(Base):
     __tablename__ = 'agent_tasks'
@@ -252,3 +195,15 @@ class SlicedFile(Base):
     file_path = Column(Text, nullable=False)
     status = Column(Text, default='completed', nullable=False) # completed | missing
     series = relationship("Series")
+
+class TorrentFile(Base):
+    __tablename__ = 'torrent_files'
+    id = Column(Integer, primary_key=True)
+    torrent_db_id = Column(Integer, ForeignKey('torrents.id'), nullable=False)
+
+    original_path = Column(Text, nullable=False)
+    renamed_path = Column(Text, nullable=True)
+    status = Column(Text, default='pending_rename', nullable=False) # e.g., pending_rename, renamed, skipped
+    extracted_metadata = Column(Text) # Stored as JSON
+
+    torrent = relationship("Torrent", back_populates="files")

@@ -124,7 +124,7 @@ template: `
                                         <div v-for="(action, a_index) in rule.actions" :key="a_index" class="condition-group">
                                             <constructor-group>
                                                 <div class="constructor-item item-label label-then">ТО</div>
-                                                <constructor-item-select :options="[{value: 'exclude', text: 'Исключить видео'}, {value: 'extract_single', text: 'Извлечь номер серии'}, {value: 'extract_range', text: 'Извлечь диапазон серий'}, {value: 'extract_season', text: 'Установить номер сезона'}, {value: 'assign_voiceover', text: 'Назначить озвучку/тег'}, {value: 'assign_episode', text: 'Назначить номер серии'}, {value: 'assign_season', text: 'Назначить номер сезона'}]" v-model="action.action_type" @update:modelValue="onActionTypeChange(action)"></constructor-item-select>
+                                                <constructor-item-select :options="[{value: 'exclude', text: 'Исключить видео'}, {value: 'extract_single', text: 'Извлечь номер серии'}, {value: 'extract_range', text: 'Извлечь диапазон серий'}, {value: 'extract_season', text: 'Установить номер сезона'}, {value: 'assign_voiceover', text: 'Назначить озвучку/тег'}, {value: 'assign_episode', text: 'Назначить номер серии'}, {value: 'assign_season', text: 'Назначить номер сезона'}, {value: 'assign_quality', text: 'Назначить качество'}, {value: 'assign_resolution', text: 'Назначить разрешение'}]" v-model="action.action_type" @update:modelValue="onActionTypeChange(action)"></constructor-item-select>
                                                 <div class="constructor-item item-button-group">
                                                         <button @click="removeAction(rule, a_index)" class="btn-icon btn-delete" title="Удалить действие" :disabled="rule.actions.length <= 1"><i class="bi bi-x-lg"></i></button>
                                                 </div>
@@ -163,12 +163,10 @@ template: `
                                                         </div>
                                                     </constructor-group>
                                                 </div>
-                                                <div v-if="['assign_voiceover', 'assign_episode', 'assign_season'].includes(action.action_type)">
+                                                <div v-if="['assign_voiceover', 'assign_episode', 'assign_season', 'assign_quality', 'assign_resolution'].includes(action.action_type)">
                                                      <constructor-group>
-                                                        <div class="constructor-item item-floating-label">
-                                                            <input :type="action.action_type === 'assign_voiceover' ? 'text' : 'number'" class="item-input" v-model="action.action_pattern" placeholder=" ">
-                                                            <label>{{ action.action_type === 'assign_voiceover' ? 'Назначить озвучку/тег' : (action.action_type === 'assign_episode' ? 'Назначить номер серии' : 'Назначить номер сезона') }}</label>
-                                                        </div>
+                                                        <div class="constructor-item item-label">{{ getAssignActionLabel(action.action_type) }}</div>
+                                                        <input :type="['assign_episode', 'assign_season'].includes(action.action_type) ? 'number' : 'text'" class="constructor-item item-input" v-model="action.action_pattern" placeholder="Введите значение...">
                                                         <div class="constructor-item item-button-group" v-if="a_index === rule.actions.length - 1">
                                                             <button @click="addAction(rule)" class="btn-icon btn-add" title="Добавить действие"><i class="bi bi-plus-lg"></i></button>
                                                         </div>
@@ -210,10 +208,10 @@ template: `
                                 </small>
                             </div>
                             <constructor-group>
-                                <div class="constructor-item item-label-icon" title="Ссылка на канал VK"><i class="bi bi-youtube"></i></div>
+                                <div class="constructor-item item-label-icon" title="Ссылка на канал VK или ID сериала"><i class="bi bi-youtube"></i></div>
                                 <div class="constructor-item item-floating-label">
                                     <input v-model.trim="scrapeChannelUrl" type="text" class="item-input" id="scrape-url" placeholder=" ">
-                                    <label for="scrape-url">Ссылка на канал VK</label>
+                                    <label for="scrape-url">Ссылка на канал VK или ID сериала</label>
                                 </div>
                                 <div class="constructor-item item-label-icon" title="Поисковые запросы"><i class="bi bi-search"></i></div>
                                 <div class="constructor-item item-floating-label">
@@ -230,7 +228,9 @@ template: `
                             </constructor-group>
                         </div>
                     </div>
-                    <textarea v-model="testTitles" class="modern-input mb-3" rows="8" placeholder="Название видео 1\nНазвание видео 2"></textarea>
+                    <constructor-group class="group-auto-height mb-3">
+                        <textarea v-model="testTitles" class="constructor-item item-input" rows="8" placeholder="Название видео 1\nНазвание видео 2" style="padding: 1rem; height: auto; resize: vertical;"></textarea>
+                    </constructor-group>
                     <div class="text-end">
                         <button @click="runTest" class="btn btn-success" :disabled="!testTitles || isTesting">
                             <span v-if="isTesting" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
@@ -301,6 +301,10 @@ template: `
       // --- ИЗМЕНЕНИЕ: Добавлены состояния для редактирования ---
       editingProfileId: null,
       editingProfileName: '',
+      logicalOperatorOptions: [
+          { text: 'И', value: 'AND' },
+          { text: 'ИЛИ', value: 'OR' }
+      ],
     };
   },
   emits: ['show-toast'],
@@ -591,11 +595,11 @@ template: `
         if (['extract_single', 'extract_range', 'extract_season'].includes(action.action_type)) {
             action.action_pattern = '[]';
             action._action_blocks = [];
-        } else if (action.action_type === 'assign_episode' || action.action_type === 'assign_season') {
+        } else if (['assign_episode', 'assign_season'].includes(action.action_type)) {
             action.action_pattern = '1';
-        } else {
-             action._action_blocks = [];
-             action.action_pattern = '';
+        } else { // Для assign_voiceover, assign_quality, assign_resolution, exclude
+            action._action_blocks = [];
+            action.action_pattern = '';
         }
     },
     getBlockLabel(block, context, container) {
@@ -660,26 +664,62 @@ template: `
         return (value !== null && value !== undefined) ? value : '';
     },
     async scrapeTestTitles() {
-        if (!this.scrapeChannelUrl) return;
-        this.isScraping = true;
-        this.$emit('show-toast', 'Запущен сбор названий через VK API...', 'info');
-        try {
-            const response = await fetch('/api/parser-profiles/scrape-titles', {
-                method: 'POST', headers: {'Content-Type': 'application/json'},
-                body: JSON.stringify({ 
-                    channel_url: this.scrapeChannelUrl, 
-                    query: this.scrapeQuery,
-                    search_mode: this.scrapeSearchMode
-                })
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Ошибка сбора названий');
-            this.scrapedItems = data;
-            this.testTitles = this.scrapedTitlesOnly;
-            this.$emit('show-toast', `Собрано ${data.length} записей.`, 'success');
-        } catch (error) {
-            this.$emit('show-toast', error.message, 'danger');
-        } finally { this.isScraping = false; }
+        const input = this.scrapeChannelUrl.trim().toUpperCase();
+        const idMatch = input.match(/^ID(\d+)$/);
+
+        // Проверяем, введён ли ID или URL
+        if (idMatch) {
+            // --- НОВАЯ ЛОГИКА: Загрузка из БД ---
+            const seriesId = idMatch[1];
+            this.isScraping = true;
+            this.$emit('show-toast', `Загрузка имён файлов для Сериала #${seriesId}...`, 'info');
+            try {
+                const response = await fetch(`/api/series/${seriesId}/source-filenames`);
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Ошибка загрузки имён');
+
+                this.testTitles = data.join('\n');
+                this.$emit('show-toast', `Загружено ${data.length} имён файлов.`, 'success');
+            } catch (error) {
+                this.$emit('show-toast', error.message, 'danger');
+            } finally {
+                this.isScraping = false;
+            }
+        } else {
+            // --- СТАРАЯ ЛОГИКА: Скрапинг из VK ---
+            if (!this.scrapeChannelUrl) return;
+            this.isScraping = true;
+            this.$emit('show-toast', 'Запущен сбор названий через VK API...', 'info');
+            try {
+                const response = await fetch('/api/parser-profiles/scrape-titles', {
+                    method: 'POST', headers: {'Content-Type': 'application/json'},
+                    body: JSON.stringify({ 
+                        channel_url: this.scrapeChannelUrl, 
+                        query: this.scrapeQuery,
+                        search_mode: this.scrapeSearchMode
+                    })
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Ошибка сбора названий');
+                this.scrapedItems = data;
+                this.testTitles = this.scrapedTitlesOnly;
+                this.$emit('show-toast', `Собрано ${data.length} записей.`, 'success');
+            } catch (error) {
+                this.$emit('show-toast', error.message, 'danger');
+            } finally {
+                this.isScraping = false;
+            }
+        }
+    },
+    getAssignActionLabel(actionType) {
+        const labels = {
+            'assign_voiceover': 'Назначить озвучку/тег',
+            'assign_episode': 'Назначить номер серии',
+            'assign_season': 'Назначить номер сезона',
+            'assign_quality': 'Назначить качество',
+            'assign_resolution': 'Назначить разрешение'
+        };
+        return labels[actionType] || 'Значение';
     },
   }
 };

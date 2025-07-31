@@ -40,6 +40,71 @@ class MonitoringAgent(threading.Thread):
             status = self.get_status()
             self.broadcaster.broadcast('scanner_status_update', status)
 
+    def verify_sliced_files_for_series(self, series_id: int):
+        """
+        Проверяет наличие нарезанных файлов на диске для одного сериала.
+        - "Усыновляет" файлы для компиляций в статусе 'pending'.
+        - Проверяет целостность для компиляций в статусе 'completed'.
+        """
+        with self.app.app_context():
+            # Ищем компиляции, которые либо ожидают нарезки, либо уже (возможно) нарезаны
+            source_items = self.db.get_media_items_by_slicing_status(series_id, 'pending')
+            source_items.extend(self.db.get_media_items_by_slicing_status(series_id, 'completed'))
+            source_items.extend(self.db.get_media_items_by_slicing_status(series_id, 'completed_with_errors'))
+
+            if not source_items:
+                return
+
+            formatter = FilenameFormatter(self.logger)
+            series = self.db.get_series(series_id)
+            if not series: return
+
+            for item in source_items:
+                unique_id = item['unique_id']
+                source_file = item.get('final_filename')
+                chapters_str = item.get('chapters')
+
+                # Пропускаем, если нет данных для работы
+                if not (source_file and chapters_str):
+                    continue
+
+                chapters = json.loads(chapters_str)
+                expected_count = len(chapters)
+                existing_files_count = 0
+
+                # Проверяем наличие каждого ожидаемого файла
+                for i, chapter in enumerate(chapters):
+                    episode_number = item['episode_start'] + i
+                    metadata = {'season': item.get('season'), 'episode': episode_number}
+                    expected_filename = formatter.format_filename(series, metadata)
+                    expected_path = os.path.join(os.path.dirname(source_file), expected_filename)
+
+                    if os.path.exists(expected_path):
+                        self.db.add_sliced_file_if_not_exists(series['id'], unique_id, episode_number, expected_path)
+                        existing_files_count += 1
+
+                # Принимаем решение о финальном статусе на основе найденных файлов
+                current_status = item.get('slicing_status')
+                new_status = current_status
+
+                if current_status == 'pending':
+                    if existing_files_count == expected_count:
+                        new_status = 'completed'
+                    elif existing_files_count > 0:
+                        new_status = 'completed_with_errors'
+
+                elif current_status in ['completed', 'completed_with_errors']:
+                    known_sliced_files = self.db.get_sliced_files_for_source(unique_id)
+                    if len(known_sliced_files) != existing_files_count:
+                        # Если количество файлов на диске не совпадает с количеством в БД - есть проблема
+                        new_status = 'completed_with_errors'
+                    elif existing_files_count == expected_count:
+                        new_status = 'completed'
+
+                if new_status != current_status:
+                    self.logger.info("monitoring_agent", f"Статус нарезки для UID {unique_id} обновлен на '{new_status}' после проверки файлов.")
+                    self.db.update_media_item_slicing_status_by_uid(unique_id, new_status)
+
     def get_status(self) -> dict:
         next_scan_timestamp_iso = self.db.get_setting('next_scan_timestamp')
         next_scan_time = None
@@ -76,13 +141,16 @@ class MonitoringAgent(threading.Thread):
                 if item['plan_status'] not in ['in_plan_single', 'in_plan_compilation']:
                     continue
                 
-                temp_data = {'result': {'extracted': {
-                    'season': item.get('season'), 'voiceover': item.get('voiceover_tag'),
+                # Сначала создаем "плоский" словарь с метаданными
+                metadata = {
+                    'season': item.get('season'), 
+                    'voiceover': item.get('voiceover_tag'),
                     'episode': item.get('episode_start') if not item.get('episode_end') else None,
                     'start': item.get('episode_start') if item.get('episode_end') else None,
                     'end': item.get('episode_end')
-                }}}
-                expected_filename = formatter.format_filename(series, temp_data)
+                }
+                # Передаем его напрямую в форматер
+                expected_filename = formatter.format_filename(series, metadata)
                 expected_path = os.path.join(series['save_path'], expected_filename)
                 
                 if os.path.exists(expected_path):
@@ -109,7 +177,11 @@ class MonitoringAgent(threading.Thread):
             all_series = self.db.get_all_series()
             for series in all_series:
                 if series['source_type'] == 'vk_video':
+                    # Проверка скачанных файлов (компиляций)
                     self.sync_single_series_filesystem(series['id'])
+                    # ---> ДОБАВЬТЕ ЭТУ СТРОКУ <---
+                    # Проверка нарезанных файлов (эпизодов)
+                    self.verify_sliced_files_for_series(series['id'])
 
     def _trigger_slicing_recovery(self, unique_id: str):
         self.db.delete_sliced_files_for_source(unique_id)

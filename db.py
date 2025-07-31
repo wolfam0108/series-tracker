@@ -10,9 +10,8 @@ from datetime import datetime, timezone, timedelta
 from typing import List, Dict, Optional, Any
 
 from models import (
-    Base, Auth, Series, SeriesStatus, RenamingPattern, SeasonPattern, AdvancedRenamingPattern,
-    Torrent, Setting, Log, QualityPattern, QualitySearchPattern, ResolutionPattern,
-    ResolutionSearchPattern, AgentTask, ScanTask,
+    Base, Auth, Series, SeriesStatus,
+    Torrent, TorrentFile, Setting, Log, AgentTask, ScanTask,
     ParserProfile, ParserRule, ParserRuleCondition, MediaItem, DownloadTask,
     SlicingTask, SlicedFile
 )
@@ -21,7 +20,7 @@ class Database:
     ENABLE_DEBUG_SCHEMA_CHECK = True
 
     def __init__(self, db_url: str = "sqlite:///app.db", logger=None):
-        self.engine = create_engine(db_url, connect_args={'check_same_thread': False})
+        self.engine = create_engine(db_url, connect_args={'check_same_thread': False, 'timeout': 15})
         self.logger = logger if logger else logging.getLogger(__name__)
         
         Base.metadata.create_all(self.engine) 
@@ -272,9 +271,22 @@ class Database:
             series = session.query(Series).filter_by(id=series_id).first()
             if series:
                 self.logger.info("db", f"Удаление связанных записей для series_id: {series_id}")
+
+                # ---> ДОБАВЬТЕ ЭТОТ БЛОК ПЕРЕД УДАЛЕНИЕМ ТОРРЕНТОВ <---
+                # Находим ID всех торрентов, связанных с сериалом
+                torrent_ids_to_delete = [t.id for t in session.query(Torrent.id).filter_by(series_id=series_id).all()]
+                if torrent_ids_to_delete:
+                    # Удаляем все файлы, связанные с этими торрентами
+                    session.query(TorrentFile).filter(TorrentFile.torrent_db_id.in_(torrent_ids_to_delete)).delete(synchronize_session=False)
+                # ---> КОНЕЦ БЛОКА <---
+
+                session.query(AgentTask).filter_by(series_id=series_id).delete(synchronize_session=False)
                 session.query(Torrent).filter_by(series_id=series_id).delete(synchronize_session=False)
                 session.query(MediaItem).filter_by(series_id=series_id).delete(synchronize_session=False)
                 session.query(SlicedFile).filter_by(series_id=series_id).delete(synchronize_session=False)
+                session.query(DownloadTask).filter_by(series_id=series_id).delete(synchronize_session=False)
+
+                # Теперь удаляем сам сериал
                 session.delete(series)
                 session.commit()
                 self.logger.info("db", f"Сериал {series_id} и все связанные с ним записи удалены.")
@@ -315,154 +327,6 @@ class Database:
                 for key, value in data.items():
                     setattr(torrent, key, value)
                 session.commit()
-    
-    def get_patterns(self) -> List[Dict[str, Any]]:
-        with self.Session() as session:
-            patterns = session.query(RenamingPattern).order_by(RenamingPattern.priority).all()
-            return [{"id": p.id, "name": p.name, "pattern": p.pattern, "priority": p.priority, "is_active": p.is_active} for p in patterns]
-
-    def add_pattern(self, name: str, pattern_str: str) -> int:
-        with self.Session() as session:
-            if session.query(RenamingPattern).filter_by(name=name).first():
-                raise ValueError(f"Паттерн с именем '{name}' уже существует.")
-            max_priority = session.query(func.max(RenamingPattern.priority)).scalar() or 0
-            new_pattern = RenamingPattern(name=name, pattern=pattern_str, priority=max_priority + 1)
-            session.add(new_pattern)
-            session.commit()
-            return new_pattern.id
-
-    def update_pattern(self, pattern_id: int, data: Dict[str, Any]):
-        with self.Session() as session:
-            pattern = session.query(RenamingPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                if 'name' in data and data['name'] != pattern.name:
-                    if session.query(RenamingPattern).filter_by(name=data['name']).first():
-                        raise ValueError(f"Паттерн с именем '{data['name']}' уже существует.")
-                    pattern.name = data['name']
-                if 'pattern' in data: pattern.pattern = data['pattern']
-                if 'is_active' in data: pattern.is_active = data['is_active']
-                session.commit()
-
-    def delete_pattern(self, pattern_id: int):
-        with self.Session() as session:
-            pattern = session.query(RenamingPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                session.delete(pattern)
-                session.commit()
-    
-    def update_patterns_order(self, ordered_ids: List[int]):
-        with self.Session() as session:
-            for index, pattern_id in enumerate(ordered_ids):
-                pattern = session.query(RenamingPattern).filter_by(id=pattern_id).first()
-                if pattern:
-                    pattern.priority = index
-            session.commit()
-            
-    def get_season_patterns(self) -> List[Dict[str, Any]]:
-        with self.Session() as session:
-            patterns = session.query(SeasonPattern).order_by(SeasonPattern.priority).all()
-            return [{"id": p.id, "name": p.name, "pattern": p.pattern, "priority": p.priority, "is_active": p.is_active} for p in patterns]
-
-    def add_season_pattern(self, name: str, pattern_str: str) -> int:
-        with self.Session() as session:
-            if session.query(SeasonPattern).filter_by(name=name).first():
-                raise ValueError(f"Паттерн сезона с именем '{name}' уже существует.")
-            max_priority = session.query(func.max(SeasonPattern.priority)).scalar() or 0
-            new_pattern = SeasonPattern(name=name, pattern=pattern_str, priority=max_priority + 1)
-            session.add(new_pattern)
-            session.commit()
-            return new_pattern.id
-
-    def update_season_pattern(self, pattern_id: int, data: Dict[str, Any]):
-        with self.Session() as session:
-            pattern = session.query(SeasonPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                if 'name' in data and data['name'] != pattern.name:
-                    if session.query(SeasonPattern).filter_by(name=data['name']).first():
-                        raise ValueError(f"Паттерн сезона с именем '{data['name']}' уже существует.")
-                    pattern.name = data['name']
-                if 'pattern' in data: pattern.pattern = data['pattern']
-                if 'is_active' in data: pattern.is_active = data['is_active']
-                session.commit()
-
-    def delete_season_pattern(self, pattern_id: int):
-        with self.Session() as session:
-            pattern = session.query(SeasonPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                session.delete(pattern)
-                session.commit()
-    
-    def update_season_patterns_order(self, ordered_ids: List[int]):
-        with self.Session() as session:
-            for index, pattern_id in enumerate(ordered_ids):
-                pattern = session.query(SeasonPattern).filter_by(id=pattern_id).first()
-                if pattern:
-                    pattern.priority = index
-            session.commit()
-
-    def get_advanced_patterns(self) -> List[Dict[str, Any]]:
-        with self.Session() as session:
-            patterns = session.query(AdvancedRenamingPattern).order_by(AdvancedRenamingPattern.priority).all()
-            return [
-                {
-                    "id": p.id, "name": p.name, "file_filter": p.file_filter,
-                    "pattern_search": p.pattern_search, "area_to_replace": p.area_to_replace,
-                    "replacement_template": p.replacement_template,
-                    "arithmetic_op": p.arithmetic_op,
-                    "priority": p.priority, "is_active": p.is_active
-                } for p in patterns
-            ]
-
-    def add_advanced_pattern(self, data: Dict[str, Any]) -> int:
-        with self.Session() as session:
-            if session.query(AdvancedRenamingPattern).filter_by(name=data['name']).first():
-                raise ValueError(f"Продвинутый паттерн с именем '{data['name']}' уже существует.")
-            
-            max_priority = session.query(func.max(AdvancedRenamingPattern.priority)).scalar() or 0
-            
-            new_pattern = AdvancedRenamingPattern(
-                name=data['name'],
-                file_filter=data['file_filter'],
-                pattern_search=data['pattern_search'],
-                area_to_replace=data['area_to_replace'],
-                replacement_template=data['replacement_template'],
-                arithmetic_op=data.get('arithmetic_op'),
-                priority=max_priority + 1
-            )
-            session.add(new_pattern)
-            session.commit()
-            return new_pattern.id
-
-    def update_advanced_pattern(self, pattern_id: int, data: Dict[str, Any]):
-        with self.Session() as session:
-            pattern = session.query(AdvancedRenamingPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                if 'name' in data and data['name'] != pattern.name:
-                    if session.query(AdvancedRenamingPattern).filter_by(name=data['name']).first():
-                        raise ValueError(f"Продвинутый паттерн с именем '{data['name']}' уже существует.")
-                
-                for key, value in data.items():
-                    if hasattr(pattern, key) and key != 'id':
-                        if key == 'arithmetic_op' and (value == '' or value is None):
-                             setattr(pattern, key, None)
-                        else:
-                             setattr(pattern, key, value)
-                session.commit()
-
-    def delete_advanced_pattern(self, pattern_id: int):
-        with self.Session() as session:
-            pattern = session.query(AdvancedRenamingPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                session.delete(pattern)
-                session.commit()
-
-    def update_advanced_patterns_order(self, ordered_ids: List[int]):
-        with self.Session() as session:
-            for index, pattern_id in enumerate(ordered_ids):
-                pattern = session.query(AdvancedRenamingPattern).filter_by(id=pattern_id).first()
-                if pattern:
-                    pattern.priority = index
-            session.commit()
 
     def set_setting(self, key: str, value: Any):
         with self.Session() as session:
@@ -517,126 +381,6 @@ class Database:
                 session.delete(task)
                 session.commit()
 
-    def get_quality_patterns(self) -> List[Dict[str, Any]]:
-        with self.Session() as session:
-            patterns = session.query(QualityPattern).order_by(QualityPattern.priority).all()
-            result = []
-            for p in patterns:
-                session.expire(p)
-                search_patterns = [{"id": sp.id, "pattern": sp.pattern} for sp in p.search_patterns]
-                result.append({"id": p.id, "standard_value": p.standard_value, "priority": p.priority, "is_active": p.is_active, "search_patterns": search_patterns})
-            return result
-
-    def add_quality_pattern(self, standard_value: str) -> int:
-        with self.Session() as session:
-            if session.query(QualityPattern).filter_by(standard_value=standard_value).first():
-                raise ValueError(f"Стандартизированное значение качества '{standard_value}' уже существует.")
-            max_priority = session.query(func.max(QualityPattern.priority)).scalar() or 0
-            new_pattern = QualityPattern(standard_value=standard_value, priority=max_priority + 1)
-            session.add(new_pattern)
-            session.commit()
-            return new_pattern.id
-
-    def update_quality_pattern(self, pattern_id: int, data: Dict[str, Any]):
-        with self.Session() as session:
-            pattern = session.query(QualityPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                if 'standard_value' in data and data['standard_value'] != pattern.standard_value:
-                    if session.query(QualityPattern).filter_by(standard_value=data['standard_value']).first():
-                        raise ValueError(f"Стандартизированное значение качества '{data['standard_value']}' уже существует.")
-                    pattern.standard_value = data['standard_value']
-                if 'is_active' in data: pattern.is_active = data['is_active']
-                session.commit()
-
-    def delete_quality_pattern(self, pattern_id: int):
-        with self.Session() as session:
-            pattern = session.query(QualityPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                session.delete(pattern)
-                session.commit()
-    
-    def update_quality_patterns_order(self, ordered_ids: List[int]):
-        with self.Session() as session:
-            for index, pattern_id in enumerate(ordered_ids):
-                pattern = session.query(QualityPattern).filter_by(id=pattern_id).first()
-                if pattern:
-                    pattern.priority = index
-            session.commit()
-
-    def add_quality_search_pattern(self, quality_pattern_id: int, pattern_str: str):
-        with self.Session() as session:
-            if session.query(QualitySearchPattern).filter_by(quality_pattern_id=quality_pattern_id, pattern=pattern_str).first():
-                raise ValueError(f"Поисковый паттерн '{pattern_str}' уже существует для этого качества.")
-            session.add(QualitySearchPattern(quality_pattern_id=quality_pattern_id, pattern=pattern_str))
-            session.commit()
-
-    def delete_quality_search_pattern(self, search_pattern_id: int):
-        with self.Session() as session:
-            pattern = session.query(QualitySearchPattern).filter_by(id=search_pattern_id).first()
-            if pattern:
-                session.delete(pattern)
-                session.commit()
-
-    def get_resolution_patterns(self) -> List[Dict[str, Any]]:
-        with self.Session() as session:
-            patterns = session.query(ResolutionPattern).order_by(ResolutionPattern.priority).all()
-            result = []
-            for p in patterns:
-                session.expire(p)
-                search_patterns = [{"id": sp.id, "pattern": sp.pattern} for sp in p.search_patterns]
-                result.append({"id": p.id, "standard_value": p.standard_value, "priority": p.priority, "is_active": p.is_active, "search_patterns": search_patterns})
-            return result
-
-    def add_resolution_pattern(self, standard_value: str) -> int:
-        with self.Session() as session:
-            if session.query(ResolutionPattern).filter_by(standard_value=standard_value).first():
-                raise ValueError(f"Стандартизированное значение разрешения '{standard_value}' уже существует.")
-            max_priority = session.query(func.max(ResolutionPattern.priority)).scalar() or 0
-            new_pattern = ResolutionPattern(standard_value=standard_value, priority=max_priority + 1)
-            session.add(new_pattern)
-            session.commit()
-            return new_pattern.id
-
-    def update_resolution_pattern(self, pattern_id: int, data: Dict[str, Any]):
-        with self.Session() as session:
-            pattern = session.query(ResolutionPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                if 'standard_value' in data and data['standard_value'] != pattern.standard_value:
-                    if session.query(ResolutionPattern).filter_by(standard_value=data['standard_value']).first():
-                        raise ValueError(f"Стандартизированное значение разрешения '{data['standard_value']}' уже существует.")
-                    pattern.standard_value = data['standard_value']
-                if 'is_active' in data: pattern.is_active = data['is_active']
-                session.commit()
-
-    def delete_resolution_pattern(self, pattern_id: int):
-        with self.Session() as session:
-            pattern = session.query(ResolutionPattern).filter_by(id=pattern_id).first()
-            if pattern:
-                session.delete(pattern)
-                session.commit()
-
-    def update_resolution_patterns_order(self, ordered_ids: List[int]):
-        with self.Session() as session:
-            for index, pattern_id in enumerate(ordered_ids):
-                pattern = session.query(ResolutionPattern).filter_by(id=pattern_id).first()
-                if pattern:
-                    pattern.priority = index
-            session.commit()
-
-    def add_resolution_search_pattern(self, resolution_pattern_id: int, pattern_str: str):
-        with self.Session() as session:
-            if session.query(ResolutionSearchPattern).filter_by(resolution_pattern_id=resolution_pattern_id, pattern=pattern_str).first():
-                raise ValueError(f"Поисковый паттерн '{pattern_str}' уже существует для этого разрешения.")
-            session.add(ResolutionSearchPattern(resolution_pattern_id=resolution_pattern_id, pattern=pattern_str))
-            session.commit()
-
-    def delete_resolution_search_pattern(self, search_pattern_id: int):
-        with self.Session() as session:
-            pattern = session.query(ResolutionSearchPattern).filter_by(id=search_pattern_id).first()
-            if pattern:
-                session.delete(pattern)
-                session.commit()
-    
     def get_parser_profiles(self) -> List[Dict[str, Any]]:
         with self.Session() as session:
             profiles = session.query(ParserProfile).all()
@@ -963,9 +707,10 @@ class Database:
             return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
         
     def get_active_download_tasks(self) -> List[Dict[str, Any]]:
-        """Возвращает список задач, находящихся в статусе 'pending' или 'downloading'."""
+        """Возвращает список VK-задач, находящихся в статусе 'pending' или 'downloading'."""
         with self.Session() as session:
             tasks = session.query(DownloadTask).filter(
+                DownloadTask.task_type == 'vk_video',  # <--- ДОБАВЛЕНО ЭТО УСЛОВИЕ
                 DownloadTask.status.in_(['pending', 'downloading'])
             ).order_by(DownloadTask.created_at).all()
 
@@ -1329,3 +1074,140 @@ class Database:
         with self.Session() as session:
             session.query(DownloadTask).filter_by(id=task_id).update(progress_data)
             session.commit()
+
+    def add_or_update_torrent_files(self, torrent_db_id: int, files_data: List[Dict[str, Any]]):
+        """
+        Массово добавляет или обновляет записи о файлах для одного торрента.
+        Удаляет из БД записи о файлах, которых больше нет в qBittorrent.
+        """
+        with self.Session() as session:
+            try:
+                # Получаем существующие файлы из БД для этого торрента
+                existing_files = session.query(TorrentFile).filter_by(torrent_db_id=torrent_db_id).all()
+                existing_paths = {f.original_path: f for f in existing_files}
+
+                # Получаем актуальные пути из переданных данных
+                current_paths = {f['original_path'] for f in files_data}
+
+                # Добавляем или обновляем файлы
+                for file_info in files_data:
+                    path = file_info['original_path']
+                    if path in existing_paths:
+                        # Если файл уже есть в БД, обновляем его
+                        existing_file = existing_paths[path]
+                        existing_file.status = file_info['status']
+                        existing_file.extracted_metadata = file_info['extracted_metadata']
+                        existing_file.renamed_path = file_info.get('renamed_path')
+                    else:
+                        # Если файла нет, создаем новую запись
+                        new_file = TorrentFile(
+                            torrent_db_id=torrent_db_id,
+                            **file_info
+                        )
+                        session.add(new_file)
+
+                # Удаляем записи о файлах, которых больше нет в торренте
+                for path, file_obj in existing_paths.items():
+                    if path not in current_paths:
+                        session.delete(file_obj)
+
+                session.commit()
+            except Exception as e:
+                self.logger.error("db", f"Ошибка при обновлении файлов торрента (ID: {torrent_db_id}): {e}", exc_info=True)
+                session.rollback()
+                raise
+    def get_torrent_files_for_series(self, series_id: int) -> List[Dict[str, Any]]:
+        """Возвращает все записи TorrentFile для указанного сериала, включая qb_hash."""
+        with self.Session() as session:
+            results = session.query(TorrentFile, Torrent.qb_hash).\
+                join(Torrent, TorrentFile.torrent_db_id == Torrent.id).\
+                filter(Torrent.series_id == series_id).all()
+
+            files_with_hash = []
+            for file_obj, qb_hash in results:
+                file_dict = {c.name: getattr(file_obj, c.name) for c in file_obj.__table__.columns}
+                file_dict['qb_hash'] = qb_hash
+                files_with_hash.append(file_dict)
+            return files_with_hash
+
+    def get_source_filenames_for_series(self, series_id: int) -> List[str]:
+        """
+        Возвращает список исходных имён файлов для тестирования парсера.
+        Для торрентов - original_path из torrent_files.
+        Для VK - final_filename из media_items.
+        """
+        with self.Session() as session:
+            series = session.query(Series).filter_by(id=series_id).first()
+            if not series:
+                return []
+
+            filenames = []
+            if series.source_type == 'torrent':
+                results = session.query(TorrentFile.original_path).\
+                    join(Torrent).\
+                    filter(Torrent.series_id == series_id).all()
+                filenames = [row[0] for row in results]
+
+            elif series.source_type == 'vk_video':
+                # Для VK исходных названий нет, поэтому берем финальные как наиболее близкие
+                results = session.query(MediaItem.final_filename).\
+                    filter(MediaItem.series_id == series_id, MediaItem.final_filename.isnot(None)).all()
+                filenames = [row[0] for row in results]
+
+            # Для тестирования парсера возвращаем только базовые имена, без подкаталогов
+            return [os.path.basename(f) for f in filenames]
+
+    def get_pending_rename_files_for_series(self, series_id: int) -> List[Dict[str, Any]]:
+        """Возвращает файлы, ожидающие переименования, с хешем их родительского торрента."""
+        with self.Session() as session:
+            results = session.query(TorrentFile, Torrent.qb_hash).\
+                join(Torrent, TorrentFile.torrent_db_id == Torrent.id).\
+                filter(
+                    Torrent.series_id == series_id,
+                    TorrentFile.status == 'pending_rename'
+                ).all()
+
+            files_to_rename = []
+            for file_obj, qb_hash in results:
+                file_dict = {c.name: getattr(file_obj, c.name) for c in file_obj.__table__.columns}
+                file_dict['qb_hash'] = qb_hash
+                files_to_rename.append(file_dict)
+            return files_to_rename
+
+    def update_torrent_file_status(self, file_id: int, new_status: str, new_path: str = None):
+        """Обновляет статус и новое имя файла торрента."""
+        with self.Session() as session:
+            file = session.query(TorrentFile).filter_by(id=file_id).first()
+            if file:
+                file.status = new_status
+                if new_path:
+                    file.renamed_path = new_path
+                session.commit()
+
+    def deactivate_torrent_and_clear_files(self, torrent_db_id: int):
+        """
+        Помечает торрент как неактивный и удаляет все связанные с ним записи о файлах.
+        """
+        with self.Session() as session:
+            try:
+                # Находим торрент
+                torrent = session.query(Torrent).filter_by(id=torrent_db_id).first()
+                if torrent:
+                    # Удаляем все связанные файлы из таблицы torrent_files
+                    session.query(TorrentFile).filter_by(torrent_db_id=torrent_db_id).delete(synchronize_session=False)
+
+                    # Помечаем сам торрент как неактивный
+                    torrent.is_active = False
+
+                    session.commit()
+                    self.logger.info("db", f"Торрент ID {torrent_db_id} деактивирован, связанные файлы очищены.")
+            except Exception as e:
+                self.logger.error("db", f"Ошибка при деактивации торрента ID {torrent_db_id}: {e}", exc_info=True)
+                session.rollback()
+                raise
+
+    def get_torrent_files_for_torrent(self, torrent_db_id: int) -> List[Dict[str, Any]]:
+        """Возвращает все записи TorrentFile для указанного ID торрента."""
+        with self.Session() as session:
+            files = session.query(TorrentFile).filter_by(torrent_db_id=torrent_db_id).all()
+            return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in files]

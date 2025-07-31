@@ -111,7 +111,22 @@ template: `
                             </constructor-group>
                         </div>
                     </div>
-                </div>
+                    
+                    <div v-if="editableSeries.source_type === 'torrent'" class="row mt-3">
+                        <div class="col-12">
+                            <constructor-group>
+                                <div class="constructor-item item-label-icon item-label-text-icon" title="Профиль правил для переименования">
+                                    <i class="bi bi-funnel-fill"></i>
+                                    <span>Профиль правил</span>
+                                </div>
+                                <constructor-item-select 
+                                    :options="parserProfileOptions" 
+                                    v-model="editableSeries.parser_profile_id"
+                                ></constructor-item-select>
+                            </constructor-group>
+                        </div>
+                    </div>
+                    </div>
             </div>
             
             <div v-if="editableSeries.source_type === 'vk_video' || (editableSeries.site && editableSeries.site.includes('kinozal'))" class="modern-fieldset mb-4">
@@ -194,6 +209,7 @@ template: `
       isSeasonless: false,
       vkChannelUrl: '',
       vkQuery: '',
+      parserProfiles: [],
     };
   },
   watch: {
@@ -259,7 +275,11 @@ template: `
             return this.allSiteTorrents.filter(t => (this.episodeQualityOptions[t.episodes] || []).length <= 1 ? allChoices.includes(t.quality) : t.quality === this.editableSeries.qualityByEpisodes[t.episodes]);
         }
         return this.allSiteTorrents;
-    }
+    },
+        parserProfileOptions() {
+        const options = this.parserProfiles.map(p => ({ text: p.name, value: p.id }));
+        return [{ text: 'Не выбрано', value: null }, ...options];
+    },
   },
   methods: {
     async load() {
@@ -286,10 +306,21 @@ template: `
             }
             if (!this.editableSeries.qualityByEpisodes) this.editableSeries.qualityByEpisodes = {};
 
+            this.loadParserProfiles();
+
             if (this.editableSeries.source_type === 'torrent') {
                 this.refreshSiteTorrents(); 
             }
         } catch (error) { 
+            this.$emit('show-toast', error.message, 'danger');
+        }  
+    },
+    async loadParserProfiles() {
+        try {
+            const response = await fetch('/api/parser-profiles');
+            if (!response.ok) throw new Error('Ошибка загрузки профилей');
+            this.parserProfiles = await response.json();
+        } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
         }
     },

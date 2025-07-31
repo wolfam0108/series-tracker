@@ -28,7 +28,7 @@ def fetch_and_save_chapters(unique_id):
     item = app.db.get_media_item_by_uid(unique_id)
     if not item:
         return jsonify({"error": "Медиа-элемент не найден"}), 404
-    
+
     video_url = item.get('source_url')
     if not video_url:
         return jsonify({"error": "URL видео не найден"}), 400
@@ -36,15 +36,12 @@ def fetch_and_save_chapters(unique_id):
     try:
         chapters_list = get_chapters(video_url)
         chapters_json = json.dumps(chapters_list)
-        
         app.db.update_media_item_chapters(unique_id, chapters_json)
 
-        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
         expected_count = (item.get('episode_end', 0) - item.get('episode_start', 0) + 1)
         if chapters_list and len(chapters_list) == expected_count:
             app.db.update_media_item_slicing_status(unique_id, 'pending')
-            app.logger.info("media_api", f"Количество глав ({len(chapters_list)}) совпало с ожидаемым. Статус нарезки для UID {unique_id} изменен на 'pending'.")
-        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+            app.logger.info("media_api", f"Количество глав ({len(chapters_list)}) совпало. Статус нарезки для UID {unique_id} изменен на 'pending'.")
 
         return jsonify(chapters_list)
     except Exception as e:
