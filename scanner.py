@@ -48,6 +48,9 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
             error_msg = f"Сканирование прервано: для торрент-сериала '{series.get('name')}' не назначен профиль правил."
             app.logger.error("scanner", error_msg)
             return {"success": False, "error": error_msg}
+        
+        # Принудительно сбрасываем флаг ошибки перед началом нового сканирования.
+        status_manager.set_status(series_id, 'error', False)
 
         status_manager.set_status(series_id, 'scanning', True)
 

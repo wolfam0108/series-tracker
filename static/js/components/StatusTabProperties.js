@@ -370,6 +370,7 @@ template: `
     async updateSeries() {
         this.isSaving = true;
         try {
+            // --- Сборка `quality` для торрентов (остаётся без изменений) ---
             let qualityString = ''; 
             const site = this.editableSeries.site;
             if (site.includes('anilibria') || site.includes('aniliberty')) { 
@@ -380,14 +381,26 @@ template: `
                 this.sortedQualityOptionsKeys.forEach(episodes => { if (this.episodeQualityOptions[episodes] && this.episodeQualityOptions[episodes].length === 1) singleVersionQualities.add(this.episodeQualityOptions[episodes][0]); });
                 qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
             }
-            
-            const payload = { ...this.editableSeries };
-            payload.season = this.isSeasonless ? '' : this.editableSeries.season;
-            payload.quality = qualityString;
 
+            // --- ИСПРАВЛЕНИЕ: Формируем "чистый" объект для отправки ---
+            const payload = {
+                name: this.editableSeries.name,
+                name_en: this.editableSeries.name_en,
+                save_path: this.editableSeries.save_path,
+                quality_override: this.editableSeries.quality_override,
+                resolution_override: this.editableSeries.resolution_override,
+                season: this.isSeasonless ? '' : this.editableSeries.season,
+                quality: qualityString,
+            };
+
+            // Добавляем поля, специфичные для типа сериала
             if (this.editableSeries.source_type === 'vk_video') {
                 payload.url = this.reconstructedUrl;
+                payload.vk_search_mode = this.editableSeries.vk_search_mode;
+            } else { // Для торрентов
+                payload.parser_profile_id = this.editableSeries.parser_profile_id;
             }
+            // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
 
             const response = await fetch(`/api/series/${this.seriesId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
             if (response.ok) { 

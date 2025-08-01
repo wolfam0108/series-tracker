@@ -110,7 +110,7 @@ class AnilibriaParser:
     def parse_series(self, original_url: str, last_known_torrents: Optional[List[Dict]] = None, debug_force_replace: bool = False) -> Dict:
         self.logger.info("anilibria_parser", f"Начало парсинга {original_url}")
 
-        match = re.match(r"(https://aniliberty\.top/(?:release|anime/releases/release)/[^/]+)", original_url)
+        match = re.match(r"(https://(aniliberty\.top|anilibria\.top)/(?:release|anime/releases/release)/[^/]+)", original_url)
         if not match:
             return {"source": "aniliberty.top", "title": {"ru": None, "en": None}, "torrents": [], "error": "Некорректный URL релиза"}
         

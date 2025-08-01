@@ -30,48 +30,43 @@ const ConstructorItemSelect = {
 
         const toggleDropdown = () => {
             if (!isOpen.value && selectRef.value) {
-                // --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью новая, более надёжная логика ---
-                const OPTION_HEIGHT_ESTIMATE = 40; // Примерная высота одного пункта
-                const PADDING = 20; // Минимальный отступ от края окна
-                
-                const fullListHeight = props.options.length * OPTION_HEIGHT_ESTIMATE;
+                const OPTION_HEIGHT_ESTIMATE = 40;
+                const PADDING = 20;
+
                 const triggerRect = selectRef.value.getBoundingClientRect();
-                
                 const spaceBelow = window.innerHeight - triggerRect.bottom;
                 const spaceAbove = triggerRect.top;
 
-                // Сбрасываем maxHeight перед вычислением
-                listStyle.maxHeight = 'none';
+                // --- НОВАЯ, БОЛЕЕ НАДЁЖНАЯ ЛОГИКА ---
+                const estimatedHeight = props.options.length * OPTION_HEIGHT_ESTIMATE + PADDING;
 
-                // --- Логика выбора направления и размера ---
-                if (fullListHeight < spaceBelow - PADDING) {
-                    // Случай 1: Список полностью помещается снизу
+                // 1. Предпочитаем открывать вниз, если там точно достаточно места.
+                if (estimatedHeight <= spaceBelow) {
                     opensUp.value = false;
-                    listStyle.top = `${triggerRect.bottom}px`;
-                    listStyle.bottom = 'auto';
-                } else if (fullListHeight < spaceAbove - PADDING) {
-                    // Случай 2: Список полностью помещается сверху
+                }
+                // 2. Иначе, если сверху места объективно больше, чем снизу, открываем вверх.
+                else if (spaceAbove > spaceBelow) {
                     opensUp.value = true;
+                }
+                // 3. Во всех остальных случаях (места мало везде, но снизу не меньше), открываем вниз.
+                else {
+                    opensUp.value = false;
+                }
+                // --- КОНЕЦ НОВОЙ ЛОГИКИ ---
+
+                // Логика позиционирования и ограничения высоты
+                if (opensUp.value) {
                     listStyle.bottom = `${window.innerHeight - triggerRect.top}px`;
                     listStyle.top = 'auto';
-                } else if (spaceAbove > spaceBelow) {
-                    // Случай 3: Не помещается нигде, но сверху места больше.
-                    // Ограничиваем высоту доступным пространством сверху.
-                    opensUp.value = true;
-                    listStyle.bottom = `${window.innerHeight - triggerRect.top}px`;
-                    listStyle.top = `${PADDING}px`; // Прижимаем к верху экрана
+                    listStyle.maxHeight = `${spaceAbove - PADDING}px`;
                 } else {
-                    // Случай 4: Не помещается нигде, но снизу места больше или столько же.
-                    // Ограничиваем высоту доступным пространством снизу.
-                    opensUp.value = false;
                     listStyle.top = `${triggerRect.bottom}px`;
-                    listStyle.bottom = `${PADDING}px`; // Прижимаем к низу экрана
+                    listStyle.bottom = 'auto';
+                    listStyle.maxHeight = `${spaceBelow - PADDING}px`;
                 }
 
-                // Общие стили для позиционирования
                 listStyle.left = `${triggerRect.left}px`;
                 listStyle.width = `${triggerRect.width}px`;
-                // --- КОНЕЦ ИЗМЕНЕНИЙ ---
             }
             isOpen.value = !isOpen.value;
         };

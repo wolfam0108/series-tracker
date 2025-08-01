@@ -83,13 +83,26 @@ const StatusTabTorrentComposition = {
   computed: {
     groupedFiles() {
       if (!this.torrentFiles.length) return {};
-      return this.torrentFiles.reduce((acc, file) => {
+
+      // 1. Группируем файлы по сезонам, как и раньше
+      const groups = this.torrentFiles.reduce((acc, file) => {
         const metadata = file.extracted_metadata || {};
-        const season = metadata.season || 'N/A';
+        const season = metadata.season ?? 'N/A';
         if (!acc[season]) acc[season] = [];
         acc[season].push(file);
         return acc;
       }, {});
+
+      // 2. Сортируем файлы ВНУТРИ каждой группы (сезона)
+      for (const season in groups) {
+        groups[season].sort((a, b) => {
+          const epA = a.extracted_metadata?.episode ?? a.extracted_metadata?.start ?? 0;
+          const epB = b.extracted_metadata?.episode ?? b.extracted_metadata?.start ?? 0;
+          return epA - epB; // Сортировка по возрастанию номера серии
+        });
+      }
+
+      return groups;
     },
     sortedSeasons() {
       const seasonNumbers = Object.keys(this.groupedFiles);

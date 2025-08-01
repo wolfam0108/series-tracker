@@ -116,8 +116,17 @@ template: `
                                                 </constructor-group>
                                             </div>
                                             <div class="logical-operator-container" v-if="c_index < rule.conditions.length - 1">
-                                               <select v-model="cond.logical_operator" class="modern-select rule-select-compact"><option value="AND">И</option><option value="OR">ИЛИ</option></select>
-                                           </div>
+                                                <div class="circuit-toggle">
+                                                    <div class="circuit-body">
+                                                        <div class="circuit-line"></div>
+                                                        <div class="circuit-switch">
+                                                            <button :class="{ active: cond.logical_operator === 'AND' }" @click="cond.logical_operator = 'AND'">И</button>
+                                                            <button :class="{ active: cond.logical_operator === 'OR' }" @click="cond.logical_operator = 'OR'">ИЛИ</button>
+                                                        </div>
+                                                        <div class="circuit-line"></div>
+                                                    </div>
+                                                </div>
+                                            </div>
                                        </template>
                                     </div>
                                     <div class="rule-block then-block">

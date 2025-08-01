@@ -80,17 +80,20 @@
     background-color: #f8f9fa;
     border-radius: 6px;
     border-left: 3px solid;
-    margin-bottom: 0.75rem;
+    margin-bottom: 0.375rem;
 }
 .if-block .condition-group { border-color: #0d6efd; }
 .then-block .condition-group { border-color: #198754; }
 
 
 .logical-operator-container {
-    margin-bottom: 0.75rem;
+    padding: 0;
+    margin: 0 auto 0.375rem auto; /* Добавлен отступ снизу и центрирование */
+    height: auto; /* Убрана фиксированная высота */
     display: flex;
-    justify-content: center;
     align-items: center;
+    justify-content: center;
+    position: relative;
 }
 
 /* Добавляем стили для конструктора внутри этого контейнера */
@@ -326,4 +329,47 @@
 
     /* Растягивает дочерний .pattern-constructor на всю высоту */
     align-items: stretch; 
+}
+
+
+.circuit-toggle {
+    position: relative;
+    width: 250px; /* Увеличена ширина по вашему запросу */
+    display: flex;
+    flex-direction: column;
+    align-items: center;
+}
+
+
+.circuit-toggle::before { height: 35px; top: -35px; }
+.circuit-toggle::after { height: 35px; bottom: -35px; }
+
+
+/* Сам переключатель */
+.circuit-switch {
+    display: flex;
+    background-color: var(--color-gray-100);
+    border: 1px solid var(--border-color);
+    border-radius: 8px;
+    padding: 4px;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+    margin: 0 10px;
+}
+
+.circuit-switch button {
+    border: none;
+    padding: 4px 32px;
+    font-size: 14px;
+    font-weight: 600;
+    background-color: transparent;
+    color: var(--text-muted);
+    border-radius: 6px;
+    transition: all 0.2s ease;
+    cursor: pointer;
+}
+
+.circuit-switch button.active {
+    background-color: var(--color-blue);
+    color: white;
+    box-shadow: 0 2px 4px rgba(13, 110, 253, 0.3);
 }
