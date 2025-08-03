@@ -115,6 +115,12 @@ const StatusModal = {
     close() {
         this.modal.hide();
     },
+    onRenamingComplete() {
+        // Вызываем метод дочернего компонента, если он активен
+        if (this.activeTab === 'composition' && this.$refs.compositionTab) {
+            this.$refs.compositionTab.onRenamingComplete();
+        }
+    },    
     // --- НОВЫЙ МЕТОД: Вызывает метод сохранения в дочернем компоненте ---
     saveProperties() {
         if (this.$refs.propertiesTab) {

@@ -1,7 +1,10 @@
+# Файл: agents/slicing_agent.py
+
 import threading
 import time
 import json
 import os
+import re
 import select
 import subprocess
 from flask import Flask
@@ -12,6 +15,7 @@ from sse import ServerSentEvent
 from filename_formatter import FilenameFormatter
 from utils.path_finder import get_executable_path
 from status_manager import StatusManager
+from logic.metadata_processor import build_final_metadata
 
 class SlicingAgent(threading.Thread):
     def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent, status_manager: StatusManager):
@@ -24,7 +28,6 @@ class SlicingAgent(threading.Thread):
         self.shutdown_flag = threading.Event()
         self.CHECK_INTERVAL = 5
         self.status_manager = status_manager
-        # 2. Создаем "канал пробуждения"
         self._shutdown_pipe_r, self._shutdown_pipe_w = os.pipe()
 
     def recover_tasks(self):
@@ -66,20 +69,32 @@ class SlicingAgent(threading.Thread):
                     episode_number = media_item['episode_start'] + i
                     progress[str(episode_number)] = 'pending'
                 
+                parent_filename = os.path.basename(source_file)
+                base_name, extension = os.path.splitext(parent_filename)
+                episode_pattern = r's(\d{2,})e(\d{2,})(-e\d{2,})?'
+                
                 for i, chapter in enumerate(chapters):
                     episode_number = media_item['episode_start'] + i
+                    season_number = media_item.get('season', 1)
+                    new_episode_part = f"s{season_number:02d}e{episode_number:02d}"
+                    
+                    new_base_name = re.sub(episode_pattern, new_episode_part, base_name, flags=re.IGNORECASE)
 
-                    # Создаем "плоский" словарь с метаданными
-                    metadata = {
-                        'season': media_item.get('season'),
-                        'episode': episode_number
-                    }
-                    expected_filename = formatter.format_filename(series, temp_media_item_data)
+                    if new_base_name == base_name:
+                        metadata = build_final_metadata(series, media_item, {})
+                        metadata['episode'] = episode_number
+                        metadata.pop('start', None)
+                        metadata.pop('end', None)
+                        expected_filename = formatter.format_filename(series, metadata)
+                    else:
+                        expected_filename = new_base_name + extension
+                    
                     expected_path = os.path.join(os.path.dirname(source_file), expected_filename)
+                    
                     if os.path.exists(expected_path):
                         self.logger.info("slicing_agent", f"Найден существующий файл для эпизода {episode_number}. Помечаем как выполненный.")
                         progress[str(episode_number)] = 'completed'
-                        self.db.add_sliced_file(series['id'], unique_id, episode_number, expected_path)
+                        self.db.add_sliced_file_if_not_exists(series['id'], unique_id, episode_number, expected_path)
                 
                 self.db.update_slicing_task(task_id, {'progress_chapters': json.dumps(progress)})
                 self._broadcast_queue_update()
@@ -89,7 +104,6 @@ class SlicingAgent(threading.Thread):
             for i, chapter in enumerate(chapters):
                 episode_number = media_item['episode_start'] + i
                 if progress.get(str(episode_number)) == 'completed':
-                    self.logger.info("slicing_agent", f"Эпизод {episode_number} уже нарезан, пропуск.")
                     continue
 
                 start_time = chapter['time']
@@ -105,8 +119,22 @@ class SlicingAgent(threading.Thread):
                     command.extend(['-t', str(duration)])
                 command.extend(['-c', 'copy'])
                 
-                temp_media_item_data = { 'result': { 'extracted': { 'season': media_item['season'], 'episode': episode_number } } }
-                output_filename = formatter.format_filename(series, temp_media_item_data)
+                parent_filename = os.path.basename(source_file)
+                base_name, extension = os.path.splitext(parent_filename)
+                episode_pattern = r's(\d{2,})e(\d{2,})(-e\d{2,})?'
+                season_number = media_item.get('season', 1)
+                new_episode_part = f"s{season_number:02d}e{episode_number:02d}"
+                new_base_name = re.sub(episode_pattern, new_episode_part, base_name, flags=re.IGNORECASE)
+
+                if new_base_name == base_name:
+                    metadata = build_final_metadata(series, media_item, {})
+                    metadata['episode'] = episode_number
+                    metadata.pop('start', None)
+                    metadata.pop('end', None)
+                    output_filename = formatter.format_filename(series, metadata)
+                else:
+                    output_filename = new_base_name + extension
+
                 output_path = os.path.join(os.path.dirname(source_file), output_filename)
                 command.append(output_path)
                 
@@ -116,7 +144,7 @@ class SlicingAgent(threading.Thread):
                 if result.returncode != 0:
                     raise Exception(f"Ошибка ffmpeg для эпизода {episode_number}: {result.stderr}")
 
-                self.db.add_sliced_file(series['id'], unique_id, episode_number, output_path)
+                self.db.add_sliced_file_if_not_exists(series['id'], unique_id, episode_number, output_path)
                 progress[str(episode_number)] = 'completed'
                 self.db.update_slicing_task(task_id, {'progress_chapters': json.dumps(progress)})
                 self._broadcast_queue_update()
@@ -132,6 +160,8 @@ class SlicingAgent(threading.Thread):
                 try:
                     os.remove(source_file)
                     self.logger.info("slicing_agent", f"Исходный файл {source_file} удален согласно настройке.")
+                    self.db.update_media_item_filename(unique_id, None)
+                    self.logger.info("slicing_agent", f"Имя файла для UID {unique_id} было очищено в БД.")
                 except OSError as e:
                     self.logger.error("slicing_agent", f"Не удалось удалить исходный файл {source_file}: {e}")
 
@@ -152,7 +182,6 @@ class SlicingAgent(threading.Thread):
         self.recover_tasks()
 
         while not self.shutdown_flag.is_set():
-            # 3. Заменяем shutdown_flag.wait() на select()
             readable, _, _ = select.select([self._shutdown_pipe_r], [], [], self.CHECK_INTERVAL)
             if readable:
                 break
@@ -165,7 +194,6 @@ class SlicingAgent(threading.Thread):
                     self.logger.info("slicing_agent", f"Взята в работу задача на нарезку ID: {task['id']}")
                     self._process_task(task)
         
-        # 4. Очищаем ресурсы pipe после выхода из цикла
         os.close(self._shutdown_pipe_r)
         os.close(self._shutdown_pipe_w)
         self.logger.info(f"{self.name} был остановлен.")
@@ -174,16 +202,11 @@ class SlicingAgent(threading.Thread):
         self.logger.info(f"{self.name}: получен сигнал на остановку.")
         self.shutdown_flag.set()
         try:
-            # 5. Пишем в pipe, чтобы мгновенно разбудить поток из select()
             os.write(self._shutdown_pipe_w, b'x')
         except OSError:
             pass
     
     def _broadcast_queue_update(self):
-        """Собирает активные задачи нарезки и транслирует их через SSE."""
-        # Контекст здесь уже не нужен, так как метод вызывается из _process_task,
-        # который, в свою очередь, вызывается из run() внутри контекста.
-        # Но для безопасности и независимости вызовов его можно оставить.
         with self.app.app_context():
             active_tasks = self.db.get_all_slicing_tasks()
             self.broadcaster.broadcast('slicing_queue_update', active_tasks)

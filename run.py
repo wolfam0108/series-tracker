@@ -12,6 +12,7 @@ from agents.agent import Agent
 from agents.monitoring_agent import MonitoringAgent
 from agents.downloader_agent import DownloaderAgent
 from agents.slicing_agent import SlicingAgent
+from agents.renaming_agent import RenamingAgent
 from routes import init_all_routes
 from debug_manager import DebugManager
 from status_manager import StatusManager
@@ -35,6 +36,7 @@ agent = Agent(app, app.logger, app.db, app.sse_broadcaster, app.status_manager)
 monitoring_agent = MonitoringAgent(app, app.logger, app.db, app.sse_broadcaster, app.status_manager)
 downloader_agent = DownloaderAgent(app, app.logger, app.db, app.sse_broadcaster, app.status_manager)
 slicing_agent = SlicingAgent(app, app.logger, app.db, app.sse_broadcaster, app.status_manager)
+renaming_agent = RenamingAgent(app, app.logger, app.db)
 
 # agent.start()
 # monitoring_agent.start()
@@ -50,6 +52,7 @@ def post_fork_hook(server, worker):
     monitoring_agent.start()
     downloader_agent.start()
     slicing_agent.start()
+    renaming_agent.start()
     
     app.logger.info("run", "All agents started successfully in the worker process.")
 
@@ -63,6 +66,7 @@ app.agent = agent
 app.scanner_agent = monitoring_agent
 app.downloader_agent = downloader_agent
 app.slicing_agent = slicing_agent
+app.renaming_agent = renaming_agent
 
 def on_exit(server):
     """Gunicorn pre_stop hook."""
@@ -72,6 +76,7 @@ def on_exit(server):
     app.scanner_agent.shutdown()
     app.downloader_agent.shutdown()
     app.slicing_agent.shutdown()
+    app.renaming_agent.shutdown()
     
     # Даем агентам немного времени на завершение.
     # Так как CHECK_INTERVAL = 10, дадим им 11 секунд.

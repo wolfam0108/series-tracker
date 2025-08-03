@@ -12,12 +12,9 @@ from rule_engine import RuleEngine
 from scrapers.vk_scraper import VKScraper
 from smart_collector import SmartCollector
 from filename_formatter import FilenameFormatter
+from logic.task_creator import create_renaming_tasks_for_series
 
 series_bp = Blueprint('series_api', __name__, url_prefix='/api/series')
-
-def generate_torrent_id(link, date_time):
-    unique_string = f"{link}{date_time or ''}"
-    return hashlib.md5(unique_string.encode()).hexdigest()[:16]
 
 @series_bp.route('', methods=['GET'])
 def get_series():
@@ -54,20 +51,108 @@ def get_series_details(series_id):
         series['last_scan_time'] = series['last_scan_time'].isoformat()
     return jsonify(series) if series else (jsonify({"error": "Сериал не найден"}), 404)
 
+@series_bp.route('/<int:series_id>/rename_preview', methods=['GET'])
+def get_rename_preview(series_id):
+    """
+    Возвращает предпросмотр переименований для UI, используя объединенные метаданные.
+    """
+    try:
+        series = app.db.get_series(series_id)
+        if not series or not series.get('parser_profile_id'):
+            return jsonify({"preview": [], "needs_rename_count": 0})
+
+        engine = RuleEngine(app.db, app.logger)
+        formatter = FilenameFormatter(app.logger)
+        profile_id = series.get('parser_profile_id')
+
+        preview_list = []
+        needs_rename_count = 0
+
+        media_items = app.db.get_media_items_for_series(series_id)
+        for item in media_items:
+            source_title = item.get('source_title')
+            current_filename = item.get('final_filename')
+            if not source_title:
+                continue
+
+            # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Логика объединения метаданных ---
+            processed_result = engine.process_videos(profile_id, [{'title': source_title}])[0]
+            rule_engine_data = processed_result.get('result', {}).get('extracted', {})
+
+            final_metadata = {
+                'season': item.get('season'),
+                'episode': item.get('episode_start') if not item.get('episode_end') else None,
+                'start': item.get('episode_start') if item.get('episode_end') else None,
+                'end': item.get('episode_end'),
+                'resolution': item.get('resolution'),
+                'voiceover': item.get('voiceover_tag')
+            }
+            final_metadata.update(rule_engine_data)
+
+            new_filename_preview = formatter.format_filename(series, final_metadata, current_filename)
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+            if current_filename and current_filename != new_filename_preview:
+                needs_rename_count += 1
+
+            preview_list.append({
+                'unique_id': item['unique_id'],
+                'type': 'media_item',
+                'current_filename': current_filename,
+                'new_filename_preview': new_filename_preview
+            })
+
+            sliced_children = app.db.get_sliced_files_for_source(item['unique_id'])
+            if not sliced_children:
+                continue
+
+            for child in sliced_children:
+                child_old_path = child.get('file_path')
+                child_metadata = final_metadata.copy() # Наследуем все метаданные от родителя
+                child_metadata['episode'] = child.get('episode_number')
+                child_new_path_preview = formatter.format_filename(series, child_metadata, child_old_path)
+
+                if child_old_path and child_old_path != child_new_path_preview:
+                    needs_rename_count += 1
+
+                preview_list.append({
+                    'unique_id': f"sliced-{child['id']}",
+                    'type': 'sliced_file',
+                    'current_filename': child_old_path,
+                    'new_filename_preview': child_new_path_preview
+                })
+
+        return jsonify({"preview": preview_list, "needs_rename_count": needs_rename_count})
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка предпросмотра для series_id {series_id}: {e}", exc_info=True)
+        return jsonify({"error": str(e)}), 500
+
+@series_bp.route('/<int:series_id>/reprocess_vk_files', methods=['POST'])
+def reprocess_vk_files_route(series_id):
+    """Запускает процесс создания задач на переименование в фоновом потоке."""
+    try:
+        # Получаем реальный объект приложения Flask, чтобы безопасно передать его в новый поток.
+        # Это решает ошибку "Working outside of application context".
+        flask_app = app._get_current_object()
+        
+        # Создаем фоновый поток, передавая в него ID сериала и объект приложения.
+        thread = threading.Thread(target=create_renaming_tasks_for_series, args=(series_id, flask_app))
+        thread.start()
+        
+        return jsonify({"success": True, "message": "Процесс переименования запущен в фоновом режиме."})
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка запуска переименования для series_id {series_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
 @series_bp.route('/<int:series_id>/composition', methods=['GET'])
 def get_series_composition(series_id):
-    """
-    Универсальный эндпоинт для получения композиции.
-    Для VK - выполняет полную логику с обновлением, синхронизацией и возвратом данных из media_items.
-    Для торрентов - возвращает данные из новой таблицы torrent_files.
-    """
     try:
         series = app.db.get_series(series_id)
         if not series:
             return jsonify({"error": "Сериал не найден"}), 404
 
         reconstructed_plan = []
-        
+
         if series.get('source_type') == 'vk_video':
             force_refresh = request.args.get('refresh', 'false').lower() == 'true'
 
@@ -88,14 +173,20 @@ def get_series_composition(series_id):
                 for video_data in processed_videos:
                     extracted = video_data.get('result', {}).get('extracted', {})
                     if extracted.get('episode') is None and extracted.get('start') is None: continue
-                    pub_date = video_data.get('source_data', {}).get('publication_date')
-                    url = video_data.get('source_data', {}).get('url')
-                    if not pub_date or not url: continue
+
+                    source_info = video_data.get('source_data', {})
+                    pub_date = source_info.get('publication_date')
+                    url = source_info.get('url')
+                    title = source_info.get('title')
+
+                    if not all([pub_date, url, title]): continue
+
                     unique_id = generate_media_item_id(url, pub_date, series_id)
                     db_item = {
                         "series_id": series_id, "unique_id": unique_id,
                         "source_url": url, "publication_date": pub_date,
-                        "resolution": video_data.get('source_data', {}).get('resolution'),
+                        "resolution": source_info.get('resolution'),
+                        "source_title": title
                     }
                     if 'season' in extracted: db_item['season'] = extracted['season']
                     if 'episode' in extracted:
@@ -104,41 +195,61 @@ def get_series_composition(series_id):
                         db_item["episode_start"] = extracted['start']
                         if 'end' in extracted: db_item["episode_end"] = extracted['end']
                     if 'voiceover' in extracted: db_item['voiceover_tag'] = extracted['voiceover']
+
                     candidates_to_save.append(db_item)
 
                 if candidates_to_save:
                     app.db.add_or_update_media_items(candidates_to_save)
+                    app.logger.info("series_api", f"Сохранено/обновлено {len(candidates_to_save)} кандидатов в БД во время построения композиции.")
 
-                collector = SmartCollector(app.logger, app.db)
-                collector.collect(series_id)
+            # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: SmartCollector теперь запускается всегда ---
+            # Это гарантирует, что у всех элементов будет правильный plan_status ПЕРЕД усыновлением.
+            collector = SmartCollector(app.logger, app.db)
+            collector.collect(series_id)
 
             app.scanner_agent.sync_single_series_filesystem(series_id)
-            
             app.scanner_agent.verify_sliced_files_for_series(series_id)
-
+            
+            reconstructed_plan = []
             db_items = app.db.get_media_items_for_series(series_id)
-            for item in db_items:
-                extracted_data = {'season': item.get('season'), 'voiceover': item.get('voiceover_tag')}
-                if item.get('episode_end'):
-                    extracted_data['start'] = item.get('episode_start')
-                    extracted_data['end'] = item.get('episode_end')
-                else:
-                    extracted_data['episode'] = item.get('episode_start')
+            
+            # Инициализируем RuleEngine один раз
+            engine = RuleEngine(app.db, app.logger)
+            profile_id = series.get('parser_profile_id')
 
+            for item in db_items:
+                source_title = item.get('source_title')
+                
+                # Создаем "сырые" данные для RuleEngine
+                video_data_for_engine = {
+                    'title': source_title,
+                    'url': item.get('source_url'),
+                    'publication_date': item.get('publication_date'),
+                    'resolution': item.get('resolution')
+                }
+
+                # Получаем канонический объект результата от RuleEngine
+                # Если нет source_title или профиля, result будет пустым
+                if source_title and profile_id:
+                    processed_result = engine.process_videos(profile_id, [video_data_for_engine])[0]
+                else:
+                    processed_result = {
+                        "source_data": video_data_for_engine,
+                        "match_events": [],
+                        "result": {'extracted': {}}
+                    }
+                
+                # Собираем финальный объект для UI, объединяя данные из БД и свежий результат от RuleEngine
                 reconstructed_item = {
-                    'source_data': {
-                        'title': item.get('final_filename') or item.get('source_url'),
-                        'url': item.get('source_url'),
-                        'publication_date': item.get('publication_date').isoformat() if item.get('publication_date') else None,
-                        'resolution': item.get('resolution')
-                    },
-                    'result': {'extracted': extracted_data},
+                    **processed_result, # Включаем source_data, match_events, result
+                    'season': item.get('season'),
                     'plan_status': item.get('plan_status'),
                     'status': item.get('status'),
                     'unique_id': item.get('unique_id'),
                     'final_filename': item.get('final_filename'),
                     'slicing_status': item.get('slicing_status', 'none'),
                     'is_ignored_by_user': item.get('is_ignored_by_user', False),
+                    'source_title': source_title
                 }
                 reconstructed_plan.append(reconstructed_item)
             
@@ -173,10 +284,6 @@ def get_series_composition(series_id):
 
 @series_bp.route('/<int:series_id>/reprocess', methods=['POST'])
 def reprocess_series_torrents_route(series_id):
-    """
-    Запускает полную переобработку (RuleEngine + переименование) для всех
-    активных торрентов указанного сериала.
-    """
     try:
         thread = threading.Thread(target=app.agent.reprocess_and_rename_files_for_series, args=(series_id,))
         thread.start()
@@ -244,7 +351,7 @@ def viewing_heartbeat(series_id):
 @series_bp.route('/<int:series_id>/scan', methods=['POST'])
 def scan_series_route(series_id):
     debug_force_replace = app.db.get_setting('debug_force_replace', 'false') == 'true'
-    result = perform_series_scan(series_id, app.status_manager, debug_force_replace)
+    result = perform_series_scan(series_id, app.status_manager, app, debug_force_replace=debug_force_replace)
     if result["success"]:
         return jsonify(result)
     else:
@@ -325,7 +432,6 @@ def _broadcast_series_update(series_id, event_name):
 
 @series_bp.route('/<int:series_id>/source-filenames', methods=['GET'])
 def get_series_source_filenames(series_id):
-    """Возвращает список исходных имён файлов для сериала."""
     try:
         filenames = app.db.get_source_filenames_for_series(series_id)
         return jsonify(filenames)

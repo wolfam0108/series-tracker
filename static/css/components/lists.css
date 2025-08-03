@@ -395,3 +395,50 @@
     border-radius: 8px;
     padding: 1rem;
 }
+
+/* --- Стили для отображения путей в карточках композиции --- */
+.path-info {
+    display: grid;
+    grid-template-columns: 100px 1fr; /* Фиксированная ширина метки */
+    gap: 1rem;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background-color 0.3s ease;
+}
+
+.path-label {
+    font-weight: 600;
+    text-align: right;
+    color: #6c757d;
+}
+
+.path-value {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--bs-font-monospace);
+    color: #495057;
+}
+
+/* Стили для подсветки строки с новым именем */
+.path-info.path-ok {
+    background-color: transparent; /* Обычный фон */
+}
+
+.path-info.path-mismatch {
+    background-color: rgba(220, 53, 69, 0.1); /* Красный фон */
+}
+.path-info.path-mismatch .path-value {
+    color: #842029;
+    font-weight: 600;
+}
+
+.path-info.path-error {
+    background-color: rgba(220, 53, 69, 0.2); /* Более насыщенный красный фон */
+}
+.path-info.path-error .path-value {
+    color: #842029;
+    font-weight: 600;
+    font-style: italic;
+}

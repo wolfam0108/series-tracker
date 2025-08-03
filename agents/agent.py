@@ -348,6 +348,7 @@ class Agent(threading.Thread):
                     perform_series_scan(
                         series_id=task['series_id'],
                         status_manager=self.status_manager,
+                        flask_app=self.app, 
                         recovery_mode=True,
                         existing_task=task
                     )

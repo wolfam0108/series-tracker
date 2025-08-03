@@ -51,17 +51,30 @@ class FilenameFormatter:
 
         # --- Опциональные метаданные с иерархией приоритетов ---
         voiceover = metadata.get('voiceover')
-        quality = metadata.get('quality') or series_data.get('quality_override')
-        resolution = metadata.get('resolution') or series_data.get('resolution_override')
+        # Ручные настройки из свойств сериала теперь имеют наивысший приоритет
+        quality = series_data.get('quality_override') or metadata.get('quality')
+        resolution = series_data.get('resolution_override') or metadata.get('resolution')
 
         # --- Сборка имени ---
         parts = [series_name_en, f"{season_part}{episode_part}"]
-        if quality:
-            parts.append(self._sanitize_filename(quality))
-        if resolution:
-            parts.append(self._sanitize_filename(resolution))
+
+        # 1. Тег (озвучка)
         if voiceover:
             parts.append(f"[{self._sanitize_filename(voiceover)}]")
+
+        # 2. Качество
+        if quality:
+            parts.append(self._sanitize_filename(quality))
+
+        # 3. Разрешение (с добавлением "p")
+        if resolution:
+            resolution_str = str(resolution)
+            # Если значение - это просто число, добавляем 'p'.
+            # Если это уже строка (например, '1080p WEB-DL'), используем как есть.
+            if resolution_str.isdigit():
+                parts.append(f"{resolution_str}p")
+            else:
+                parts.append(self._sanitize_filename(resolution_str))
 
         # --- Определение расширения файла ---
         extension = ".mkv"

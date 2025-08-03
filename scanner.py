@@ -1,3 +1,5 @@
+# Файл: scanner.py
+
 import os
 from datetime import datetime, timezone
 from flask import current_app as app
@@ -16,6 +18,8 @@ import json
 import time
 from filename_formatter import FilenameFormatter
 from status_manager import StatusManager
+from logic.task_creator import create_renaming_tasks_for_series
+from logic.metadata_processor import build_final_metadata
 
 def generate_torrent_id(link, date_time):
     """Генерирует уникальный ID для торрента на основе его ссылки и даты."""
@@ -24,7 +28,6 @@ def generate_torrent_id(link, date_time):
 
 def generate_media_item_id(url: str, pub_date: datetime, series_id: int) -> str:
     """Генерирует уникальный ID для медиа-элемента на основе URL, даты и ID сериала."""
-    # Убедимся, что дата в UTC для консистентности
     if pub_date.tzinfo is None:
         pub_date = pub_date.replace(tzinfo=timezone.utc)
     else:
@@ -34,55 +37,59 @@ def generate_media_item_id(url: str, pub_date: datetime, series_id: int) -> str:
     unique_string = f"{url}{date_str}{series_id}"
     return hashlib.md5(unique_string.encode()).hexdigest()[:16]
 
-def perform_series_scan(series_id: int, status_manager: StatusManager, debug_force_replace: bool = False, recovery_mode: bool = False, existing_task: dict = None) -> dict:
+def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app, debug_force_replace: bool = False, recovery_mode: bool = False, existing_task: dict = None) -> dict:
     """
-    Выполняет полное сканирование для одного сериала. 
+    Выполняет полное сканирование для одного сериала.
     """
-    with app.app_context():
-        series = app.db.get_series(series_id)
+    with flask_app.app_context():
+        series = flask_app.db.get_series(series_id)
         if not series:
-            app.logger.error("scanner", f"Ошибка сканирования: Сериал с ID {series_id} не найден.")
+            flask_app.logger.error("scanner", f"Ошибка сканирования: Сериал с ID {series_id} не найден.")
             return {"success": False, "error": "Сериал не найден"}
 
         if series.get('source_type') == 'torrent' and not series.get('parser_profile_id'):
             error_msg = f"Сканирование прервано: для торрент-сериала '{series.get('name')}' не назначен профиль правил."
-            app.logger.error("scanner", error_msg)
+            flask_app.logger.error("scanner", error_msg)
             return {"success": False, "error": error_msg}
         
-        # Принудительно сбрасываем флаг ошибки перед началом нового сканирования.
         status_manager.set_status(series_id, 'error', False)
-
         status_manager.set_status(series_id, 'scanning', True)
 
         try:
             if series.get('source_type') == 'vk_video':
-                app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 1 - Сбор кандидатов.")
+                flask_app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 1 - Сбор кандидатов.")
                 channel_url, query = series['url'].split('|', 1)
                 search_mode = series.get('vk_search_mode', 'search')
-                scraper = VKScraper(app.db, app.logger)
+                scraper = VKScraper(flask_app.db, flask_app.logger)
                 scraped_videos = scraper.scrape_video_data(channel_url, query, search_mode)
 
-                engine = RuleEngine(app.db, app.logger)
+                engine = RuleEngine(flask_app.db, flask_app.logger)
                 profile_id = series.get('parser_profile_id')
                 if not profile_id:
                     raise ValueError("Для сериала не назначен профиль правил парсера.")
                 
                 processed_videos = engine.process_videos(profile_id, scraped_videos)
 
-                app.db.reset_plan_status_for_series(series_id)
-
                 candidates_to_save = []
                 for video_data in processed_videos:
                     extracted = video_data.get('result', {}).get('extracted', {})
                     if extracted.get('episode') is None and extracted.get('start') is None:
                         continue
-                    pub_date = video_data.get('source_data', {}).get('publication_date')
-                    url = video_data.get('source_data', {}).get('url')
+                    
+                    source_info = video_data.get('source_data', {})
+                    pub_date = source_info.get('publication_date')
+                    url = source_info.get('url')
+                    title = source_info.get('title')
+
+                    if not all([pub_date, url, title]):
+                        continue
+
                     unique_id = generate_media_item_id(url, pub_date, series_id)
                     db_item = {
                         "series_id": series_id, "unique_id": unique_id,
                         "source_url": url, "publication_date": pub_date,
-                        "resolution": video_data.get('source_data', {}).get('resolution'),
+                        "resolution": source_info.get('resolution'),
+                        "source_title": title 
                     }
                     if 'season' in extracted: db_item['season'] = extracted['season']
                     if 'episode' in extracted:
@@ -95,36 +102,30 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                     candidates_to_save.append(db_item)
                 
                 if candidates_to_save:
-                    app.db.add_or_update_media_items(candidates_to_save)
-                    app.logger.info("scanner", f"Сохранено/обновлено {len(candidates_to_save)} кандидатов в БД.")
+                    flask_app.db.add_or_update_media_items(candidates_to_save)
+                    flask_app.logger.info("scanner", f"Сохранено/обновлено {len(candidates_to_save)} кандидатов в БД.")
 
-                app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 2 - Запуск SmartCollector для обновления плана.")
-                collector = SmartCollector(app.logger, app.db) 
+                flask_app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 2 - Запуск SmartCollector для обновления плана.")
+                collector = SmartCollector(flask_app.logger, flask_app.db) 
                 collector.collect(series_id)
 
-                app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 3 - Создание задач на загрузку.")
-                planned_items = app.db.get_media_items_by_plan_statuses(series_id, ['in_plan_single', 'in_plan_compilation'])
+                flask_app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 2.5 - Усыновление существующих файлов.")
+                flask_app.scanner_agent.sync_single_series_filesystem(series_id)
+
+                flask_app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 3 - Создание задач на загрузку.")
+                planned_items = flask_app.db.get_media_items_by_plan_statuses(series_id, ['in_plan_single', 'in_plan_compilation'])
                 tasks_created = 0
-                formatter = FilenameFormatter(app.logger)
+                formatter = FilenameFormatter(flask_app.logger)
 
                 for item in planned_items:
                     if item['status'] == 'pending':
-                        if app.db.get_download_task_by_uid(item['unique_id']):
+                        if flask_app.db.get_download_task_by_uid(item['unique_id']):
                             continue
 
-                        extracted_data = {
-                            'season': item.get('season'),
-                            'voiceover': item.get('voiceover_tag')
-                        }
-                        if item.get('episode_end'):
-                            extracted_data['start'] = item.get('episode_start')
-                            extracted_data['end'] = item.get('episode_end')
-                        else:
-                            extracted_data['episode'] = item.get('episode_start')
+                        metadata = build_final_metadata(series, item, {})
+                        final_filename = formatter.format_filename(series, metadata)
                         
-                        final_filename = formatter.format_filename(series, extracted_data)
                         save_path = os.path.join(series['save_path'], final_filename)
-                        
                         
                         task_data = {
                             "unique_id": item['unique_id'],
@@ -132,31 +133,32 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                             "video_url": item['source_url'],
                             "save_path": save_path
                         }
-                        app.db.add_download_task(task_data)
+                        flask_app.db.add_download_task(task_data)
                         tasks_created += 1
                 
                 if tasks_created > 0:
-                    app.logger.info("scanner", f"Создано {tasks_created} новых задач на загрузку.")
-                    app.downloader_agent._broadcast_queue_update()
+                    flask_app.logger.info("scanner", f"Создано {tasks_created} новых задач на загрузку.")
+                    flask_app.downloader_agent._broadcast_queue_update()
+
+                create_renaming_tasks_for_series(series_id, flask_app)
 
                 status_manager.sync_vk_statuses(series_id)
                 return {"success": True, "message": "Сканирование и планирование для VK-сериала завершены."}
             
-            # --- Логика для торрентов ---
             else:
-                auth_manager = AuthManager(app.db, app.logger)
-                qb_client = QBittorrentClient(auth_manager, app.db, app.logger)
+                auth_manager = AuthManager(flask_app.db, flask_app.logger)
+                qb_client = QBittorrentClient(auth_manager, flask_app.db, flask_app.logger)
                 task_id = None
                 task_data_torrents = []
                 results_data = {}
 
                 if recovery_mode and existing_task:
-                    app.logger.info("scanner", f"Восстановление задачи сканирования ID {existing_task['id']} для сериала {series_id}")
+                    flask_app.logger.info("scanner", f"Восстановление задачи сканирования ID {existing_task['id']} для сериала {series_id}")
                     task_id = existing_task['id']
                     task_data_torrents = existing_task.get('task_data', [])
                     results_data = existing_task.get('results_data', {})
                 else:
-                    app.logger.info("scanner", f"Начало сканирования для series_id: {series_id}. Режим отладки: {'ВКЛ' if debug_force_replace else 'ВЫКЛ'}")
+                    flask_app.logger.info("scanner", f"Начало сканирования для series_id: {series_id}. Режим отладки: {'ВКЛ' if debug_force_replace else 'ВЫКЛ'}")
                     
                     site_key = series['site']
                     if 'anilibria.tv' in site_key:
@@ -169,17 +171,17 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                         site_key = 'astar.bz'
 
                     parsers = {
-                        'kinozal.me': KinozalParser(auth_manager, app.db, app.logger),
-                        'anilibria.top': AnilibriaParser(app.db, app.logger),
-                        'anilibria.tv': AnilibriaTvParser(app.db, app.logger),
-                        'astar.bz': AstarParser(app.db, app.logger)
+                        'kinozal.me': KinozalParser(auth_manager, flask_app.db, flask_app.logger),
+                        'anilibria.top': AnilibriaParser(flask_app.db, flask_app.logger),
+                        'anilibria.tv': AnilibriaTvParser(flask_app.db, flask_app.logger),
+                        'astar.bz': AstarParser(flask_app.db, flask_app.logger)
                     }
                     
                     parser = parsers.get(site_key)
                     if not parser:
                         raise Exception(f"Парсер для сайта {series['site']} (ключ: {site_key}) не найден")
 
-                    all_db_torrents = app.db.get_torrents(series_id)
+                    all_db_torrents = flask_app.db.get_torrents(series_id)
                     db_hashes = [t['qb_hash'] for t in all_db_torrents if t.get('qb_hash')]
                     torrents_in_qb = qb_client.get_torrents_info(db_hashes) if db_hashes else []
                     hashes_in_qb = {t['hash'] for t in torrents_in_qb} if torrents_in_qb else set()
@@ -200,7 +202,7 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                     new_or_updated_torrents = [t for t in all_site_torrents if t.get('link')]
 
                     if not new_or_updated_torrents:
-                        app.logger.info("scanner", "Парсер не вернул новых или обновленных торрентов.")
+                        flask_app.logger.info("scanner", "Парсер не вернул новых или обновленных торрентов.")
                         status_manager.set_status(series_id, 'scanning', False)
                         return {"success": True, "tasks_created": 0}
 
@@ -212,12 +214,12 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                         site_torrents = new_or_updated_torrents
                     
                     if debug_force_replace:
-                        app.logger.warning("scanner", "РЕЖИМ ОТЛАДКИ: Все активные торренты будут принудительно заменены.")
+                        flask_app.logger.warning("scanner", "РЕЖИМ ОТЛАДКИ: Все активные торренты будут принудительно заменены.")
                         hashes_to_delete = [t['qb_hash'] for t in active_db_torrents]
                         if hashes_to_delete:
                             qb_client.delete_torrents(hashes_to_delete, delete_files=False)
                             for t in active_db_torrents:
-                                app.db.update_torrent_by_id(t['id'], {'is_active': False})
+                                flask_app.db.update_torrent_by_id(t['id'], {'is_active': False})
                         active_db_torrents = []
 
                     torrents_to_process = []
@@ -238,13 +240,13 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                         })
                     
                     if not torrents_to_process:
-                        app.logger.info("scanner", "Новых торрентов для добавления не найдено.")
+                        flask_app.logger.info("scanner", "Новых торрентов для добавления не найдено.")
                         status_manager.set_status(series_id, 'scanning', False)
                         return {"success": True, "tasks_created": 0}
 
-                    task_id = app.db.create_scan_task(series_id, torrents_to_process)
+                    task_id = flask_app.db.create_scan_task(series_id, torrents_to_process)
                     task_data_torrents = torrents_to_process
-                    app.logger.info("scanner", f"Создана задача сканирования ID {task_id} с {len(task_data_torrents)} торрентами.")
+                    flask_app.logger.info("scanner", f"Создана задача сканирования ID {task_id} с {len(task_data_torrents)} торрентами.")
 
                 for index, task_item in enumerate(task_data_torrents):
                     site_torrent = task_item['site_torrent']
@@ -255,9 +257,9 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
 
                     if new_hash:
                         results_data[str(index)] = {"hash": new_hash, "link_type": link_type}
-                        app.db.update_scan_task_results(task_id, results_data)
+                        flask_app.db.update_scan_task_results(task_id, results_data)
                     else:
-                        app.logger.warning("scanner", f"Не удалось добавить торрент {site_torrent['torrent_id']} в рамках задачи {task_id}. Пропуск.")
+                        flask_app.logger.warning("scanner", f"Не удалось добавить торрент {site_torrent['torrent_id']} в рамках задачи {task_id}. Пропуск.")
                         continue
 
                 if not results_data:
@@ -272,19 +274,17 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                     new_hash = result_item['hash']
                     link_type = result_item['link_type']
                     
-                    existing_db_entry = next((t for t in app.db.get_torrents(series_id) if t['torrent_id'] == site_torrent['torrent_id']), None)
+                    existing_db_entry = next((t for t in flask_app.db.get_torrents(series_id) if t['torrent_id'] == site_torrent['torrent_id']), None)
                     if existing_db_entry:
-                        # Обновляем существующую запись, делая её активной
-                        app.db.update_torrent_by_id(existing_db_entry['id'], {'is_active': True, 'qb_hash': new_hash})
+                        flask_app.db.update_torrent_by_id(existing_db_entry['id'], {'is_active': True, 'qb_hash': new_hash})
                     else:
-                        # Добавляем новый торрент, и он ОБЯЗАТЕЛЬНО должен быть активным
-                        app.db.add_torrent(series_id, site_torrent, is_active=True, qb_hash=new_hash)
+                        flask_app.db.add_torrent(series_id, site_torrent, is_active=True, qb_hash=new_hash)
 
                     if old_torrent_to_replace:
-                        app.db.deactivate_torrent_and_clear_files(old_torrent_to_replace['id'])
+                        flask_app.db.deactivate_torrent_and_clear_files(old_torrent_to_replace['id'])
                         qb_client.delete_torrents([old_torrent_to_replace['qb_hash']], delete_files=False)
 
-                    app.agent.add_task(
+                    flask_app.agent.add_task(
                         torrent_hash=new_hash, 
                         series_id=series_id, 
                         torrent_id=site_torrent['torrent_id'], 
@@ -293,16 +293,16 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, debug_for
                     )
                     tasks_created += 1
                 
-                app.logger.info("scanner", f"Создано задач для агента: {tasks_created}.")
+                flask_app.logger.info("scanner", f"Создано задач для агента: {tasks_created}.")
                 
                 if tasks_created == 0:
                      status_manager.set_status(series_id, 'scanning', False)
                 
-                app.db.delete_scan_task(task_id)
+                flask_app.db.delete_scan_task(task_id)
                 return {"success": True, "tasks_created": tasks_created}
 
         except Exception as e:
-            app.logger.error("scanner", f"Ошибка в процессе сканирования для series_id {series_id}: {e}", exc_info=True)
+            flask_app.logger.error("scanner", f"Ошибка в процессе сканирования для series_id {series_id}: {e}", exc_info=True)
             status_manager.set_status(series_id, 'error', True)
             return {"success": False, "error": str(e)}
         finally:

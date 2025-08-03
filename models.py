@@ -130,6 +130,8 @@ class MediaItem(Base):
     series_id = Column(Integer, ForeignKey('series.id'), nullable=False)
     unique_id = Column(Text, nullable=False, unique=True) 
     
+    source_title = Column(Text, nullable=True)
+
     season = Column(Integer, nullable=True)
     episode_start = Column(Integer, nullable=False)
     episode_end = Column(Integer, nullable=True) 
@@ -207,3 +209,20 @@ class TorrentFile(Base):
     extracted_metadata = Column(Text) # Stored as JSON
 
     torrent = relationship("Torrent", back_populates="files")
+
+class RenamingTask(Base):
+    __tablename__ = 'renaming_tasks'
+    id = Column(Integer, primary_key=True)
+
+    series_id = Column(Integer, nullable=False, index=True)
+    
+    media_item_unique_id = Column(Text, nullable=False, index=True)
+    
+    old_path = Column(Text, nullable=False)
+    new_path = Column(Text, nullable=False)
+    
+    status = Column(Text, default='pending', nullable=False) # pending, in_progress, completed, error
+    attempts = Column(Integer, default=0)
+    error_message = Column(Text, nullable=True)
+    
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))

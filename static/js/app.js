@@ -235,6 +235,13 @@ const app = createApp({
                 this.showToast(`Удален сериал: ${seriesName}`, 'warning');
             }
         });
+        this.eventSource.addEventListener('renaming_complete', (event) => {
+            const data = JSON.parse(event.data);
+            // Если модальное окно статуса открыто и ID совпадает, вызываем его метод
+            if (this.$refs.statusModal && this.$refs.statusModal.seriesId === data.series_id) {
+                this.$refs.statusModal.onRenamingComplete();
+            }
+        });
     },
     isSeriesBusy(series) {
         const busyStates = ['scanning', 'metadata', 'renaming', 'checking', 'activation'];

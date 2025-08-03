@@ -11,9 +11,10 @@ from typing import List, Dict, Optional, Any
 
 from models import (
     Base, Auth, Series, SeriesStatus,
-    Torrent, TorrentFile, Setting, Log, AgentTask, ScanTask,
+    Torrent, Setting, Log, AgentTask, ScanTask,
     ParserProfile, ParserRule, ParserRuleCondition, MediaItem, DownloadTask,
-    SlicingTask, SlicedFile
+    SlicingTask, SlicedFile, TorrentFile,
+    RenamingTask
 )
 
 class Database:
@@ -625,8 +626,6 @@ class Database:
                     if not unique_id: continue
 
                     if existing_item := existing_items_map.get(unique_id):
-                        # --- НАЧАЛО ИЗМЕНЕНИЯ: Логика обновления существующего элемента ---
-                        
                         # Принудительно обновляем все распарсенные поля новыми данными
                         existing_item.season = item_data.get('season')
                         existing_item.episode_start = item_data.get('episode_start')
@@ -635,12 +634,14 @@ class Database:
                         existing_item.voiceover_tag = item_data.get('voiceover_tag')
                         existing_item.resolution = item_data.get('resolution')
 
+                        # --- ИЗМЕНЕНИЕ: Добавлена недостающая строка ---
+                        existing_item.source_title = item_data.get('source_title')
+                        # -----------------------------------------------
+                        
                         # КРИТИЧЕСКИ ВАЖНО: Сбрасываем статус планирования.
-                        # Это заставит SmartCollector пересмотреть этот элемент с новыми данными.
                         existing_item.plan_status = 'candidate'
                         
                         items_updated += 1
-                        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
                     else:
                         # Добавляем новый элемент, если его не было
                         new_item = MediaItem(**item_data)
@@ -692,6 +693,15 @@ class Database:
             ).first()
             if not task: return None
             return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+
+    def is_series_being_downloaded(self, series_id: int) -> bool:
+        """Проверяет, есть ли для данного сериала активные задачи на загрузку."""
+        with self.Session() as session:
+            task = session.query(DownloadTask).filter_by(
+                series_id=series_id,
+                status='downloading'
+            ).first()
+            return task is not None
 
     def get_pending_download_tasks(self, limit: int) -> List[Dict[str, Any]]:
         with self.Session() as session:
@@ -1211,3 +1221,63 @@ class Database:
         with self.Session() as session:
             files = session.query(TorrentFile).filter_by(torrent_db_id=torrent_db_id).all()
             return [{c.name: getattr(item, c.name) for c in item.__table__.columns} for item in files]
+        
+    def get_pending_renaming_task(self) -> Optional[Dict[str, Any]]:
+        """Извлекает одну ожидающую задачу на переименование."""
+        with self.Session() as session:
+            task = session.query(RenamingTask).filter_by(status='pending').order_by(RenamingTask.created_at).first()
+            if not task:
+                return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+
+    def create_renaming_task(self, task_data: Dict[str, Any]):
+        """Создает новую задачу на переименование в БД."""
+        with self.Session() as session:
+            # Проверяем, нет ли уже активной задачи для этого файла
+            exists = session.query(RenamingTask).filter(
+                RenamingTask.media_item_unique_id == task_data['media_item_unique_id'],
+                RenamingTask.status.in_(['pending', 'in_progress'])
+            ).first()
+            
+            if not exists:
+                new_task = RenamingTask(**task_data)
+                session.add(new_task)
+                session.commit()
+                return True
+            return False
+
+    def update_renaming_task(self, task_id: int, updates: Dict[str, Any]):
+        """Обновляет данные задачи на переименование (статус, прогресс и т.д.)."""
+        with self.Session() as session:
+            task = session.query(RenamingTask).filter_by(id=task_id).first()
+            if task:
+                for key, value in updates.items():
+                    setattr(task, key, value)
+                task.updated_at = datetime.now(timezone.utc)
+                session.commit()
+
+    def delete_renaming_task(self, task_id: int):
+        """Удаляет завершенную задачу на переименование."""
+        with self.Session() as session:
+            task = session.query(RenamingTask).filter_by(id=task_id).first()
+            if task:
+                session.delete(task)
+                session.commit()
+
+    def requeue_stuck_renaming_tasks(self) -> int:
+        """Восстанавливает 'зависшие' задачи переименования после перезапуска."""
+        with self.Session() as session:
+            stuck_tasks = session.query(RenamingTask).filter_by(status='in_progress')
+            count = stuck_tasks.count()
+            if count > 0:
+                stuck_tasks.update({"status": "pending"}, synchronize_session=False)
+                session.commit()
+            return count
+
+    def update_sliced_file_path(self, file_id: int, new_path: str):
+        """Обновляет путь для одного нарезанного файла по его ID."""
+        with self.Session() as session:
+            item = session.query(SlicedFile).filter_by(id=file_id).first()
+            if item:
+                item.file_path = new_path
+                session.commit()

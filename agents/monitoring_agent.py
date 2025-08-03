@@ -1,10 +1,13 @@
+# Файл: agents/monitoring_agent.py
+
 import threading
 import time
 import json
 import os
+import re
 import select
 from datetime import datetime, timedelta, timezone
-from flask import Flask, current_app as app
+from flask import Flask
 from db import Database
 from logger import Logger
 from scanner import perform_series_scan
@@ -13,6 +16,9 @@ from auth import AuthManager
 from qbittorrent import QBittorrentClient
 from status_manager import StatusManager
 from filename_formatter import FilenameFormatter
+from utils.chapter_parser import get_chapters
+# --- ИЗМЕНЕНИЕ: Импортируем централизованную функцию ---
+from logic.metadata_processor import build_final_metadata
 
 class MonitoringAgent(threading.Thread):
     def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent, status_manager: StatusManager):
@@ -32,7 +38,6 @@ class MonitoringAgent(threading.Thread):
         self.last_status_update_time = time.time()
         self.last_file_verify_time = time.time()
         self.qb_client = None
-        # 2. Создаем "канал пробуждения"
         self._shutdown_pipe_r, self._shutdown_pipe_w = os.pipe()
 
     def _broadcast_scanner_status(self):
@@ -41,65 +46,58 @@ class MonitoringAgent(threading.Thread):
             self.broadcaster.broadcast('scanner_status_update', status)
 
     def verify_sliced_files_for_series(self, series_id: int):
-        """
-        Проверяет наличие нарезанных файлов на диске для одного сериала.
-        - "Усыновляет" файлы для компиляций в статусе 'pending'.
-        - Проверяет целостность для компиляций в статусе 'completed'.
-        """
         with self.app.app_context():
-            # Ищем компиляции, которые либо ожидают нарезки, либо уже (возможно) нарезаны
             source_items = self.db.get_media_items_by_slicing_status(series_id, 'pending')
             source_items.extend(self.db.get_media_items_by_slicing_status(series_id, 'completed'))
             source_items.extend(self.db.get_media_items_by_slicing_status(series_id, 'completed_with_errors'))
-
             if not source_items:
                 return
 
-            formatter = FilenameFormatter(self.logger)
             series = self.db.get_series(series_id)
             if not series: return
 
             for item in source_items:
+                # --- ИЗМЕНЕНИЕ: Логика проверки теперь использует build_final_metadata для консистентности ---
+                # Вместо наследования имени, мы генерируем его по тем же правилам, что и другие модули,
+                # чтобы гарантировать совпадение.
                 unique_id = item['unique_id']
-                source_file = item.get('final_filename')
                 chapters_str = item.get('chapters')
-
-                # Пропускаем, если нет данных для работы
-                if not (source_file and chapters_str):
+                if not chapters_str:
                     continue
 
                 chapters = json.loads(chapters_str)
                 expected_count = len(chapters)
-                existing_files_count = 0
+                found_on_disk = 0
+                
+                # Получаем полные метаданные для родителя один раз
+                parent_metadata = build_final_metadata(series, item, {})
+                formatter = FilenameFormatter(self.logger)
 
-                # Проверяем наличие каждого ожидаемого файла
                 for i, chapter in enumerate(chapters):
                     episode_number = item['episode_start'] + i
-                    metadata = {'season': item.get('season'), 'episode': episode_number}
-                    expected_filename = formatter.format_filename(series, metadata)
-                    expected_path = os.path.join(os.path.dirname(source_file), expected_filename)
+                    
+                    # Создаем метаданные для дочернего файла
+                    child_metadata = parent_metadata.copy()
+                    child_metadata['episode'] = episode_number
+                    child_metadata.pop('start', None)
+                    child_metadata.pop('end', None)
 
+                    expected_filename = formatter.format_filename(series, child_metadata)
+                    expected_path = os.path.join(series['save_path'], expected_filename)
+                    
                     if os.path.exists(expected_path):
                         self.db.add_sliced_file_if_not_exists(series['id'], unique_id, episode_number, expected_path)
-                        existing_files_count += 1
+                        found_on_disk += 1
 
-                # Принимаем решение о финальном статусе на основе найденных файлов
+                # Обновляем статусы на основе проверки
                 current_status = item.get('slicing_status')
                 new_status = current_status
+                known_in_db = self.db.get_sliced_files_for_source(unique_id)
 
-                if current_status == 'pending':
-                    if existing_files_count == expected_count:
-                        new_status = 'completed'
-                    elif existing_files_count > 0:
-                        new_status = 'completed_with_errors'
-
-                elif current_status in ['completed', 'completed_with_errors']:
-                    known_sliced_files = self.db.get_sliced_files_for_source(unique_id)
-                    if len(known_sliced_files) != existing_files_count:
-                        # Если количество файлов на диске не совпадает с количеством в БД - есть проблема
-                        new_status = 'completed_with_errors'
-                    elif existing_files_count == expected_count:
-                        new_status = 'completed'
+                if len(known_in_db) < expected_count or found_on_disk < expected_count:
+                    new_status = 'completed_with_errors'
+                elif len(known_in_db) == expected_count and found_on_disk == expected_count:
+                    new_status = 'completed'
 
                 if new_status != current_status:
                     self.logger.info("monitoring_agent", f"Статус нарезки для UID {unique_id} обновлен на '{new_status}' после проверки файлов.")
@@ -123,10 +121,6 @@ class MonitoringAgent(threading.Thread):
         }
         
     def sync_single_series_filesystem(self, series_id):
-        """
-        Выполняет полную синхронизацию файлов (усыновление + проверка) для ОДНОГО сериала.
-        Этот метод можно вызывать извне (например, из API).
-        """
         with self.app.app_context():
             series = self.db.get_series(series_id)
             if not series or series.get('source_type') != 'vk_video':
@@ -134,111 +128,149 @@ class MonitoringAgent(threading.Thread):
 
             formatter = FilenameFormatter(self.logger)
             changed = False
+            items_to_check = self.db.get_media_items_for_series(series_id)
 
-            # --- Блок 1: "Усыновление" ожидающих файлов ---
-            pending_items = self.db.get_media_items_by_status(series_id, 'pending')
-            for item in pending_items:
-                if item['plan_status'] not in ['in_plan_single', 'in_plan_compilation']:
+            for item in items_to_check:
+                if item.get('plan_status') not in ['in_plan_single', 'in_plan_compilation']:
                     continue
                 
-                # Сначала создаем "плоский" словарь с метаданными
-                metadata = {
-                    'season': item.get('season'), 
-                    'voiceover': item.get('voiceover_tag'),
-                    'episode': item.get('episode_start') if not item.get('episode_end') else None,
-                    'start': item.get('episode_start') if item.get('episode_end') else None,
-                    'end': item.get('episode_end')
-                }
-                # Передаем его напрямую в форматер
-                expected_filename = formatter.format_filename(series, metadata)
-                expected_path = os.path.join(series['save_path'], expected_filename)
-                
-                if os.path.exists(expected_path):
-                    self.db.register_downloaded_media_item(item['unique_id'], expected_path)
-                    self.logger.info("monitoring_agent", f"Усыновлен существующий файл для series_id {series_id}: {expected_filename}")
-                    changed = True
+                if item.get('slicing_status') == 'completed' and item.get('final_filename') is None:
+                    continue
 
-            # --- Блок 2: Проверка пропавших файлов ---
+                is_new_compilation = (
+                    bool(item.get('episode_end')) and
+                    item.get('status') == 'pending' and
+                    item.get('slicing_status') == 'none' and
+                    not item.get('final_filename')
+                )
+
+                if is_new_compilation:
+                    self.logger.info("monitoring_agent", f"Новая компиляция {item['unique_id']}. Запуск глубокой проверки нарезанных файлов...")
+                    try:
+                        chapters = get_chapters(item['source_url'])
+                        if not chapters:
+                            self.logger.warning("monitoring_agent", f"Не удалось получить оглавление для UID {item['unique_id']}.")
+                            continue
+
+                        self.db.update_media_item_chapters(item['unique_id'], json.dumps(chapters))
+                        
+                        expected_children_count = len(chapters)
+                        found_children_count = 0
+                        
+                        compilation_metadata = build_final_metadata(series, item, {})
+                        parent_hypothetical_name = formatter.format_filename(series, compilation_metadata)
+
+                        for i, chapter in enumerate(chapters):
+                            episode_number = item['episode_start'] + i
+                            parent_basename = os.path.basename(parent_hypothetical_name)
+                            base_name, extension = os.path.splitext(parent_basename)
+                            episode_pattern = r's(\d{2,})e(\d{2,})(-e\d{2,})?'
+                            season_number = item.get('season', 1)
+                            new_episode_part = f"s{season_number:02d}e{episode_number:02d}"
+                            new_base_name = re.sub(episode_pattern, new_episode_part, base_name, flags=re.IGNORECASE)
+                            expected_filename = (new_base_name + extension)
+                            expected_path = os.path.join(series['save_path'], expected_filename)
+
+                            if os.path.exists(expected_path):
+                                self.db.add_sliced_file_if_not_exists(series_id, item['unique_id'], episode_number, expected_path)
+                                found_children_count += 1
+                        
+                        if found_children_count == expected_children_count and expected_children_count > 0:
+                            self.logger.info("monitoring_agent", f"УСПЕХ! Все {found_children_count} нарезанных файлов для UID {item['unique_id']} найдены. Усыновляем компиляцию.")
+                            self.db.update_media_item_slicing_status(item['unique_id'], 'completed')
+                            self.db.set_media_item_ignored_status_by_uid(item['unique_id'], True)
+                            self.db.update_media_item_download_status(item['unique_id'], 'completed')
+                            self.db.update_media_item_filename(item['unique_id'], None)
+                            changed = True
+                    
+                    except Exception as e:
+                        self.logger.error("monitoring_agent", f"Ошибка во время глубокого усыновления для UID {item['unique_id']}: {e}", exc_info=True)
+
+                elif item['status'] == 'pending':
+                    metadata = build_final_metadata(series, item, {})
+                    expected_filename = formatter.format_filename(series, metadata)
+                    expected_path = os.path.join(series['save_path'], expected_filename)
+                    
+                    if os.path.exists(expected_path):
+                        self.db.register_downloaded_media_item(item['unique_id'], expected_path)
+                        self.logger.info("monitoring_agent", f"Усыновлен существующий одиночный файл: {expected_filename}")
+                        changed = True
+
+            # --- РЕЖИМ 2: СТАНДАРТНАЯ ПРОВЕРКА (ДЛЯ УЖЕ СКАЧАННЫХ ФАЙЛОВ) ---
             completed_items = self.db.get_media_items_by_status(series_id, 'completed')
             for item in completed_items:
+                # --- ГЛАВНОЕ ИЗМЕНЕНИЕ ---
+                # Пропускаем проверку, если это компиляция, которая была успешно нарезана.
+                # Это предотвратит сброс статуса для "архивных" компиляций.
+                if item.get('slicing_status') in ['completed', 'completed_with_errors']:
+                    continue
+                # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
                 file_path = item.get('final_filename')
                 if file_path and not os.path.exists(file_path):
                     self.db.reset_media_item_download_state(item['unique_id'])
-                    self.logger.warning("monitoring_agent", f"Файл для series_id {series_id} пропал: {file_path}. Статус сброшен.")
+                    self.logger.warning("monitoring_agent", f"Файл пропал: {file_path}. Статус сброшен.")
                     changed = True
             
-            # --- Блок 3: Обновление статуса, если были изменения ---
             if changed:
                 self.status_manager.sync_vk_statuses(series_id)
-
+    
     def _periodic_filesystem_sync(self):
-        """Периодическая задача, которая запускает синхронизацию для всех VK-сериалов."""
         with self.app.app_context():
             all_series = self.db.get_all_series()
             for series in all_series:
                 if series['source_type'] == 'vk_video':
-                    # Проверка скачанных файлов (компиляций)
                     self.sync_single_series_filesystem(series['id'])
-                    # ---> ДОБАВЬТЕ ЭТУ СТРОКУ <---
-                    # Проверка нарезанных файлов (эпизодов)
                     self.verify_sliced_files_for_series(series['id'])
 
-    def _trigger_slicing_recovery(self, unique_id: str):
-        self.db.delete_sliced_files_for_source(unique_id)
-        self.db.update_media_item_slicing_status(unique_id, 'none')
-        self.db.set_media_item_ignored_status_by_uid(unique_id, False)
-
     def _update_active_statuses(self):
-        # --- НОВЫЙ БЛОК: Периодическая синхронизация статусов для VK-сериалов ---
-        all_vk_series = [s for s in self.db.get_all_series() if s['source_type'] == 'vk_video']
-        for series in all_vk_series:
-            self.status_manager.sync_vk_statuses(series['id'])
-        # --- КОНЕЦ НОВОГО БЛОКА ---
+        with self.app.app_context():
+            all_vk_series = [s for s in self.db.get_all_series() if s['source_type'] == 'vk_video']
+            for series in all_vk_series:
+                self.status_manager.sync_vk_statuses(series['id'])
 
-        # --- Существующая логика для торрентов остаётся без изменений ---
-        if not self.qb_client: return
+            if not self.qb_client: return
 
-        all_series_for_torrents = [s for s in self.db.get_all_series() if s['source_type'] == 'torrent']
-        if not all_series_for_torrents:
+            all_series_for_torrents = [s for s in self.db.get_all_series() if s['source_type'] == 'torrent']
+            if not all_series_for_torrents:
+                for series in all_series_for_torrents:
+                    self.db.remove_stale_torrent_tasks(series['id'], [])
+                    self.status_manager.sync_torrent_statuses(series['id'])
+                return
+
+            all_hashes = {t['qb_hash'] for s in all_series_for_torrents for t in self.db.get_torrents(s['id'], is_active=True) if t.get('qb_hash')}
+            if not all_hashes:
+                for series in all_series_for_torrents:
+                    self.db.remove_stale_torrent_tasks(series['id'], [])
+                    self.status_manager.sync_torrent_statuses(series['id'])
+                return
+
+            all_torrents_info = self.qb_client.get_torrents_info(list(all_hashes))
+            if all_torrents_info is None:
+                self.logger.warning("monitoring_agent", "Не удалось получить информацию о торрентах от qBittorrent.")
+                return
+
+            info_map = {info['hash']: info for info in all_torrents_info}
+            active_hashes_from_qbit = list(info_map.keys())
+
             for series in all_series_for_torrents:
-                self.db.remove_stale_torrent_tasks(series['id'], [])
-                self.status_manager.sync_torrent_statuses(series['id'])
-            return
+                series_id = series['id']
+                series_torrents = self.db.get_torrents(series_id, is_active=True)
+                active_hashes_in_series = {t['qb_hash'] for t in series_torrents if t.get('qb_hash')}
 
-        all_hashes = {t['qb_hash'] for s in all_series_for_torrents for t in self.db.get_torrents(s['id'], is_active=True) if t.get('qb_hash')}
-        if not all_hashes:
-            for series in all_series_for_torrents:
-                self.db.remove_stale_torrent_tasks(series['id'], [])
-                self.status_manager.sync_torrent_statuses(series['id'])
-            return
+                for torrent_hash in active_hashes_in_series:
+                    if torrent_hash in info_map:
+                        self.db.update_or_create_torrent_task(series_id, torrent_hash, info_map[torrent_hash])
 
-        all_torrents_info = self.qb_client.get_torrents_info(list(all_hashes))
-        if all_torrents_info is None:
-            self.logger.warning("monitoring_agent", "Не удалось получить информацию о торрентах от qBittorrent.")
-            return
-
-        info_map = {info['hash']: info for info in all_torrents_info}
-        active_hashes_from_qbit = list(info_map.keys())
-
-        for series in all_series_for_torrents:
-            series_id = series['id']
-            series_torrents = self.db.get_torrents(series_id, is_active=True)
-            active_hashes_in_series = {t['qb_hash'] for t in series_torrents if t.get('qb_hash')}
-
-            for torrent_hash in active_hashes_in_series:
-                if torrent_hash in info_map:
-                    self.db.update_or_create_torrent_task(series_id, torrent_hash, info_map[torrent_hash])
-
-            self.db.remove_stale_torrent_tasks(series_id, active_hashes_from_qbit)
-            
-            self.status_manager.sync_torrent_statuses(series_id)
+                self.db.remove_stale_torrent_tasks(series_id, active_hashes_from_qbit)
+                
+                self.status_manager.sync_torrent_statuses(series_id)
 
     def run(self):
         self.logger.info(f"{self.name} запущен.")
         time.sleep(5)
 
         with self.app.app_context():
-            # ... (ваш код инициализации qb_client и recovery)
             auth_manager = AuthManager(self.db, self.logger)
             self.qb_client = QBittorrentClient(auth_manager, self.db, self.logger)
             self.logger.info("monitoring_agent", "Выполнение первоначальной проверки статусов файлов...")
@@ -247,13 +279,10 @@ class MonitoringAgent(threading.Thread):
             self.handle_startup_scan()
 
         while not self.shutdown_flag.is_set():
-            # 3. Заменяем shutdown_flag.wait() на select()
             readable, _, _ = select.select([self._shutdown_pipe_r], [], [], self.CHECK_INTERVAL)
             if readable:
-                # Нас разбудили через pipe, выходим из цикла
                 break
 
-            # Если select завершился по таймауту, выполняем обычную работу
             with self.app.app_context():
                 try:
                     now = time.time()
@@ -272,7 +301,6 @@ class MonitoringAgent(threading.Thread):
                 except Exception as e:
                     self.logger.error("monitoring_agent", f"Критическая ошибка в такте MonitoringAgent: {e}", exc_info=True)
         
-        # 4. Очищаем ресурсы pipe после выхода из цикла
         os.close(self._shutdown_pipe_r)
         os.close(self._shutdown_pipe_w)
         self.logger.info(f"{self.name} был остановлен.")
@@ -364,10 +392,7 @@ class MonitoringAgent(threading.Thread):
                     break
                 
                 series_id = series['id']
-                # --- ИЗМЕНЕНИЕ: Логика определения "занятости" теперь находится в StatusManager ---
-                # Вместо чтения state, мы будем использовать более простой механизм
                 
-                # Пропускаем, если задача уже в обработке StatefulAgent
                 if self.db.get_all_agent_tasks_for_series(series_id):
                     if app.debug_manager.is_debug_enabled('monitoring_agent'):
                         self.logger.debug("monitoring_agent", f"Пропуск сканирования для '{series['name']}' (ID: {series_id}): активна задача агента.")
@@ -376,11 +401,9 @@ class MonitoringAgent(threading.Thread):
                 if app.debug_manager.is_debug_enabled('monitoring_agent'):
                     self.logger.debug("monitoring_agent", f"Запуск сканирования для '{series['name']}' (ID: {series['id']}).")
                 try:
-                    # Передаем status_manager в функцию сканирования
-                    perform_series_scan(series['id'], self.status_manager, debug_force_replace)
+                    perform_series_scan(series['id'], self.status_manager, self.app, debug_force_replace)
                 except Exception as e:
                     self.logger.error("monitoring_agent", f"Ошибка при сканировании сериала {series['id']}: {e}", exc_info=True)
-                    # Используем StatusManager для установки ошибки
                     self.status_manager.set_status(series['id'], 'error', True)
                     continue
             
@@ -393,20 +416,16 @@ class MonitoringAgent(threading.Thread):
             self._broadcast_scanner_status()
 
     def _check_stale_viewing_statuses(self):
-        """Проверяет и сбрасывает зависшие статусы 'Просмотр'."""
         stale_series_ids = self.db.get_stale_viewing_series_ids(timeout_seconds=90)
         for series_id in stale_series_ids:
             self.logger.info("monitoring_agent", f"Обнаружен зависший статус 'Просмотр' для series_id {series_id}. Сброс.")
-            # Напрямую вызываем метод БД для установки NULL
             self.db.set_viewing_status(series_id, False)
-            # И просим StatusManager просто обновить UI
             self.status_manager._update_and_broadcast(series_id)
 
     def shutdown(self):
         self.logger.info(f"{self.name}: получен сигнал на остановку.")
         self.shutdown_flag.set()
         try:
-            # 5. Пишем в pipe, чтобы мгновенно разбудить поток из select()
             os.write(self._shutdown_pipe_w, b'x')
         except OSError:
-            pass # Канал может быть уже закрыт
+            pass
