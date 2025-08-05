@@ -278,61 +278,7 @@
     background: #cfe2ff;
 }
 
-/* Стили для карточки-заглушки отсутствующего эпизода */
-.missing-card {
-    background-color: transparent;
-    border: 2px dashed var(--border-color);
-    box-shadow: none;
-    color: var(--text-muted);
-    padding: 12px 16px;
-}
 
-.missing-card .card-title {
-    font-weight: 500;
-    font-style: italic;
-}
-
-/* ==================================================================== */
-/* Стили состояний для карточек VK с градиентами                       */
-/* ==================================================================== */
-
-.test-result-card-compact.success {
-    background: linear-gradient(135deg, #e7f4e8, #d1e7dd);
-    border-color: #badbcc;
-    color: #0f5132;
-}
-
-.test-result-card-compact.pending {
-    background: linear-gradient(135deg, #fff9e6, #ffecb3);
-    border-color: #ffe69c;
-    color: #665000;
-}
-
-.test-result-card-compact.excluded {
-    background: linear-gradient(135deg, #fbe9ea, #f8d7da);
-    border-color: #f5c6cb;
-    color: #842029;
-}
-
-.test-result-card-compact.no-match,
-.test-result-card-compact.archived {
-    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
-    border-color: #dee2e6;
-    color: #6c757d;
-    opacity: 0.8;
-}
-
-.sliced-file-card {
-    background: linear-gradient(135deg, #cfe2ff, #b8daff);
-    border-color: #a9c7fe;
-    color: #004085;
-}
-
-.sliced-file-card.status-error {
-    background: linear-gradient(135deg, #fbe9ea, #f8d7da);
-    border-color: #f5c6cb;
-    color: #842029;
-}
 
 /* ==================================================================== */
 /* Стили для карточек на вкладке "Нарезка" (ChapterManager)            */
@@ -396,49 +342,28 @@
     padding: 1rem;
 }
 
-/* --- Стили для отображения путей в карточках композиции --- */
-.path-info {
-    display: grid;
-    grid-template-columns: 100px 1fr; /* Фиксированная ширина метки */
-    gap: 1rem;
-    align-items: center;
-    padding: 4px 8px;
-    border-radius: 6px;
-    transition: background-color 0.3s ease;
+/* ==================================================================== */
+/* Стили для заголовков групп/сезонов                                  */
+/* ==================================================================== */
+
+.season-header {
+    display: flex;
+    justify-content: space-between;
+    align-items: center; /* Возвращаем center - это правильно для блочных элементов */
+    margin-bottom: 0.75rem;
+    background-color: var(--bg-light);
+    padding: 12px 16px;
+    border-radius: 10px;
+    border: 1px solid var(--border-color);
 }
 
-.path-label {
-    font-weight: 600;
-    text-align: right;
-    color: #6c757d;
-}
-
-.path-value {
-    white-space: nowrap;
-    overflow: hidden;
-    text-overflow: ellipsis;
-    font-family: var(--bs-font-monospace);
-    color: #495057;
-}
-
-/* Стили для подсветки строки с новым именем */
-.path-info.path-ok {
-    background-color: transparent; /* Обычный фон */
-}
-
-.path-info.path-mismatch {
-    background-color: rgba(220, 53, 69, 0.1); /* Красный фон */
-}
-.path-info.path-mismatch .path-value {
-    color: #842029;
+/* Стили для текста внутри заголовка сезона */
+.season-header > span {
+    font-size: 1.25rem;
     font-weight: 600;
 }
-
-.path-info.path-error {
-    background-color: rgba(220, 53, 69, 0.2); /* Более насыщенный красный фон */
-}
-.path-info.path-error .path-value {
-    color: #842029;
-    font-weight: 600;
-    font-style: italic;
+/* --- Исправление размера переключателя в заголовке сезона --- */
+.season-header .form-check-input {
+    width: 3em;
+    height: 1.5em;
 }

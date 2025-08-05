@@ -249,27 +249,31 @@ template: `
                     </div>
                     <div v-if="isTesting" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
                     <transition-group v-else name="list" tag="div" class="test-results-container mt-3">
-                        <div v-for="(res, index) in testResults" :key="index" class="test-result-card-compact" :class="getResultClass(res)">
-                            <div class="card-line">
-                                <div class="card-title" :title="res.source_data.title">{{ res.source_data.title }}</div>
-                                <div v-if="res.source_data.resolution" class="quality-badge">
-                                    <span>{{ formatResolution(res.source_data.resolution).text }}</span>
+                        <div v-for="(res, index) in testResults" :key="index" 
+                            class="card-final card-test-result"  :class="getResultClass(res)">
+
+                            <div class="info-column">
+                                <div class="card-title-block">
+                                    <span class="card-title" :title="res.source_data.title">{{ res.source_data.title }}</span>
+                                    <div v-if="res.source_data.resolution" class="quality-badge">{{ formatResolution(res.source_data.resolution).text }}</div>
                                 </div>
                             </div>
-                            <div v-if="!res.match_events || res.match_events.length === 0" class="card-line">
-                                <span>Правила не применились</span>
-                            </div>
-                            <div v-else class="card-details">
-                                <template v-for="(event, event_index) in res.match_events" :key="event_index">
-                                    <div v-if="event.action === 'exclude'" class="card-line">
-                                        <span><i class="bi bi-x-circle-fill text-danger me-2"></i>Видео исключено</span>
-                                        <span class="card-rule-name">{{ event.rule_name }}</span>
-                                    </div>
-                                    <div v-else v-for="key in getDisplayableKeys(event.extracted)" :key="key" class="card-line">
-                                        <span>
-                                            {{ formatExtractedKey(key) }}: <strong>{{ formatExtractedValue(key, event.extracted) }}</strong>
-                                        </span>
-                                        <span class="card-rule-name">{{ event.rule_name }}</span>
+
+                            <div class="pills-column">
+                                <div v-if="!res.match_events || res.match_events.length === 0" class="pill">
+                                    <i class="bi bi-slash-circle"></i>
+                                    <span>Правила не применились</span>
+                                </div>
+
+                                <div v-else-if="res.match_events.some(e => e.action === 'exclude')" class="pill">
+                                    <i class="bi bi-x-circle-fill"></i>
+                                    <span>ИСКЛЮЧЕНО (правило: {{ res.match_events.find(e => e.action === 'exclude').rule_name }})</span>
+                                </div>
+
+                                <template v-else>
+                                    <div v-for="pill in testResultPills(res)" :key="pill.key" class="pill">
+                                        <i :class="pill.icon"></i>
+                                        <span>{{ pill.label }}: <strong>{{ pill.value }}</strong></span>
                                     </div>
                                 </template>
                             </div>
@@ -337,7 +341,24 @@ template: `
         const profile = this.profiles.find(p => p.id === this.selectedProfileId);
         return profile ? profile.name : '';
     },
-  },
+    testResultPills() {
+        return (result) => {
+            if (!result || !result.result || !result.result.extracted) return [];
+
+            const extracted = result.result.extracted;
+            const pills = [];
+
+            if (extracted.season != null) pills.push({ key: 'season', label: 'Сезон', value: extracted.season, icon: 'bi-collection-play' });
+            if (extracted.episode != null) pills.push({ key: 'episode', label: 'Серия', value: extracted.episode, icon: 'bi-film' });
+            if (extracted.start != null) pills.push({ key: 'range', label: 'Диапазон', value: `${extracted.start}-${extracted.end}`, icon: 'bi-collection' });
+            if (extracted.voiceover) pills.push({ key: 'voiceover', label: 'Тег', value: extracted.voiceover, icon: 'bi-tags' });
+            if (extracted.quality) pills.push({ key: 'quality', label: 'Качество', value: extracted.quality, icon: 'bi-badge-hd' });
+            if (extracted.resolution) pills.push({ key: 'resolution', label: 'Разрешение', value: extracted.resolution, icon: 'bi-aspect-ratio' });
+
+            return pills;
+        };
+    }
+},
   watch: {
     selectedProfileId(newId) {
         if (newId) {
@@ -642,16 +663,14 @@ template: `
     },
     getResultClass(res) {
         if (!res.match_events || res.match_events.length === 0) {
-            return 'no-match';
+            return 'status-no-match'; // Используем новый класс для "нет совпадений"
         }
         const lastEvent = res.match_events[res.match_events.length - 1];
         if (lastEvent.action === 'exclude') {
-            return 'excluded';
+            return 'status-excluded'; // Новый класс для исключенных
         }
-        if (res.final_result && res.final_result.error) {
-            return 'error';
-        }
-        return 'success';
+        // Убрали проверку на ошибку, так как она не используется в этой карточке
+        return 'status-success'; // Успешное совпадение
     },
     getDisplayableKeys(extractedData) {
         if (!extractedData) return [];

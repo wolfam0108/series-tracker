@@ -1,7 +1,9 @@
 import os
+import threading
 from flask import Blueprint, jsonify, request, current_app as app
 import json
 from utils.chapter_parser import get_chapters # Импортируем новый парсер
+from logic.metadata_processor import build_final_metadata
 
 media_bp = Blueprint('media_api', __name__, url_prefix='/api')
 
@@ -147,3 +149,92 @@ def verify_sliced_files(unique_id):
     except Exception as e:
         app.logger.error("media_api", f"Ошибка верификации файлов для UID {unique_id}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+    
+def _run_deep_adoption_task(app, series_id):
+    """
+    Фоновая задача для выполнения глубокого усыновления.
+    Содержит логику, которую мы убрали из MonitoringAgent.
+    """
+    with app.app_context():
+        logger = app.logger
+        db = app.db
+        
+        logger.info("deep_adoption", f"Запуск глубокого усыновления для series_id: {series_id}")
+        series = db.get_series(series_id)
+        if not series:
+            logger.error("deep_adoption", f"Сериал {series_id} не найден.")
+            return
+
+        formatter = FilenameFormatter(logger)
+        items_to_check = db.get_media_items_for_series(series_id)
+        changed = False
+
+        for item in items_to_check:
+            # Ищем компиляции, для которых еще не было проверки глав
+            is_potential_compilation = (
+                bool(item.get('episode_end')) and
+                item.get('status') == 'pending' and
+                not item.get('chapters')
+            )
+
+            if not is_potential_compilation:
+                continue
+
+            logger.info("deep_adoption", f"Проверка глав для компиляции UID {item['unique_id']}...")
+            try:
+                chapters = get_chapters(item['source_url'])
+                if not chapters:
+                    logger.warning("deep_adoption", f"Не удалось получить оглавление для UID {item['unique_id']}.")
+                    continue
+
+                db.update_media_item_chapters(item['unique_id'], json.dumps(chapters))
+                
+                expected_children_count = len(chapters)
+                found_children_count = 0
+                
+                compilation_metadata = build_final_metadata(series, item, {})
+                
+                for i, chapter in enumerate(chapters):
+                    episode_number = item['episode_start'] + i
+                    
+                    child_metadata = compilation_metadata.copy()
+                    child_metadata['episode'] = episode_number
+                    child_metadata.pop('start', None); child_metadata.pop('end', None)
+
+                    expected_filename = formatter.format_filename(series, child_metadata)
+                    expected_path = os.path.join(series['save_path'], expected_filename)
+
+                    if os.path.exists(expected_path):
+                        db.add_sliced_file_if_not_exists(series_id, item['unique_id'], episode_number, expected_path)
+                        found_children_count += 1
+                
+                if found_children_count == expected_children_count and expected_children_count > 0:
+                    logger.info("deep_adoption", f"УСПЕХ! Все {found_children_count} нарезанных файлов для UID {item['unique_id']} найдены. Усыновляем компиляцию.")
+                    db.update_media_item_slicing_status(item['unique_id'], 'completed')
+                    db.set_media_item_ignored_status_by_uid(item['unique_id'], True)
+                    db.update_media_item_download_status(item['unique_id'], 'completed')
+                    db.update_media_item_filename(item['unique_id'], None)
+                    changed = True
+            
+            except Exception as e:
+                logger.error("deep_adoption", f"Ошибка во время усыновления для UID {item['unique_id']}: {e}", exc_info=True)
+
+        if changed:
+            app.status_manager.sync_vk_statuses(series_id)
+        
+        logger.info("deep_adoption", f"Глубокое усыновление для series_id: {series_id} завершено.")
+
+
+@media_bp.route('/series/<int:series_id>/deep-adoption', methods=['POST'])
+def deep_adoption(series_id):
+    """
+    Запускает разовую задачу глубокого усыновления в фоновом потоке.
+    """
+    try:
+        flask_app = app._get_current_object()
+        thread = threading.Thread(target=_run_deep_adoption_task, args=(flask_app, series_id))
+        thread.start()
+        return jsonify({"success": True, "message": "Процесс глубокого усыновления запущен в фоновом режиме."})
+    except Exception as e:
+        app.logger.error("media_api", f"Ошибка запуска глубокого усыновления: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500

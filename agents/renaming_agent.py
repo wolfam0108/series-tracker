@@ -51,15 +51,22 @@ class RenamingAgent(threading.Thread):
             if media_item.get('slicing_status') == 'slicing':
                 raise Exception("Файл используется агентом нарезки. Попытка будет позже.")
 
+            # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+            rename_successful = False
             if os.path.exists(old_path):
                 os.rename(old_path, new_path)
                 self.logger.info("renaming_agent", f"Файл переименован: {os.path.basename(old_path)} -> {os.path.basename(new_path)}")
+                rename_successful = True
             elif os.path.exists(new_path):
                  self.logger.info("renaming_agent", f"Файл уже был переименован: {os.path.basename(new_path)}")
+                 rename_successful = True
             else:
                  self.logger.warning("renaming_agent", f"Исходный файл не найден: {old_path}. Пропускаем, но обработаем дочерние.")
             
-            self.db.update_media_item_filename(unique_id, new_path)
+            # Обновляем имя файла родителя, только если он был успешно найден/переименован
+            if rename_successful:
+                self.db.update_media_item_filename(unique_id, new_path)
+            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             sliced_children = self.db.get_sliced_files_for_source(unique_id)
             if sliced_children:

@@ -239,9 +239,13 @@ def get_series_composition(series_id):
                         "result": {'extracted': {}}
                     }
                 
-                # Собираем финальный объект для UI, объединяя данные из БД и свежий результат от RuleEngine
+                # Явно проверяем и конвертируем дату в строку перед отправкой
+                source_data = processed_result.get('source_data', {})
+                if source_data.get('publication_date'):
+                    source_data['publication_date'] = source_data['publication_date'].isoformat()
+
                 reconstructed_item = {
-                    **processed_result, # Включаем source_data, match_events, result
+                    **processed_result,
                     'season': item.get('season'),
                     'plan_status': item.get('plan_status'),
                     'status': item.get('status'),

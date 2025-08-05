@@ -387,26 +387,64 @@ class Agent(threading.Thread):
                         continue
 
                     rid = updates.get('server_state', {}).get('rid', rid)
-                    updated_torrents = updates.get('torrents', {})
                     
-                    if updates.get('full_update', False):
-                        with self.lock: hashes_to_check = list(self.processing_torrents.keys())
-                        for h in hashes_to_check:
-                             if h in updated_torrents:
-                                with self.lock:
-                                    if self.processing_torrents.get(h): self.processing_torrents[h]['last_info'].update(updated_torrents[h])
-                                self._process_task_update(h)
-                    else:
-                        with self.lock: hashes_to_check = [h for h in updated_torrents.keys() if h in self.processing_torrents]
-                        for h in hashes_to_check:
-                            with self.lock:
-                                if self.processing_torrents.get(h): self.processing_torrents[h]['last_info'].update(updated_torrents[h])
-                            self._process_task_update(h)
+                    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+                    # 1. Сначала обновляем информацию о торрентах, по которым пришли изменения
+                    updated_torrents = updates.get('torrents', {})
+                    with self.lock:
+                        for h, torrent_data in updated_torrents.items():
+                            if h in self.processing_torrents:
+                                self.processing_torrents[h]['last_info'].update(torrent_data)
+
+                    # 2. Затем проходим по ВСЕМ задачам в очереди и обрабатываем каждую
+                    # Создаем копию ключей, чтобы избежать проблем при изменении словаря во время итерации
+                    current_tasks_hashes = []
+                    with self.lock:
+                        current_tasks_hashes = list(self.processing_torrents.keys())
+
+                    for torrent_hash in current_tasks_hashes:
+                        self._process_task_update(torrent_hash)
+                    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
             
             self.shutdown_flag.wait(1)
 
         self.logger.info(f"{self.name} был остановлен.")
     
+    def add_recheck_task(self, torrent_hash: str, series_id: int, torrent_id: str):
+        """
+        Добавляет задачу на перепроверку (recheck) для существующего торрента.
+        Задача сразу начинается со стадии 'rechecking'.
+        """
+        with self.lock, self.app.app_context():
+            if torrent_hash in self.processing_torrents:
+                self.logger.warning("agent", f"Задача на recheck для хеша {torrent_hash} не добавлена, т.к. он уже обрабатывается.")
+                return
+
+            initial_stage = 'rechecking'
+
+            db_task_data = {
+                'torrent_hash': torrent_hash,
+                'series_id': series_id,
+                'torrent_id': torrent_id,
+                'old_torrent_id': 'None',
+                'stage': initial_stage,
+            }
+
+            self.processing_torrents[torrent_hash] = {
+                **db_task_data,
+                'last_info': {},
+                'last_logged_str': '',
+                'recheck_initiated': False
+            }
+            self.db.add_or_update_agent_task(db_task_data)
+            self.logger.info("agent", f"Новая задача на RECHECK добавлена для хеша {torrent_hash[:8]} на стадии '{initial_stage}'.")
+            
+            # Обновляем статусы файлов с 'missing' на 'rechecking'
+            self.db.update_torrent_files_status_by_hashes([torrent_hash], 'missing', 'rechecking')
+
+            self.status_manager.sync_agent_statuses(series_id)
+            self._broadcast_queue_update()
+
     def shutdown(self):
         self.logger.info("agent", "Получен сигнал на остановку агента.")
         self.shutdown_flag.set()

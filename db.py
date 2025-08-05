@@ -1127,18 +1127,20 @@ class Database:
                 session.rollback()
                 raise
     def get_torrent_files_for_series(self, series_id: int) -> List[Dict[str, Any]]:
-        """Возвращает все записи TorrentFile для указанного сериала, включая qb_hash."""
+        """Возвращает все записи TorrentFile для сериала, включая qb_hash и прогресс загрузки."""
         with self.Session() as session:
-            results = session.query(TorrentFile, Torrent.qb_hash).\
+            results = session.query(TorrentFile, Torrent.qb_hash, DownloadTask.progress).\
                 join(Torrent, TorrentFile.torrent_db_id == Torrent.id).\
+                outerjoin(DownloadTask, (DownloadTask.task_key == Torrent.qb_hash) & (DownloadTask.task_type == 'torrent')).\
                 filter(Torrent.series_id == series_id).all()
 
-            files_with_hash = []
-            for file_obj, qb_hash in results:
+            files_with_data = []
+            for file_obj, qb_hash, progress in results:
                 file_dict = {c.name: getattr(file_obj, c.name) for c in file_obj.__table__.columns}
                 file_dict['qb_hash'] = qb_hash
-                files_with_hash.append(file_dict)
-            return files_with_hash
+                file_dict['progress'] = progress if progress is not None else 0  # Прогресс от 0 до 100
+                files_with_data.append(file_dict)
+            return files_with_data
 
     def get_source_filenames_for_series(self, series_id: int) -> List[str]:
         """
@@ -1281,3 +1283,45 @@ class Database:
             if item:
                 item.file_path = new_path
                 session.commit()
+
+    def update_torrent_files_status_by_hashes(self, qb_hashes: List[str], old_status: str, new_status: str):
+        """Массово обновляет статус файлов для указанных хешей торрентов."""
+        with self.Session() as session:
+            try:
+                # Находим ID торрентов, которые соответствуют хешам
+                torrent_ids_query = session.query(Torrent.id).filter(Torrent.qb_hash.in_(qb_hashes))
+                torrent_ids = [id_tuple[0] for id_tuple in torrent_ids_query.all()]
+
+                if not torrent_ids:
+                    return 0
+
+                # Обновляем все файлы, связанные с этими торрентами и имеющие нужный старый статус
+                update_query = session.query(TorrentFile).filter(
+                    TorrentFile.torrent_db_id.in_(torrent_ids),
+                    TorrentFile.status == old_status
+                )
+                
+                updated_count = update_query.update({'status': new_status}, synchronize_session=False)
+                session.commit()
+                return updated_count
+            except Exception as e:
+                self.logger.error("db", f"Ошибка при массовом обновлении статусов файлов: {e}", exc_info=True)
+                session.rollback()
+                return 0
+            
+    def get_torrent_files_by_status(self, series_id: int, status: str) -> List[Dict[str, Any]]:
+        """Возвращает файлы для указанного сериала с заданным статусом, включая qb_hash."""
+        with self.Session() as session:
+            results = session.query(TorrentFile, Torrent.qb_hash).\
+                join(Torrent, TorrentFile.torrent_db_id == Torrent.id).\
+                filter(
+                    Torrent.series_id == series_id,
+                    TorrentFile.status == status
+                ).all()
+
+            files_with_hash = []
+            for file_obj, qb_hash in results:
+                file_dict = {c.name: getattr(file_obj, c.name) for c in file_obj.__table__.columns}
+                file_dict['qb_hash'] = qb_hash
+                files_with_hash.append(file_dict)
+            return files_with_hash

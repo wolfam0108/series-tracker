@@ -10,6 +10,11 @@ const SeriesCompositionManager = {
             <div class="fieldset-header">
                 <h6 class="fieldset-title"><i class="bi bi-toggles2 me-2"></i>Настройки композиции</h6>
                 <div class="d-flex gap-2">
+                    <button class="btn btn-info btn-sm" @click="triggerDeepAdoption" :disabled="isLoading || isDeepAdopting">
+                        <span v-if="isDeepAdopting" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                        <i v-else class="bi bi-magic"></i>
+                        <span class="ms-1">{{ isDeepAdopting ? 'Проверка...' : 'Глубокое усыновление' }}</span>
+                    </button>
                     <button class="btn btn-warning btn-sm" @click="reprocessVkFiles" :disabled="isLoading || isReprocessing || renameableFilesCount === 0">
                         <span v-if="isReprocessing" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
                         <i v-else class="bi bi-pencil-square"></i>
@@ -99,7 +104,7 @@ const SeriesCompositionManager = {
 
             <div v-else class="season-groups-container">
                 <div v-for="seasonNumber in sortedSeasons" :key="seasonNumber" class="season-group">
-                    <h5 class="season-header">
+                    <div class="season-header">
                         <span>{{ getSeasonTitle(seasonNumber) }}</span>
                         <div v-if="seasonNumber !== 'undefined'" class="modern-form-check form-switch m-0">
                             <input 
@@ -110,101 +115,103 @@ const SeriesCompositionManager = {
                                 :checked="!isSeasonIgnored(seasonNumber)"
                                 @change="toggleSeasonIgnored(seasonNumber)">
                         </div>
-                    </h5>
+                    </div>
                     
                     <transition-group name="list" tag="div" class="composition-cards-container">
                         <div v-for="item in filteredGroupedItems[seasonNumber]" :key="item.unique_id">
                             
                             <div v-if="item.type === 'compilation'"
-                                 class="test-result-card-compact"
-                                 :class="getCardClass(item)">
+                                class="card-final card-compilation"
+                                :class="getCardClass(item)">
                                 
-                                <div class="card-line">
-                                    <strong class="card-title" style="font-size: 16px;">
-                                        {{ series.name }} {{ formatEpisode(item) }}
-                                    </strong>
-                                    <div class="d-flex align-items-center">
-                                        <div v-if="item.source_data.resolution" class="quality-badge me-2">
-                                            <span>{{ item.source_data.resolution }}p</span>
-                                        </div>
-                                        <div class="modern-form-check form-switch m-0" :title="item.is_ignored_by_user ? 'Снова включить в план' : 'Исключить из плана'">
-                                            <input 
-                                                class="form-check-input" 
-                                                type="checkbox" 
-                                                role="switch" 
-                                                :id="'ignore-switch-' + item.unique_id"
-                                                :checked="!item.is_ignored_by_user"
-                                                :disabled="item.slicing_status === 'completed'"
-                                                @change="toggleItemIgnored(item)">
-                                        </div>
+                                <div class="info-column">
+                                    <div class="card-title-block">
+                                        <span class="card-title" :title="series.name + ' ' + formatEpisode(item)">{{ series.name }} {{ formatEpisode(item) }}</span>
+                                        <div v-if="item.source_data.resolution" class="quality-badge">{{ item.source_data.resolution }}p</div>
+                                    </div>
+
+                                    <div class="path-line">
+                                        <span class="path-pill">
+                                            <span class="path-pill-label">Полученное:</span>
+                                            <span class="path-pill-value" :title="item.source_title">{{ item.source_title }}</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="path-line">
+                                        <span class="path-pill" :class="{ 'is-archived': getCardClass(item) === 'status-archived', 'is-missing': !item.final_filename && getCardClass(item) !== 'status-archived' }">
+                                            <span class="path-pill-label">Фактическое:</span>
+                                            <span class="path-pill-value" v-if="getCardClass(item) === 'status-archived'"><i class="bi bi-archive-fill me-1"></i>Исходник удален</span>
+                                            <span class="path-pill-value" v-else-if="item.final_filename" :title="item.final_filename">{{ getBaseName(item.final_filename) }}</span>
+                                            <span class="path-pill-value" v-else><i class="bi bi-x-circle-fill me-1"></i>Файл не найден</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="path-line" v-if="item.new_filename_preview && getCardClass(item) !== 'status-archived' && getBaseName(item.final_filename) !== getBaseName(item.new_filename_preview)">
+                                        <span class="path-pill is-mismatch">
+                                            <span class="path-pill-label">Будет:</span>
+                                            <span class="path-pill-value" :title="item.new_filename_preview">{{ getBaseName(item.new_filename_preview) }}</span>
+                                        </span>
                                     </div>
                                 </div>
 
-                                <div class="path-info small mt-2">
-                                    <span class="path-label">Исходник:</span>
-                                    <span class="path-value text-muted" :title="item.source_title">{{ item.source_title }}</span>
+                                <div class="pills-column">
+                                    <div class="pill"><i class="bi bi-calendar-check"></i><span>План: <strong>{{ item.plan_status }}</strong></span></div>
+                                    <div class="pill"><i class="bi bi-tags"></i><span>Тег: <strong>{{ getVoiceoverTag(item) }}</strong></span></div>
+                                    <div class="pill"><i class="bi bi-check-circle"></i><span>Статус: <strong>{{ item.status }}</strong></span></div>
+                                    <div class="pill"><i class="bi bi-fingerprint"></i><span>ID: <strong>{{ item.unique_id.substring(0, 8) }}</strong></span></div>
+                                    <div class="pill"><i class="bi bi-scissors"></i><span>Нарезка: <strong>{{ item.slicing_status }}</strong></span></div>
                                 </div>
 
-                                <div class="path-info small">
-                                    <span class="path-label">Сейчас:</span>
-                                    <span v-if="item.final_filename" class="path-value text-muted" :title="item.final_filename">
-                                        {{ getBaseName(item.final_filename) }}
-                                    </span>
-                                    <span v-else class="path-value text-muted fst-italic">Файл еще не скачан</span>
-                                </div>
-
-                                <div class="path-info small" :class="getNewPathClass(item)">
-                                    <span class="path-label">Будет:</span>
-                                    <span v-if="item.new_filename_preview" class="path-value" :title="item.new_filename_preview">
-                                        {{ getBaseName(item.new_filename_preview) }}
-                                    </span>
-                                    <span v-else class="path-value fst-italic">Не удалось сформировать имя</span>
-                                </div>
-
-                                <div class="card-line small mt-2">
-                                    <span>Тег: <strong>{{ getVoiceoverTag(item) }}</strong></span>
-                                    <span>Статус: <strong>{{ item.status }}</strong></span>
-                                    <span class="card-rule-name" :title="item.unique_id">ID: {{ item.unique_id.substring(0, 8) }}</span>
-                                </div>
-                            </div>
-
-                            <div v-if="item.type === 'missing'" class="test-result-card-compact missing-card">
-                                <div class="card-line">
-                                    <strong class="card-title">Эпизод {{ item.episode_start }} - отсутствует</strong>
-                                    <span><i class="bi bi-eye-slash-fill"></i></span>
-                                </div>
-                            </div>
-
-                            <div v-if="item.type === 'sliced'" class="test-result-card-compact sliced-file-card" :class="{'status-error': item.status === 'missing'}">
-                                <div class="card-line">
-                                    <strong class="card-title" style="font-size: 16px;">
-                                        {{ series.name }} s{{ String(item.season).padStart(2, '0') }}e{{ String(item.episode_number).padStart(2, '0') }}
-                                    </strong>
-                                    <div class="d-flex align-items-center gap-2">
-                                        <div v-if="item.parent_resolution" class="quality-badge">
-                                            <span>{{ item.parent_resolution }}p</span>
-                                        </div>
-                                        <span class="badge bg-primary"><i class="bi bi-check-circle-fill me-1"></i>Нарезан</span>
+                                <div class="controls-column">
+                                    <div class="form-check form-switch" :title="item.is_ignored_by_user ? 'Снова включить в план' : 'Исключить из плана'">
+                                        <input class="form-check-input" type="checkbox" role="switch" 
+                                            :checked="!item.is_ignored_by_user"
+                                            :disabled="getCardClass(item) === 'status-archived'"
+                                            @change="toggleItemIgnored(item)">
                                     </div>
                                 </div>
-                                <div class="path-info small mt-2">
-                                    <span class="path-label">Источник:</span>
-                                    <span class="path-value text-muted" :title="item.parent_filename">{{ getBaseName(item.parent_filename) }}</span>
+                            </div>
+
+                            <div v-else-if="item.type === 'sliced'" class="card-final card-sliced">
+                                <div class="info-column">
+                                    <div class="card-title-block">
+                                        <span class="card-title" :title="series.name + ' s' + String(item.season).padStart(2, '0') + 'e' + String(item.episode_number).padStart(2, '0')">{{ series.name }} s{{ String(item.season).padStart(2, '0') }}e{{ String(item.episode_number).padStart(2, '0') }}</span>
+                                        <div v-if="item.parent_resolution" class="quality-badge">{{ item.parent_resolution }}p</div>
+                                    </div>
+
+                                    <div class="path-line">
+                                        <span class="path-pill">
+                                            <span class="path-pill-label">Родитель:</span>
+                                            <span class="path-pill-value" :title="item.parent_filename">{{ getBaseName(item.parent_filename) }}</span>
+                                        </span>
+                                    </div>
+                                    
+                                    <div class="path-line">
+                                        <span class="path-pill">
+                                            <span class="path-pill-label">Фактическое:</span>
+                                            <span class="path-pill-value" v-if="item.file_path" :title="item.file_path">{{ getBaseName(item.file_path) }}</span>
+                                        </span>
+                                    </div>
+
+                                    <div class="path-line">
+                                        <span class="path-pill" :class="{ 'is-mismatch': getBaseName(item.file_path) !== getBaseName(item.new_filename_preview) }">
+                                            <span class="path-pill-label">Будет:</span>
+                                            <span class="path-pill-value" v-if="item.new_filename_preview" :title="item.new_filename_preview">{{ getBaseName(item.new_filename_preview) }}</span>
+                                        </span>
+                                    </div>
                                 </div>
-                                <div class="path-info small">
-                                    <span class="path-label">Сейчас:</span>
-                                    <span v-if="item.file_path" class="path-value text-muted" :title="item.file_path">
-                                        {{ getBaseName(item.file_path) }}
-                                    </span>
-                                    <span v-else class="path-value text-muted fst-italic">Путь не найден</span>
+                                <div class="pills-column">
+                                    <div class="pill"><i class="bi bi-film"></i><strong>Нарезанный файл</strong></div>
+                                    <div class="pill" :class="{ 'pill-danger': item.status === 'missing' }">
+                                        <i class="bi" :class="item.status === 'missing' ? 'bi-x-circle-fill' : 'bi-check-circle-fill'"></i>
+                                        <span>{{ item.status === 'missing' ? 'Файл отсутствует' : 'Файл на месте' }}</span>
+                                    </div>
                                 </div>
-                                <div class="path-info small" :class="getNewPathClass(item)">
-                                    <span class="path-label">Будет:</span>
-                                    <span v-if="item.new_filename_preview" class="path-value" :title="item.new_filename_preview">
-                                        {{ getBaseName(item.new_filename_preview) }}
-                                    </span>
-                                    <span v-else class="path-value fst-italic">Не удалось сформировать имя</span>
-                                </div>
+                            </div>
+
+                            <div v-else-if="item.type === 'missing'" class="card-final card-missing">
+                                <span class="card-title">Эпизод s{{ String(item.season).padStart(2, '0') }}e{{ String(item.episode_start).padStart(2, '0') }} - не найден в источнике</span>
+                                <i class="bi bi-eye-slash-fill missing-icon"></i>
                             </div>
                         </div>
                     </transition-group>
@@ -229,6 +236,7 @@ const SeriesCompositionManager = {
       isSavingPriority: false,
       autoUpdateEnabled: true,
       seriesSearchMode: 'search',
+      isDeepAdopting: false,
     };
   },
   emits: ['show-toast'],
@@ -281,71 +289,32 @@ computed: {
             return 0;
         });
         
+        console.log('All Items (Raw Combined Array):', items);
         return items;
     },
 
     // 2. ГРУППИРУЕМ УЖЕ ОТСОРТИРОВАННЫЙ МАССИВ
     groupedItems() {
-        // Берем уже готовый, отсортированный массив allItems
+        // Просто группируем уже отсортированный массив allItems
         const groups = this.allItems.reduce((acc, item) => {
             const season = item.season ?? item.result?.extracted?.season ?? 'undefined';
             if (!acc[season]) acc[season] = [];
             acc[season].push(item);
             return acc;
         }, {});
-        
-        // 3. ДОБАВЛЯЕМ "ПРОПАВШИЕ" И СЛЕГКА ПОДПРАВЛЯЕМ СОРТИРОВКУ
-        for (const seasonNumber in groups) {
-            const itemsInSeason = groups[seasonNumber];
-            if (itemsInSeason.length === 0) continue;
-
-            const coveredEpisodes = new Set();
-            let minEpisode = Infinity;
-            let maxEpisode = -Infinity;
-
-            itemsInSeason.forEach(item => {
-                const start = this.getEpisodeStart(item);
-                const end = item.episode_end ?? item.result?.extracted?.end ?? start;
-                if (start !== Infinity) {
-                    for (let i = start; i <= end; i++) { coveredEpisodes.add(i); }
-                    minEpisode = Math.min(minEpisode, start);
-                    maxEpisode = Math.max(maxEpisode, end);
-                }
-            });
-
-            if (minEpisode === Infinity) continue;
-
-            for (let i = minEpisode; i <= maxEpisode; i++) {
-                if (!coveredEpisodes.has(i)) {
-                    itemsInSeason.push({
-                        type: 'missing',
-                        unique_id: `missing-s${seasonNumber}-e${i}`,
-                        season: parseInt(seasonNumber, 10),
-                        episode_start: i,
-                    });
-                }
-            }
-            
-            // Повторная сортировка, чтобы правильно расставить "пропавшие" карточки
-            itemsInSeason.sort((a, b) => {
-                const epA = this.getEpisodeStart(a);
-                const epB = this.getEpisodeStart(b);
-                return epB - epA;
-            });
-        }
-        
+        console.log('Grouped Items (Before Filter):', groups); // <-- ДОБАВЬТЕ ЭТУ СТРОКУ
         return groups;
     },
 
     // 4. ОСТАЛЬНЫЕ СВОЙСТВА ОСТАЮТСЯ БЕЗ ИЗМЕНЕНИЙ
     filteredGroupedItems() {
         if (!this.showOnlyPlanned) {
+            console.log('Filtered Items (Show All):', this.groupedItems); // <-- ДОБАВЬТЕ ЭТУ СТРОКУ
             return this.groupedItems;
         }
         const filtered = {};
         for (const season in this.groupedItems) {
             const itemsInSeason = this.groupedItems[season].filter(item => {
-                if (item.type === 'missing') return true;
                 if (item.type === 'sliced') return true;
                 if (item.slicing_status === 'completed' && item.is_ignored_by_user) return true;
                 return this.isItemInPlan(item);
@@ -354,6 +323,7 @@ computed: {
                 filtered[season] = itemsInSeason;
             }
         }
+        console.log('Filtered Items (Show Planned):', filtered); // <-- И ЭТУ СТРОКУ
         return filtered;
     },
 
@@ -435,24 +405,29 @@ computed: {
         return 'path-ok';
     },
     getCardClass(item) {
-        // Если компиляция была нарезана и исходник удален - это "архивный" файл
-        if (item.slicing_status === 'completed' && !item.final_filename) {
-            return 'archived'; // Новый серый статус
+        // Статус "Нарезан и удален" - самый высокий приоритет
+        if (item.slicing_status === 'completed' && item.is_ignored_by_user) {
+            return 'status-archived';
         }
+        // Ошибки любого рода
         if (item.status === 'error' || item.slicing_status === 'error' || item.slicing_status === 'completed_with_errors') {
-            return 'pending'; // Желтый для любых ошибок
+            return 'status-pending'; // Желтый для ошибок
         }
+        // Игнорируется пользователем или сезоном
         if (item.is_ignored_by_user || this.isSeasonIgnored(item.season ?? item.result?.extracted?.season ?? 1)) {
-            return 'no-match';
+            return 'status-no-match'; // Серый, как архивный, но без семантики "архива"
         }
-        const isPlanned = ['in_plan_single', 'in_plan_compilation'].includes(item.plan_status);
-        if (isPlanned) {
+        // В плане на загрузку/обработку
+        if (['in_plan_single', 'in_plan_compilation'].includes(item.plan_status)) {
+            // Если в плане и уже скачан - успех
             if (item.status === 'completed') {
-                return 'success';
+                return 'status-success';
             }
-            return 'pending';
+            // Если в плане, но еще не скачан - ожидание
+            return 'status-pending';
         }
-        return 'no-match';
+        // Все остальное (redundant, discarded, etc.)
+        return 'status-no-match';
     },
     handleManualRefresh() {
         this.isManualRefresh = true;
@@ -581,6 +556,29 @@ computed: {
         } catch(error) {
             this.$emit('show-toast', error.message, 'danger');
             this.ignoredSeasons = this.ignoredSeasons.filter(s => s !== seasonNumber);
+        }
+    },
+    async triggerDeepAdoption() {
+        if (!confirm('Запустить глубокое усыновление? Процесс проверит все компиляции, для которых нет данных о главах, с помощью yt-dlp. Это может занять некоторое время.')) {
+            return;
+        }
+        this.isDeepAdopting = true;
+        this.$emit('show-toast', 'Запущено глубокое усыновление...', 'info');
+        try {
+            const response = await fetch(`/api/series/${this.seriesId}/deep-adoption`, { method: 'POST' });
+            const data = await response.json();
+            if (!response.ok) {
+                throw new Error(data.error || 'Ошибка при запуске процесса');
+            }
+            this.$emit('show-toast', data.message, 'success');
+            // Через несколько секунд перезагружаем композицию, чтобы увидеть результат
+            setTimeout(() => {
+                this.loadComposition(false);
+            }, 5000);
+        } catch (error) {
+            this.$emit('show-toast', error.message, 'danger');
+        } finally {
+            this.isDeepAdopting = false;
         }
     },
     getEpisodeStart(item) {

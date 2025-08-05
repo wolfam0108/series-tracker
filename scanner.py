@@ -146,8 +146,29 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                 return {"success": True, "message": "Сканирование и планирование для VK-сериала завершены."}
             
             else:
+                # --- ШАГ 1: Создаем ОДИН экземпляр клиента в самом начале ---
                 auth_manager = AuthManager(flask_app.db, flask_app.logger)
                 qb_client = QBittorrentClient(auth_manager, flask_app.db, flask_app.logger)
+
+                # --- ШАГ 2: Проверяем 'missing' файлы и создаем задачу для Агента ---
+                files_in_db = flask_app.db.get_torrent_files_for_series(series_id)
+                missing_files = [f for f in files_in_db if f.get('status') == 'missing']
+
+                if missing_files:
+                    hashes_to_recheck = {f['qb_hash'] for f in missing_files if f.get('qb_hash')}
+                    for qb_hash in hashes_to_recheck:
+                        torrent_db_entry = flask_app.db.get_torrent_by_hash(qb_hash)
+                        if torrent_db_entry:
+                            flask_app.logger.info("scanner", f"Обнаружен отсутствующий файл для торрента {qb_hash[:8]}. Создание задачи для Агента на перепроверку.")
+                            flask_app.agent.add_recheck_task(
+                                torrent_hash=qb_hash,
+                                series_id=series_id,
+                                torrent_id=torrent_db_entry['torrent_id']
+                            )
+                        else:
+                            flask_app.logger.warning("scanner", f"Не удалось найти торрент в БД по хешу {qb_hash} для создания задачи на recheck.")
+                
+                # --- ШАГ 3: Продолжаем использовать этот же экземпляр для остальной логики ---
                 task_id = None
                 task_data_torrents = []
                 results_data = {}

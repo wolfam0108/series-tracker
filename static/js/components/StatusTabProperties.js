@@ -348,7 +348,7 @@ template: `
         this.siteTorrentsLoading = true; 
         this.siteDataIsStale = false;
         try {
-            const dbTorrentsRes = await fetch(`/api/series/${this.seriesId}/torrents`);
+            const dbTorrentsRes = await fetch(`/api/series/${this.seriesId}/torrents/history`);
             if(dbTorrentsRes.ok) this.allSiteTorrents = await dbTorrentsRes.json();
             this._buildQualityOptions(this.allSiteTorrents);
             const response = await fetch('/api/parse_url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: this.editableSeries.url }) });

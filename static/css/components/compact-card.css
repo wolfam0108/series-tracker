@@ -1,0 +1,387 @@
+.test-results-container {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+}
+
+.test-result-card-compact {
+    padding: 12px 16px;
+    border-radius: 8px;
+    border: 1px solid transparent;
+    font-size: 14px;
+    line-height: 1.4;
+    box-shadow: 0 1px 3px rgba(0,0,0,0.05);
+}
+
+.test-result-card-compact .card-title {
+    font-weight: 600;
+    margin-bottom: 0; /* Убрали отступ, так как теперь есть card-line */
+    word-break: break-all;
+    font-size: 16px;
+}
+
+.test-result-card-compact .card-details {
+    display: flex;
+    flex-direction: column;
+    gap: 4px;
+    margin-top: 8px;
+}
+
+.test-result-card-compact .card-line {
+    display: flex;
+    justify-content: space-between;
+    align-items: center;
+}
+
+.test-result-card-compact .card-rule-name {
+    font-size: 12px;
+    font-family: monospace;
+    color: #6c757d;
+    background-color: rgba(0,0,0,0.03);
+    padding: 2px 6px;
+    border-radius: 4px;
+}
+.sliced-file-card {
+    background: linear-gradient(135deg, #cfe2ff, #b8daff);
+    border-color: #a9c7fe;
+    color: #004085;
+}
+
+.sliced-file-card.status-error {
+    background: linear-gradient(135deg, #fbe9ea, #f8d7da);
+    border-color: #f5c6cb;
+    color: #842029;
+}
+
+/* Стили для карточки-заглушки отсутствующего эпизода */
+.missing-card {
+    background-color: transparent;
+    border: 2px dashed var(--border-color);
+    box-shadow: none;
+    color: var(--text-muted);
+    padding: 12px 16px;
+}
+
+.missing-card .card-title {
+    font-weight: 500;
+    font-style: italic;
+}
+/* --- Стили для отображения путей в карточках композиции --- */
+.path-info {
+    display: grid;
+    grid-template-columns: 100px 1fr; /* Фиксированная ширина метки */
+    gap: 1rem;
+    align-items: center;
+    padding: 4px 8px;
+    border-radius: 6px;
+    transition: background-color 0.3s ease;
+}
+
+.path-label {
+    font-weight: 600;
+    text-align: right;
+    color: #6c757d;
+}
+
+.path-value {
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    font-family: var(--bs-font-monospace);
+    color: #495057;
+}
+
+/* Стили для подсветки строки с новым именем */
+.path-info.path-ok {
+    background-color: transparent; /* Обычный фон */
+}
+
+.path-info.path-mismatch {
+    background-color: rgba(220, 53, 69, 0.1); /* Красный фон */
+}
+.path-info.path-mismatch .path-value {
+    color: #842029;
+    font-weight: 600;
+}
+
+.path-info.path-error {
+    background-color: rgba(220, 53, 69, 0.2); /* Более насыщенный красный фон */
+}
+.path-info.path-error .path-value {
+    color: #842029;
+    font-weight: 600;
+    font-style: italic;
+}
+
+/* ==================================================================== */
+/* 1. ОБЩИЕ КОМПОНЕНТЫ ИЗ МАКЕТА                                      */
+/* ==================================================================== */
+.pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 6px;
+    padding: 4px 10px;
+    font-size: 12px;
+    font-weight: 500;
+    border-radius: 20px;
+    border: 1px solid rgba(0,0,0,0.1);
+    background-color: rgba(255,255,255,0.2);
+    white-space: nowrap;
+    color: inherit;
+}
+.pill i {
+    font-size: 14px;
+    opacity: 0.8;
+}
+.pill strong {
+    font-weight: 600;
+}
+
+.quality-badge {
+    display: inline-flex;
+    align-items: center;
+    font-size: 13px;
+    font-weight: 600;
+    padding: 4px 8px;
+    border-radius: 6px;
+    border: 1px solid rgba(0,0,0,0.1);
+    background-color: rgba(255,255,255,0.3);
+    color: inherit;
+    flex-shrink: 0;
+}
+
+/* ==================================================================== */
+/* 2. БАЗОВАЯ СТРУКТУРА НОВОЙ КАРТОЧКИ (GRID)                           */
+/* ==================================================================== */
+.card-final {
+    border: 1px solid transparent;
+    border-radius: 10px;
+    transition: all 0.2s ease;
+    overflow: hidden;
+    font-size: 14px;
+    position: relative;
+    padding: 12px 16px;
+    
+    display: grid;
+    /* ИСПРАВЛЕНИЕ: Задаем сетку из ТРЕХ колонок */
+    grid-template-columns: 1fr auto auto; 
+    gap: 16px;
+    align-items: center;
+}
+
+/* Стилизация колонок */
+.card-final .info-column {
+    display: flex;
+    flex-direction: column;
+    gap: 8px;
+    min-width: 0;
+}
+
+.card-final .pills-column {
+    display: flex; /* Используем flex для переноса пилюль */
+    flex-wrap: wrap; /* Разрешаем перенос */
+    gap: 6px 12px;
+    align-items: center;
+    justify-content: flex-start; /* Выравнивание пилюль по левому краю */
+}
+
+/* Блок с заголовком внутри инфо-колонки */
+.card-final .card-title-block {
+    display: flex;
+    align-items: center;
+    justify-content: space-between;
+    gap: 12px;
+    min-width: 0;
+}
+
+.card-final .card-title {
+    font-weight: 600;
+    font-size: 16px;
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+}
+
+/* ---- ВСТАВЬТЕ ЭТОТ БЛОК ВЗАМЕН УДАЛЕННОГО ---- */
+
+/* ==================================================================== */
+/* 3. СТИЛИ СОСТОЯНИЙ ДЛЯ НОВЫХ КАРТОЧЕК                                */
+/* ==================================================================== */
+
+/* Успех (зеленый) - для завершенных загрузок, переименованных файлов, успешных тестов */
+.card-final.status-success {
+    background: linear-gradient(135deg, #e7f4e8, #d1e7dd);
+    border-color: #a3cfbb;
+    color: #0f5132;
+}
+
+/* Ожидание (желтый) - для ожидающих загрузки/обработки, несохраненных изменений */
+.card-final.status-pending {
+    background: linear-gradient(135deg, #fff9e6, #ffecb3);
+    border-color: #ffe69c;
+    color: #665000;
+}
+
+/* Архивный / Пропущенный (серый) - для удаленных исходников, пропущенных файлов, нет совпадений */
+.card-final.status-archived,
+.card-final.status-no-match {
+    background: linear-gradient(135deg, #f8f9fa, #e9ecef);
+    border-color: #dee2e6;
+    color: #495057;
+}
+
+/* Исключено (красный) - для правила "Исключить" в тестах */
+.card-final.status-excluded {
+    background: linear-gradient(135deg, #fbe9ea, #f8d7da);
+    border-color: #f5c6cb;
+    color: #842029;
+}
+/* ==================================================================== */
+/* 4. СПЕЦИФИЧНЫЕ СТИЛИ ДЛЯ КАРТОЧКИ ТЕСТИРОВАНИЯ ПРАВИЛ              */
+/* ==================================================================== */
+
+.card-final.card-test-result {
+    display: flex;          /* Переопределяем grid на flex */
+    flex-direction: column; /* Располагаем элементы вертикально (в колонку) */
+    align-items: stretch;   /* Растягиваем дочерние элементы на всю ширину */
+    gap: 8px;               /* Добавляем отступ между строкой с названием и пилюлями */
+}
+
+/* Убедимся, что колонка с пилюлями занимает всю ширину для корректного переноса */
+.card-test-result .pills-column {
+    justify-content: flex-start;
+    width: 100%;
+}
+/* ==================================================================== */
+/* 5. СТИЛИ ДЛЯ КАРТОЧЕК КОМПОЗИЦИИ (VK и Торренты)                   */
+/* ==================================================================== */
+
+/* --- Общая структура карточки --- */
+.card-final .controls-column {
+    align-self: center;
+}
+
+.card-final .card-title-block {
+    display: flex;
+    align-items: center;
+    gap: 12px;
+}
+
+/* --- Стили для переключателя --- */
+.card-final .form-check-input {
+    width: 3em;
+    height: 1.5em;
+    cursor: pointer;
+}
+
+/* --- Классы для разных типов карточек --- */
+.card-compilation.status-pending {
+    background: linear-gradient(135deg, #fff9e6, #ffecb3);
+    border-color: #ffe69c;
+    color: #665000;
+}
+
+.card-sliced {
+    background: linear-gradient(135deg, #cfe2ff, #b8daff);
+    border-color: #a9c7fe;
+    color: #004085;
+}
+.card-sliced .pills-column {
+    grid-template-columns: auto; /* Одна колонка для пилюль */
+}
+
+.card-missing {
+    grid-template-columns: 1fr auto; /* Переопределяем сетку для простой карточки */
+    border: 2px dashed #b0b9c2;
+    background-color: #f8f9fa;
+    color: #495057;
+    box-shadow: none;
+}
+.card-missing .card-title {
+    font-style: italic;
+}
+.card-missing .missing-icon {
+    font-size: 1.5rem;
+    opacity: 0.7;
+}
+
+/* --- Новая колонка для пилюль в карточке компиляции --- */
+.card-compilation .pills-column {
+    display: grid;
+    grid-template-columns: auto auto;
+    grid-template-rows: auto auto auto;
+    gap: 6px 12px;
+    align-items: center;
+}
+/* Правило-исключение для карточки нарезки, у которой нет 3-й колонки */
+.card-final.card-sliced {
+    grid-template-columns: 1fr auto;
+}
+/* --- Новая колонка для пилюль в карточке торрента --- */
+.card-torrent .pills-column {
+    display: grid;
+    grid-template-columns: auto auto;
+    gap: 6px 12px;
+    align-items: center;
+}
+/* Родительская строка-контейнер */
+.card-final .path-line {
+    min-width: 0; /* Разрешаем контейнеру сжиматься */
+}
+
+/* Сама пилюля */
+.path-pill {
+    /* 1. Сжимается по содержимому, как строчный элемент */
+    display: inline-flex; 
+    align-items: center;
+    /* 2. Но не может быть шире родительского блока */
+    max-width: 100%; 
+    
+    border-radius: 6px;
+    padding: 4px 8px;
+    font-size: 13px;
+    background-color: rgba(0,0,0,0.05);
+    border: 1px solid rgba(0,0,0,0.08);
+}
+
+/* Метка внутри пилюли ("Будет:", "Фактическое:") */
+.path-pill-label {
+    font-weight: 600;
+    opacity: 0.7;
+    margin-right: 8px;
+    white-space: nowrap; /* Метка никогда не переносится */
+    flex-shrink: 0; /* Метка никогда не сжимается */
+}
+
+/* Имя файла внутри пилюли */
+.path-pill-value {
+    font-family: var(--font-mono);
+    
+    /* 3. Именно этот элемент теперь отвечает за обрезку текста */
+    white-space: nowrap;
+    overflow: hidden;
+    text-overflow: ellipsis;
+    min-width: 0; /* Разрешаем этому flex-элементу сжиматься до нуля */
+}
+
+/* Стили для особых состояний пилюли (остаются без изменений) */
+.path-pill.is-mismatch {
+    background-color: rgba(220, 53, 69, 0.15);
+    border-color: rgba(220, 53, 69, 0.2);
+}
+.path-pill.is-mismatch .path-pill-value {
+    font-weight: 600;
+}
+
+.path-pill.is-archived,
+.path-pill.is-missing {
+    font-style: italic;
+    opacity: 0.8;
+    background-color: rgba(0,0,0,0.02);
+}
+.pill.pill-danger {
+    background: linear-gradient(135deg, var(--color-red-2), var(--color-red-1));
+    color: var(--color-text-light);
+    border-color: rgba(0,0,0,0.2);
+    font-weight: 600;
+}
