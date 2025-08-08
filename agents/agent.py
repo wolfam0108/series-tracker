@@ -99,89 +99,6 @@ class Agent(threading.Thread):
             self.logger.info("agent", "Очередь обработки агента и таблица в БД были очищены.")
             self._broadcast_queue_update()
     
-    def reprocess_and_rename_files_for_series(self, series_id: int):
-        """
-        Централизованная функция для переобработки и переименования файлов
-        для всех торрентов указанного сериала.
-        """
-        with self.app.app_context():
-            self.logger.info("agent", f"Запуск переобработки файлов для series_id: {series_id}")
-            series = self.db.get_series(series_id)
-            if not series:
-                self.logger.error("agent", f"Сериал с ID {series_id} не найден. Переобработка отменена.")
-                return
-
-            profile_id = series.get('parser_profile_id')
-            if not profile_id:
-                self.logger.warning("agent", f"Для сериала ID {series_id} не назначен профиль правил. Переобработка отменена.")
-                return
-
-            engine = RuleEngine(self.db, self.logger)
-            formatter = FilenameFormatter(self.logger)
-
-            active_torrents = self.db.get_torrents(series_id, is_active=True)
-            for torrent_db_entry in active_torrents:
-                qb_hash = torrent_db_entry.get('qb_hash')
-                if not qb_hash: continue
-
-                self.logger.info("agent", f"Обработка торрента {qb_hash[:8]} для сериала {series_id}")
-                current_files_in_qbit = self.qb_client.get_torrent_files_by_hash(qb_hash)
-                if not current_files_in_qbit: continue
-
-                files_in_db = self.db.get_torrent_files_for_torrent(torrent_db_entry['id'])
-                db_file_map = {(f.get('renamed_path') or f['original_path']): f for f in files_in_db}
-
-                files_to_save_in_db = []
-                video_extensions = ['.mkv', '.avi', '.mp4', '.mov', '.wmv', '.webm']
-
-                for current_path_from_qbit in current_files_in_qbit:
-                    if not any(current_path_from_qbit.lower().endswith(ext) for ext in video_extensions):
-                        continue
-
-                    db_record = db_file_map.get(current_path_from_qbit)
-                    final_renamed_path = None
-
-                    # Определяем "источник правды" для оригинального пути
-                    source_of_truth_original_path = db_record['original_path'] if db_record else current_path_from_qbit
-
-                    basename_for_rules = os.path.basename(source_of_truth_original_path)
-                    processed_result = engine.process_videos(profile_id, [{'title': basename_for_rules}])[0]
-                    extracted_data = processed_result.get('result', {}).get('extracted', {})
-
-                    has_episode = extracted_data.get('episode') is not None or extracted_data.get('start') is not None
-                    has_season = bool(series.get('season')) or (extracted_data.get('season') is not None)
-                    has_essentials = has_episode and has_season
-
-                    file_status = 'pending_rename' if has_essentials else 'skipped'
-
-                    if file_status == 'pending_rename':
-                        target_new_path = formatter.format_filename(series, extracted_data, source_of_truth_original_path)
-
-                        if current_path_from_qbit != target_new_path:
-                            self.logger.info("agent", f"Переименование: '{current_path_from_qbit}' -> '{target_new_path}'")
-                            success = self.qb_client.rename_file(qb_hash, current_path_from_qbit, target_new_path)
-                            if success:
-                                file_status = 'renamed'
-                                final_renamed_path = target_new_path
-                            else:
-                                file_status = 'rename_error'
-                        else:
-                            file_status = 'renamed'
-                            final_renamed_path = current_path_from_qbit
-
-                    db_payload = {
-                        "original_path": source_of_truth_original_path,
-                        "renamed_path": final_renamed_path,
-                        "status": file_status,
-                        "extracted_metadata": json.dumps(extracted_data)
-                    }
-                    files_to_save_in_db.append(db_payload)
-
-                if files_to_save_in_db:
-                    self.db.add_or_update_torrent_files(torrent_db_entry['id'], files_to_save_in_db)
-
-            self.logger.info("agent", f"Переобработка файлов для series_id {series_id} завершена.")
-
     def _process_task_update(self, torrent_hash):
         with self.lock:
             task = self.processing_torrents.get(torrent_hash)
@@ -224,8 +141,9 @@ class Agent(threading.Thread):
                     self.qb_client.pause_torrents([torrent_hash])
 
             elif stage == 'renaming':
-                self.logger.info("agent", f"[{torrent_hash[:8]}] Этап 'renaming'. Запуск централизованной функции переобработки.")
-                self.reprocess_and_rename_files_for_series(task['series_id'])
+                # Сложное переименование теперь обрабатывается RenamingAgent'ом через задачу,
+                # которую создает сканер. Эта стадия теперь является простым переходом.
+                self.logger.info("agent", f"[{torrent_hash[:8]}] Этап 'renaming' завершен. Переход к 'rechecking'.")
                 next_stage = 'rechecking'
 
             elif stage == 'rechecking':

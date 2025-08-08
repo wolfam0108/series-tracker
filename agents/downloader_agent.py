@@ -65,27 +65,30 @@ class DownloaderAgent(threading.Thread):
     def _download_task_worker(self, task_id, video_url, save_path, unique_id, series_id):
         with self.app.app_context():
             try:
-                # <<< НАЧАЛО ИЗМЕНЕНИЯ >>>
-                # Вместо прямого выставления флага, запускаем полную синхронизацию.
-                # Она увидит media_item в статусе 'downloading' и сама выставит флаг.
                 self.status_manager.sync_vk_statuses(series_id)
-                # <<< КОНЕЦ ИЗМЕНЕНИЯ >>>
                 
                 downloader = Downloader(self.logger)
-                
                 progress_callback = partial(self._update_download_progress, task_id)
+
+                # --- НАЧАЛО ИЗМЕНЕНИЙ: Получаем данные сериала для определения относительного пути ---
+                series = self.db.get_series(series_id)
+                if not series:
+                    raise Exception(f"Сериал с ID {series_id} не найден.")
+                # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
                 success, error_msg = downloader.download_video(video_url, save_path, progress_callback)
                 
                 if success:
-                    self.db.update_media_item_filename(unique_id, save_path)
+                    # --- НАЧАЛО ИЗМЕНЕНИЙ: Сохраняем в БД относительный путь ---
+                    relative_path = os.path.relpath(save_path, series['save_path']).replace('\\', '/')
+                    self.db.update_media_item_filename(unique_id, relative_path)
+                    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
                     self.db.update_media_item_download_status(unique_id, 'completed')
                     self.db.delete_download_task(task_id)
                     self.db.update_series(series_id, {'last_scan_time': datetime.now(timezone.utc)})
                 else:
                     self.db.update_download_task_status(task_id, 'error', error_message=error_msg)
                     self.db.update_media_item_download_status(unique_id, 'error')
-                    # При ошибке тоже нужна полная синхронизация, чтобы выставить флаг is_error
                     self.status_manager.sync_vk_statuses(series_id)
 
             except Exception as e:

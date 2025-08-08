@@ -210,19 +210,40 @@ class TorrentFile(Base):
 
     torrent = relationship("Torrent", back_populates="files")
 
+class RelocationTask(Base):
+    __tablename__ = 'relocation_tasks'
+    id = Column(Integer, primary_key=True)
+    series_id = Column(Integer, nullable=False, index=True)
+    new_path = Column(Text, nullable=False)
+    status = Column(Text, default='pending', nullable=False) # pending, in_progress, completed, error
+    error_message = Column(Text, nullable=True)
+    created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
 class RenamingTask(Base):
     __tablename__ = 'renaming_tasks'
     id = Column(Integer, primary_key=True)
 
     series_id = Column(Integer, nullable=False, index=True)
     
-    media_item_unique_id = Column(Text, nullable=False, index=True)
-    
-    old_path = Column(Text, nullable=False)
-    new_path = Column(Text, nullable=False)
-    
-    status = Column(Text, default='pending', nullable=False) # pending, in_progress, completed, error
+    media_item_unique_id = Column(Text, nullable=True, index=True)
+    old_path = Column(Text, nullable=True)
+    new_path = Column(Text, nullable=True)
+
+    status = Column(Text, default='pending', nullable=False)
     attempts = Column(Integer, default=0)
     error_message = Column(Text, nullable=True)
     
     created_at = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+
+    task_type = Column(Text, default='single_vk', nullable=False) # e.g., 'single_vk', 'mass_torrent_reprocess'
+    task_data = Column(Text, nullable=True) # Для будущих задач, пока не используется
+
+class Tracker(Base):
+    __tablename__ = 'trackers'
+    id = Column(Integer, primary_key=True)
+    canonical_name = Column(Text, nullable=False, unique=True) # Системное имя, например, 'anilibria'
+    display_name = Column(Text, nullable=False) # Имя для UI, например, 'Anilibria'
+    mirrors = Column(Text, default='[]') # JSON-список зеркал
+    parser_class = Column(Text, nullable=False) # Имя класса-парсера
+    auth_type = Column(Text, default='none', nullable=False)
+    ui_features = Column(Text, default='{}') # JSON-объект с флагами для UI

@@ -54,11 +54,18 @@ class SlicingAgent(threading.Thread):
 
             media_item = self.db.get_media_item_by_uid(unique_id)
             series = self.db.get_series(media_item['series_id'])
-            source_file = media_item['final_filename']
+            
+            # Получаем относительный путь к исходному файлу из БД
+            relative_source_file = media_item['final_filename']
+            if not relative_source_file:
+                 raise FileNotFoundError(f"В записи media_item {unique_id} отсутствует путь к файлу.")
+            
+            # Собираем абсолютный путь для работы с файловой системой
+            absolute_source_file = os.path.join(series['save_path'], relative_source_file)
             chapters = json.loads(media_item['chapters'])
             
-            if not os.path.exists(source_file):
-                raise FileNotFoundError(f"Исходный файл не найден: {source_file}")
+            if not os.path.exists(absolute_source_file):
+                raise FileNotFoundError(f"Исходный файл не найден по абсолютному пути: {absolute_source_file}")
 
             progress = json.loads(task['progress_chapters']) if task['progress_chapters'] and task['progress_chapters'] != '{}' else {}
             formatter = FilenameFormatter(self.logger)
@@ -69,32 +76,24 @@ class SlicingAgent(threading.Thread):
                     episode_number = media_item['episode_start'] + i
                     progress[str(episode_number)] = 'pending'
                 
-                parent_filename = os.path.basename(source_file)
-                base_name, extension = os.path.splitext(parent_filename)
-                episode_pattern = r's(\d{2,})e(\d{2,})(-e\d{2,})?'
-                
                 for i, chapter in enumerate(chapters):
                     episode_number = media_item['episode_start'] + i
-                    season_number = media_item.get('season', 1)
-                    new_episode_part = f"s{season_number:02d}e{episode_number:02d}"
                     
-                    new_base_name = re.sub(episode_pattern, new_episode_part, base_name, flags=re.IGNORECASE)
-
-                    if new_base_name == base_name:
-                        metadata = build_final_metadata(series, media_item, {})
-                        metadata['episode'] = episode_number
-                        metadata.pop('start', None)
-                        metadata.pop('end', None)
-                        expected_filename = formatter.format_filename(series, metadata)
-                    else:
-                        expected_filename = new_base_name + extension
+                    # Формируем ожидаемый относительный путь для нарезанного файла
+                    metadata = build_final_metadata(series, media_item, {})
+                    metadata['episode'] = episode_number
+                    metadata.pop('start', None)
+                    metadata.pop('end', None)
+                    expected_relative_filename = formatter.format_filename(series, metadata)
                     
-                    expected_path = os.path.join(os.path.dirname(source_file), expected_filename)
+                    # Собираем абсолютный путь для проверки его наличия
+                    expected_absolute_path = os.path.join(series['save_path'], expected_relative_filename)
                     
-                    if os.path.exists(expected_path):
+                    if os.path.exists(expected_absolute_path):
                         self.logger.info("slicing_agent", f"Найден существующий файл для эпизода {episode_number}. Помечаем как выполненный.")
                         progress[str(episode_number)] = 'completed'
-                        self.db.add_sliced_file_if_not_exists(series['id'], unique_id, episode_number, expected_path)
+                        # В БД сохраняем относительный путь
+                        self.db.add_sliced_file_if_not_exists(series['id'], unique_id, episode_number, expected_relative_filename)
                 
                 self.db.update_slicing_task(task_id, {'progress_chapters': json.dumps(progress)})
                 self._broadcast_queue_update()
@@ -111,7 +110,8 @@ class SlicingAgent(threading.Thread):
                 FMT = '%H:%M:%S'
                 start_dt = datetime.strptime(start_time, FMT)
                 
-                command = [ffmpeg_executable, '-y', '-ss', start_time, '-i', source_file]
+                # Используем абсолютный путь к исходнику в команде
+                command = [ffmpeg_executable, '-y', '-ss', start_time, '-i', absolute_source_file]
                 
                 if end_time_str:
                     end_dt = datetime.strptime(end_time_str, FMT)
@@ -119,24 +119,16 @@ class SlicingAgent(threading.Thread):
                     command.extend(['-t', str(duration)])
                 command.extend(['-c', 'copy'])
                 
-                parent_filename = os.path.basename(source_file)
-                base_name, extension = os.path.splitext(parent_filename)
-                episode_pattern = r's(\d{2,})e(\d{2,})(-e\d{2,})?'
-                season_number = media_item.get('season', 1)
-                new_episode_part = f"s{season_number:02d}e{episode_number:02d}"
-                new_base_name = re.sub(episode_pattern, new_episode_part, base_name, flags=re.IGNORECASE)
+                # Формируем относительный путь для выходного файла
+                metadata = build_final_metadata(series, media_item, {})
+                metadata['episode'] = episode_number
+                metadata.pop('start', None)
+                metadata.pop('end', None)
+                output_filename = formatter.format_filename(series, metadata)
 
-                if new_base_name == base_name:
-                    metadata = build_final_metadata(series, media_item, {})
-                    metadata['episode'] = episode_number
-                    metadata.pop('start', None)
-                    metadata.pop('end', None)
-                    output_filename = formatter.format_filename(series, metadata)
-                else:
-                    output_filename = new_base_name + extension
-
-                output_path = os.path.join(os.path.dirname(source_file), output_filename)
-                command.append(output_path)
+                # Собираем абсолютный путь для команды ffmpeg
+                output_absolute_path = os.path.join(series['save_path'], output_filename)
+                command.append(output_absolute_path)
                 
                 self.logger.info("slicing_agent", f"Запуск ffmpeg для эпизода {episode_number}: {' '.join(command)}")
                 result = subprocess.run(command, capture_output=True, text=True, encoding='utf-8')
@@ -144,7 +136,8 @@ class SlicingAgent(threading.Thread):
                 if result.returncode != 0:
                     raise Exception(f"Ошибка ffmpeg для эпизода {episode_number}: {result.stderr}")
 
-                self.db.add_sliced_file_if_not_exists(series['id'], unique_id, episode_number, output_path)
+                # В БД сохраняем относительный путь
+                self.db.add_sliced_file_if_not_exists(series['id'], unique_id, episode_number, output_filename)
                 progress[str(episode_number)] = 'completed'
                 self.db.update_slicing_task(task_id, {'progress_chapters': json.dumps(progress)})
                 self._broadcast_queue_update()
@@ -158,12 +151,13 @@ class SlicingAgent(threading.Thread):
             delete_source_enabled = self.db.get_setting('slicing_delete_source_file', 'false') == 'true'
             if delete_source_enabled:
                 try:
-                    os.remove(source_file)
-                    self.logger.info("slicing_agent", f"Исходный файл {source_file} удален согласно настройке.")
+                    # Удаляем по абсолютному пути
+                    os.remove(absolute_source_file)
+                    self.logger.info("slicing_agent", f"Исходный файл {absolute_source_file} удален согласно настройке.")
                     self.db.update_media_item_filename(unique_id, None)
                     self.logger.info("slicing_agent", f"Имя файла для UID {unique_id} было очищено в БД.")
                 except OSError as e:
-                    self.logger.error("slicing_agent", f"Не удалось удалить исходный файл {source_file}: {e}")
+                    self.logger.error("slicing_agent", f"Не удалось удалить исходный файл {absolute_source_file}: {e}")
 
             self.db.delete_slicing_task(task_id)
 

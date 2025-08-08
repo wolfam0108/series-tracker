@@ -74,22 +74,19 @@ const ChapterManager = {
         if (!mediaItemsResponse.ok) throw new Error('Ошибка загрузки медиа-элементов');
         const rawMediaItems = await mediaItemsResponse.json();
         
-        const seriesResponse = await fetch(`/api/series/${this.seriesId}`);
-        if (!seriesResponse.ok) throw new Error('Ошибка загрузки данных сериала');
-        const seriesData = await seriesResponse.json();
-        const ignoredSeasons = seriesData.ignored_seasons ? JSON.parse(seriesData.ignored_seasons) : [];
-
         this.compilationItems = rawMediaItems
           .filter(item => {
-            const season = item.season ?? 1;
+            // Условия для отображения на вкладке "Нарезка":
+            // 1. Это должна быть компиляция (есть начало и конец эпизода).
             const isCompilation = item.episode_end && item.episode_end > item.episode_start;
+            // 2. Файл должен быть уже скачан.
             const isDownloaded = item.status === 'completed';
-            const isIgnoredBySeason = ignoredSeasons.includes(season);
-            
-            const showBecauseActive = isDownloaded && !item.is_ignored_by_user && !isIgnoredBySeason;
-            const showBecauseCompletedSlicing = ['completed', 'completed_with_errors', 'error'].includes(item.slicing_status);
+            // 3. Компиляция должна быть в активном плане на нарезку.
+            const isInPlan = item.plan_status === 'in_plan_compilation';
+            // 4. Или же процесс нарезки для нее уже был запущен (чтобы видеть ошибки/результат).
+            const wasProcessedBySlicer = item.slicing_status !== 'none';
 
-            return isCompilation && (showBecauseActive || showBecauseCompletedSlicing);
+            return isCompilation && isDownloaded && (isInPlan || wasProcessedBySlicer);
           })
           .map(item => ({
             ...item,

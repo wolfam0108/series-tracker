@@ -23,3 +23,5 @@ test/
 parser_dumps/
 # Папка кодом страниц для дебага
 torrent_cache/
+
+vk_scraper_dumps/

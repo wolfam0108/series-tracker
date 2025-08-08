@@ -367,3 +367,57 @@
     width: 3em;
     height: 1.5em;
 }
+
+/* --- НАЧАЛО ИЗМЕНЕНИЙ: Добавьте этот блок в конец файла --- */
+
+/* ==================================================================== */
+/* Стили для редактора зеркал трекеров (SettingsTrackers)             */
+/* ==================================================================== */
+
+.mirrors-container {
+    min-height: 40px;
+    padding: 8px;
+    background-color: #fff;
+    border: 1px solid var(--border-color);
+    border-radius: var(--inner-border-radius);
+}
+
+.mirror-pill {
+    display: inline-flex;
+    align-items: center;
+    gap: 8px;
+    background-color: var(--bg-light);
+    border: 1px solid var(--border-color);
+    border-radius: 20px; /* Полностью скругленные края */
+    padding: 6px 8px 6px 12px; /* Немного больше отступ слева для текста */
+    font-size: 14px;
+    font-weight: 500;
+    color: var(--text-color);
+    transition: all 0.2s ease;
+}
+
+.mirror-pill-remove {
+    display: flex;
+    align-items: center;
+    justify-content: center;
+    width: 20px;
+    height: 20px;
+    padding: 0;
+    margin: 0;
+    background-color: var(--border-color);
+    color: var(--text-muted);
+    border: none;
+    border-radius: 50%;
+    cursor: pointer;
+    font-size: 18px; /* Немного увеличим для лучшей видимости */
+    font-weight: bold;
+    /* --- ИЗМЕНЕНИЕ: Удаляем line-height, так как flexbox сам справится с выравниванием --- */
+    transition: all 0.2s ease;
+    padding-bottom: 2px; /* Добавляем пиксельную корректировку для идеального визуала */
+}
+
+.mirror-pill-remove:hover {
+    background-color: var(--color-red-1);
+    color: white;
+    transform: scale(1.1);
+}

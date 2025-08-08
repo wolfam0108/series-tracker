@@ -1,7 +1,10 @@
 import requests
+import json
+import os
 from urllib.parse import urlparse
 from datetime import datetime
 from typing import List, Dict, Any
+from flask import current_app as app
 
 class VKScraper:
     API_VERSION = '5.199'
@@ -138,6 +141,36 @@ class VKScraper:
         
         results = []
         for video in videos:
+            # --- НАЧАЛО БЛОКА ДЛЯ ОТЛАДКИ ---
+            if app.debug_manager.is_debug_enabled('save_json_vk_scraper'):
+                try:
+                    # Создаем папку для дампов, если ее нет
+                    DUMP_DIR = "vk_scraper_dumps"
+                    if not os.path.exists(DUMP_DIR):
+                        os.makedirs(DUMP_DIR)
+                    
+                    # Создаем уникальное имя файла
+                    timestamp = datetime.now().strftime('%Y%m%d_%H%M%S')
+                    video_id = video.get('id', 'no_id')
+                    owner_id = video.get('owner_id', 'no_owner')
+                    filename = os.path.join(DUMP_DIR, f"{timestamp}_vid{owner_id}_{video_id}.json")
+                    
+                    # Сохраняем данные в файл
+                    with open(filename, 'w', encoding='utf-8') as f:
+                        json.dump(video, f, ensure_ascii=False, indent=4)
+                    
+                    self.logger.debug("vk_scraper", f"Сырые данные для видео '{video.get('title')}' сохранены в файл: {filename}")
+                
+                except Exception as e:
+                    self.logger.error("vk_scraper", f"Не удалось сохранить JSON-дамп для видео {video_id}: {e}")
+
+            # Проверяем, является ли видео внешней ссылкой
+            is_external = video.get('platform') == 'YouTube' or 'external' in video.get('files', {})
+            if is_external:
+                if app.debug_manager.is_debug_enabled('vk_scraper'):
+                    self.logger.debug("vk_scraper", f"Видео '{video.get('title')}' пропущено, так как является внешней ссылкой.")
+                continue # Пропускаем это видео и переходим к следующему
+
             # --- ИЗМЕНЕНИЕ: Извлекаем максимальное разрешение ---
             max_resolution = 0
             if 'files' in video and isinstance(video['files'], dict):

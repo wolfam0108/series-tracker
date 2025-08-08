@@ -39,6 +39,56 @@ class MonitoringAgent(threading.Thread):
         self.last_file_verify_time = time.time()
         self.qb_client = None
         self._shutdown_pipe_r, self._shutdown_pipe_w = os.pipe()
+        self.relocation_event = threading.Event()
+        self.last_relocation_check_time = 0
+
+    def trigger_relocation_check(self):
+        """Метод для 'пробуждения' агента для немедленной проверки задач на перемещение."""
+        self.relocation_event.set()
+
+    def _process_relocation_task(self):
+        """Обрабатывает одну ожидающую задачу на перемещение."""
+        with self.app.app_context():
+            task = self.db.get_pending_relocation_task()
+            if not task:
+                return
+
+            task_id = task['id']
+            series_id = task['series_id']
+            new_path = task['new_path']
+            self.logger.info("monitoring_agent", f"Начата обработка задачи на перемещение ID {task_id} для series_id {series_id} в '{new_path}'")
+
+            try:
+                self.db.update_relocation_task(task_id, {'status': 'in_progress'})
+
+                # Получаем все активные торренты для этого сериала
+                active_torrents = self.db.get_torrents(series_id, is_active=True)
+                active_hashes = [t['qb_hash'] for t in active_torrents if t.get('qb_hash')]
+
+                if not active_hashes:
+                    self.logger.info("monitoring_agent", "Активных торрентов для перемещения не найдено.")
+                else:
+                    # Отправляем команды в qBittorrent
+                    for qb_hash in active_hashes:
+                        self.logger.info("monitoring_agent", f"Отправка команды setLocation для хеша {qb_hash[:8]}...")
+                        success = self.qb_client.set_location(qb_hash, new_path)
+                        if not success:
+                            raise Exception(f"qBittorrent не смог переместить торрент с хешем {qb_hash[:8]}.")
+                
+                # Если все команды для qb прошли успешно, обновляем путь в нашей БД
+                self.db.update_series(series_id, {'save_path': new_path})
+                
+                # Завершаем задачу
+                self.db.delete_relocation_task(task_id)
+                
+                self.logger.info("monitoring_agent", f"Задача на перемещение ID {task_id} успешно завершена.")
+                self.broadcaster.broadcast('series_relocated', {'series_id': series_id, 'success': True, 'message': 'Сериал успешно перемещен.'})
+
+            except Exception as e:
+                error_message = str(e)
+                self.logger.error("monitoring_agent", f"Ошибка при выполнении задачи на перемещение ID {task_id}: {error_message}", exc_info=True)
+                self.db.update_relocation_task(task_id, {'status': 'error', 'error_message': error_message})
+                self.broadcaster.broadcast('series_relocated', {'series_id': series_id, 'success': False, 'message': error_message})
 
     def _broadcast_scanner_status(self):
         with self.app.app_context():
@@ -128,6 +178,7 @@ class MonitoringAgent(threading.Thread):
 
             formatter = FilenameFormatter(self.logger)
             changed = False
+            base_path = series['save_path']
 
             # --- ШАГ 1: Проверяем "завершенные" файлы на пропажу ---
             completed_items = self.db.get_media_items_by_status(series_id, 'completed')
@@ -135,32 +186,41 @@ class MonitoringAgent(threading.Thread):
                 if item.get('slicing_status') in ['completed', 'completed_with_errors']:
                     continue
 
-                file_path = item.get('final_filename')
-                if file_path and not os.path.exists(file_path):
-                    self.db.reset_media_item_download_state(item['unique_id'])
-                    self.logger.warning("monitoring_agent", f"Файл пропал: {file_path}. Статус сброшен на 'pending'.")
-                    changed = True
+                # --- ИЗМЕНЕНИЕ: Собираем абсолютный путь для проверки существования файла ---
+                relative_path = item.get('final_filename')
+                if relative_path:
+                    absolute_path = os.path.join(base_path, relative_path)
+                    if not os.path.exists(absolute_path):
+                        self.db.reset_media_item_download_state(item['unique_id'])
+                        self.logger.warning("monitoring_agent", f"Файл пропал: {absolute_path}. Статус сброшен на 'pending'.")
+                        changed = True
+                # --- КОНЕЦ ИЗМЕНЕНИЯ ---
 
             # --- ШАГ 2: Проверяем "ожидающие" файлы на наличие (УСЫНОВЛЕНИЕ) ---
             pending_items = self.db.get_media_items_by_status(series_id, 'pending')
             for item in pending_items:
-                # Пропускаем компиляции, которые еще не были нарезаны
-                if bool(item.get('episode_end')) and item.get('slicing_status') != 'completed':
+                if item.get('plan_status') not in ['in_plan_single', 'in_plan_compilation']:
                     continue
-
-                # Формируем ожидаемое имя файла по тем же правилам, что и при скачивании
+                # Формируем ожидаемое имя файла (оно будет относительным)
                 metadata = build_final_metadata(series, item, {})
-                expected_filename = formatter.format_filename(series, metadata)
-                expected_path = os.path.join(series['save_path'], expected_filename)
+                expected_relative_filename = formatter.format_filename(series, metadata)
+                # Собираем абсолютный путь для проверки на диске
+                expected_absolute_path = os.path.join(base_path, expected_relative_filename)
 
-                # --- ОТЛАДОЧНАЯ ФУНКЦИЯ, КОТОРУЮ ВЫ ПРОСИЛИ ---
                 if self.app.debug_manager.is_debug_enabled('monitoring_agent'):
-                    self.logger.debug("monitoring_agent", f"Проверка усыновления для UID {item['unique_id']}. Ожидаемый путь: {expected_path}")
+                    # Логируем и относительное, и абсолютное имя
+                    self.logger.debug(
+                        "monitoring_agent", 
+                        f"Проверка усыновления для UID {item['unique_id']}. "
+                        f"Ожидаемый относительный путь: '{expected_relative_filename}', "
+                        f"полный путь: '{expected_absolute_path}'"
+                    )
 
-                # Если файл найден по ожидаемому пути, "усыновляем" его
-                if os.path.exists(expected_path):
-                    self.db.register_downloaded_media_item(item['unique_id'], expected_path)
-                    self.logger.info("monitoring_agent", f"Усыновлен существующий файл: {expected_filename}")
+                # Если файл найден по ожидаемому абсолютному пути...
+                if os.path.exists(expected_absolute_path):
+                    # --- ИЗМЕНЕНИЕ: ...то в базу данных мы записываем относительный путь ---
+                    self.db.register_downloaded_media_item(item['unique_id'], expected_relative_filename)
+                    self.logger.info("monitoring_agent", f"Усыновлен существующий файл: {expected_relative_filename}")
                     changed = True
             
             if changed:
@@ -230,9 +290,17 @@ class MonitoringAgent(threading.Thread):
             self.handle_startup_scan()
 
         while not self.shutdown_flag.is_set():
+            # Ожидаем сигнала на остановку или таймаута
             readable, _, _ = select.select([self._shutdown_pipe_r], [], [], self.CHECK_INTERVAL)
             if readable:
+                # Если пришел сигнал, выходим из цикла
                 break
+
+            # Проверяем, было ли установлено событие для немедленного запуска
+            if self.relocation_event.is_set():
+                self.relocation_event.clear() # Сбрасываем событие
+                self.logger.info("monitoring_agent", "Агент пробужден событием для проверки задач перемещения.")
+                self._process_relocation_task()
 
             with self.app.app_context():
                 try:
@@ -244,13 +312,15 @@ class MonitoringAgent(threading.Thread):
                         self.broadcaster.broadcast('agent_heartbeat', {'name': 'monitoring', 'activity': 'qbit_check'})
 
                     if (now - self.last_file_verify_time) >= self.FILE_VERIFY_INTERVAL:
-                        # Проверка для VK-сериалов
                         self._periodic_filesystem_sync()
-                        # Новая проверка для торрент-сериалов
                         self._verify_torrent_files()
-                        
                         self.last_file_verify_time = now
                         self.broadcaster.broadcast('agent_heartbeat', {'name': 'monitoring', 'activity': 'file_verify'})
+                    
+                    # Периодическая проверка задач на перемещение (запасной механизм)
+                    if (now - self.last_relocation_check_time) >= 60: # Проверяем раз в минуту
+                       self._process_relocation_task()
+                       self.last_relocation_check_time = now
 
                     self._tick()
                 except Exception as e:

@@ -1,8 +1,11 @@
 # Файл: scanner.py
-
 import os
+import time
+import json
+import hashlib
 from datetime import datetime, timezone
 from flask import current_app as app
+
 from auth import AuthManager
 from db import Database
 from qbittorrent import QBittorrentClient
@@ -13,13 +16,11 @@ from parsers.anilibria_tv_parser import AnilibriaTvParser
 from scrapers.vk_scraper import VKScraper
 from rule_engine import RuleEngine
 from smart_collector import SmartCollector
-import hashlib
-import json
-import time
 from filename_formatter import FilenameFormatter
 from status_manager import StatusManager
 from logic.task_creator import create_renaming_tasks_for_series
 from logic.metadata_processor import build_final_metadata
+from utils.tracker_resolver import TrackerResolver
 
 def generate_torrent_id(link, date_time):
     """Генерирует уникальный ID для торрента на основе его ссылки и даты."""
@@ -56,6 +57,41 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
         status_manager.set_status(series_id, 'scanning', True)
 
         try:
+            # --- ЭТАП 1: ЗАПУСК ЗАДАЧИ НА ПЕРЕОБРАБОТКУ ---
+            task_type = 'mass_torrent_reprocess' if series['source_type'] == 'torrent' else 'mass_vk_reprocess'
+            task_data = {'series_id': series_id, 'task_type': task_type}
+            
+            # Мы используем get_pending_renaming_task для получения ID, если задача уже создана,
+            # но еще не выполнена, на случай сбоя на этапе ожидания.
+            task_id = None
+            existing_pending_task = flask_app.db.get_pending_renaming_task(series_id, task_type)
+            
+            if existing_pending_task:
+                task_id = existing_pending_task['id']
+                flask_app.logger.info("scanner", f"Обнаружена существующая задача на переобработку ID {task_id}. Ожидание её завершения.")
+            else:
+                task_created = flask_app.db.create_renaming_task(task_data)
+                if task_created:
+                    newly_created_task = flask_app.db.get_pending_renaming_task(series_id, task_type)
+                    task_id = newly_created_task['id']
+                    flask_app.logger.info("scanner", f"Создана задача на переобработку ID {task_id} перед сканированием.")
+                    flask_app.renaming_agent.trigger()
+            
+            # --- ЭТАП 2: АКТИВНОЕ ОЖИДАНИЕ ЗАВЕРШЕНИЯ ---
+            if task_id:
+                wait_timeout = 600  # 10 минут - максимальное время ожидания
+                start_time = time.time()
+                while True:
+                    time.sleep(3) # Проверяем каждые 3 секунды
+                    task = flask_app.db.get_renaming_task(task_id)
+                    if not task:
+                        flask_app.logger.info("scanner", f"Задача на переобработку ID {task_id} завершена. Продолжение сканирования.")
+                        break
+                    if task.get('status') == 'error':
+                        raise Exception(f"Задача на переобработку ID {task_id} завершилась с ошибкой: {task.get('error_message')}")
+                    if time.time() - start_time > wait_timeout:
+                        raise Exception(f"Таймаут ожидания завершения задачи на переобработку ID {task_id}.")
+           
             if series.get('source_type') == 'vk_video':
                 flask_app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 1 - Сбор кандидатов.")
                 channel_url, query = series['url'].split('|', 1)
@@ -148,6 +184,31 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
             else:
                 # --- ШАГ 1: Создаем ОДИН экземпляр клиента в самом начале ---
                 auth_manager = AuthManager(flask_app.db, flask_app.logger)
+                
+                resolver = TrackerResolver(flask_app.db)
+                tracker_info = resolver.get_tracker_by_url(series['url'])
+                
+                if not tracker_info:
+                    raise Exception(f"Не удалось определить трекер для URL: {series['url']}")
+
+                parser_class_name = tracker_info['parser_class']
+                parser_classes = {
+                    'KinozalParser': KinozalParser,
+                    'AnilibriaParser': AnilibriaParser,
+                    'AnilibriaTvParser': AnilibriaTvParser,
+                    'AstarParser': AstarParser
+                }
+                
+                parser_class = parser_classes.get(parser_class_name)
+                if not parser_class:
+                    raise Exception(f"Парсер с классом '{parser_class_name}' не найден")
+                
+                # Создаем экземпляр парсера, УЧИТЫВАЯ РАЗНЫЕ АРГУМЕНТЫ
+                if parser_class_name == 'KinozalParser':
+                    parser = parser_class(auth_manager, flask_app.db, flask_app.logger)
+                else:
+                    parser = parser_class(flask_app.db, flask_app.logger)
+
                 qb_client = QBittorrentClient(auth_manager, flask_app.db, flask_app.logger)
 
                 # --- ШАГ 2: Проверяем 'missing' файлы и создаем задачу для Агента ---

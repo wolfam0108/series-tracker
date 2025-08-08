@@ -2,6 +2,7 @@ import hashlib
 import os
 import json
 import threading
+import time
 from flask import Blueprint, jsonify, request, current_app as app
 
 from auth import AuthManager
@@ -12,7 +13,8 @@ from rule_engine import RuleEngine
 from scrapers.vk_scraper import VKScraper
 from smart_collector import SmartCollector
 from filename_formatter import FilenameFormatter
-from logic.task_creator import create_renaming_tasks_for_series
+from logic.metadata_processor import build_final_metadata
+from utils.tracker_resolver import TrackerResolver
 
 series_bp = Blueprint('series_api', __name__, url_prefix='/api/series')
 
@@ -47,8 +49,17 @@ def add_series():
 @series_bp.route('/<int:series_id>', methods=['GET'])
 def get_series_details(series_id):
     series = app.db.get_series(series_id)
-    if series and series.get('last_scan_time'):
-        series['last_scan_time'] = series['last_scan_time'].isoformat()
+    if series:
+        if series.get('last_scan_time'):
+            series['last_scan_time'] = series['last_scan_time'].isoformat()
+        
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Добавляем информацию о трекере в ответ ---
+        if series.get('source_type') == 'torrent':
+            resolver = TrackerResolver(app.db)
+            tracker_info = resolver.get_tracker_by_url(series['url'])
+            series['tracker_info'] = tracker_info
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+        
     return jsonify(series) if series else (jsonify({"error": "Сериал не найден"}), 404)
 
 @series_bp.route('/<int:series_id>/rename_preview', methods=['GET'])
@@ -75,22 +86,27 @@ def get_rename_preview(series_id):
             if not source_title:
                 continue
 
-            # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: Логика объединения метаданных ---
+            # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+            
+            # 1. Получаем данные от движка правил
             processed_result = engine.process_videos(profile_id, [{'title': source_title}])[0]
             rule_engine_data = processed_result.get('result', {}).get('extracted', {})
 
-            final_metadata = {
-                'season': item.get('season'),
-                'episode': item.get('episode_start') if not item.get('episode_end') else None,
-                'start': item.get('episode_start') if item.get('episode_end') else None,
-                'end': item.get('episode_end'),
-                'resolution': item.get('resolution'),
-                'voiceover': item.get('voiceover_tag')
-            }
-            final_metadata.update(rule_engine_data)
-
+            # 2. Используем централизованную функцию для сборки метаданных с правильным приоритетом
+            final_metadata = build_final_metadata(series, item, rule_engine_data)
+            
+            # 3. Генерируем новое имя на основе правильных метаданных
             new_filename_preview = formatter.format_filename(series, final_metadata, current_filename)
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
+            # 4. Добавляем запрошенное логирование
+            if app.debug_manager.is_debug_enabled('series_api'):
+                app.logger.debug(
+                    "series_api",
+                    f"Preview for UID {item['unique_id']}: "
+                    f"Metadata={final_metadata}, "
+                    f"New Filename='{new_filename_preview}'"
+                )
+            # --- КОНЕЦ ИЗМЕНЕНИЙ ---
 
             if current_filename and current_filename != new_filename_preview:
                 needs_rename_count += 1
@@ -108,8 +124,11 @@ def get_rename_preview(series_id):
 
             for child in sliced_children:
                 child_old_path = child.get('file_path')
-                child_metadata = final_metadata.copy() # Наследуем все метаданные от родителя
+                child_metadata = final_metadata.copy()
                 child_metadata['episode'] = child.get('episode_number')
+                # Удаляем поля, нерелевантные для дочерних файлов
+                child_metadata.pop('start', None)
+                child_metadata.pop('end', None)
                 child_new_path_preview = formatter.format_filename(series, child_metadata, child_old_path)
 
                 if child_old_path and child_old_path != child_new_path_preview:
@@ -129,17 +148,21 @@ def get_rename_preview(series_id):
 
 @series_bp.route('/<int:series_id>/reprocess_vk_files', methods=['POST'])
 def reprocess_vk_files_route(series_id):
-    """Запускает процесс создания задач на переименование в фоновом потоке."""
+    """Создает одну задачу на переобработку и переименование всех файлов для VK-сериала."""
     try:
-        # Получаем реальный объект приложения Flask, чтобы безопасно передать его в новый поток.
-        # Это решает ошибку "Working outside of application context".
-        flask_app = app._get_current_object()
+        task_data = {
+            'series_id': series_id,
+            'task_type': 'mass_vk_reprocess' # Новый тип задачи
+        }
         
-        # Создаем фоновый поток, передавая в него ID сериала и объект приложения.
-        thread = threading.Thread(target=create_renaming_tasks_for_series, args=(series_id, flask_app))
-        thread.start()
+        task_created = app.db.create_renaming_task(task_data)
         
-        return jsonify({"success": True, "message": "Процесс переименования запущен в фоновом режиме."})
+        if task_created:
+            app.renaming_agent.trigger()
+            return jsonify({"success": True, "message": "Задача на переобработку файлов VK-сериала создана."})
+        else:
+            return jsonify({"success": False, "error": "Активная задача на переобработку уже выполняется."}), 409
+            
     except Exception as e:
         app.logger.error("series_api", f"Ошибка запуска переименования для series_id {series_id}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
@@ -204,8 +227,23 @@ def get_series_composition(series_id):
 
             # --- ГЛАВНОЕ ИЗМЕНЕНИЕ: SmartCollector теперь запускается всегда ---
             # Это гарантирует, что у всех элементов будет правильный plan_status ПЕРЕД усыновлением.
+            app.db.reset_plan_status_for_series(series_id)
+
             collector = SmartCollector(app.logger, app.db)
             collector.collect(series_id)
+
+            all_db_items = app.db.get_media_items_for_series(series_id)
+            obsolete_compilations = [
+                item for item in all_db_items 
+                if bool(item.get('episode_end')) and item.get('plan_status') in ['replaced', 'redundant']
+            ]
+
+            if obsolete_compilations:
+                app.logger.info("series_api", f"Найдено {len(obsolete_compilations)} устаревших компиляций. Очистка связанных нарезанных файлов...")
+                for comp in obsolete_compilations:
+                    deleted_count = app.db.delete_sliced_files_for_source(comp['unique_id'])
+                    if deleted_count > 0:
+                        app.logger.info("series_api", f"  -> Удалено {deleted_count} записей о нарезке для UID {comp['unique_id']}.")
 
             app.scanner_agent.sync_single_series_filesystem(series_id)
             app.scanner_agent.verify_sliced_files_for_series(series_id)
@@ -260,23 +298,59 @@ def get_series_composition(series_id):
             return jsonify(reconstructed_plan)
         
         elif series.get('source_type') == 'torrent':
-            torrent_files = app.db.get_torrent_files_for_series(series_id)
+            profile_id = series.get('parser_profile_id')
+            if not profile_id:
+                app.logger.warning("series_api", f"Для торрент-сериала {series_id} не назначен профиль правил. Предпросмотр может быть неактуален.")
+                # Возвращаем старую логику, если профиля нет
+                torrent_files = app.db.get_torrent_files_for_series(series_id)
+                for item in torrent_files:
+                    reconstructed_plan.append({
+                        'id': item['id'], 'original_path': item['original_path'], 'renamed_path_preview': item.get('renamed_path') or item.get('original_path'),
+                        'status': item['status'], 'extracted_metadata': json.loads(item['extracted_metadata']) if item['extracted_metadata'] else {},
+                        'is_file_present': os.path.exists(os.path.join(series['save_path'], item.get('renamed_path') or item.get('original_path'))),
+                        'qb_hash': item['qb_hash']
+                    })
+                return jsonify(reconstructed_plan)
+
+            engine = RuleEngine(app.db, app.logger)
             formatter = FilenameFormatter(app.logger)
             
+            torrent_files = app.db.get_torrent_files_for_series(series_id)
+            
             for item in torrent_files:
-                metadata = json.loads(item['extracted_metadata']) if item['extracted_metadata'] else {}
+                original_path = item['original_path']
+                basename = os.path.basename(original_path)
                 
-                current_path = item.get('renamed_path') or item.get('original_path')
-                is_file_present = os.path.exists(os.path.join(series['save_path'], current_path))
+                # 1. Заново применяем правила
+                processed_result = engine.process_videos(profile_id, [{'title': basename}])[0]
+                new_extracted_data = processed_result.get('result', {}).get('extracted', {})
+                
+                # 2. Генерируем новое имя на основе свежих метаданных
+                new_renamed_path_preview = formatter.format_filename(series, new_extracted_data, original_path)
+                
+                # 3. Определяем текущий путь на диске и его наличие
+                current_path_on_disk = item.get('renamed_path') or original_path
+                is_file_present = os.path.exists(os.path.join(series['save_path'], current_path_on_disk))
+                
+                if app.debug_manager.is_debug_enabled('series_api'):
+                    app.logger.debug(
+                        "series_api",
+                        f"Torrent Composition Preview for file ID {item['id']}: "
+                        f"Original='{basename}', "
+                        f"New Metadata={new_extracted_data}, "
+                        f"New Filename='{os.path.basename(new_renamed_path_preview)}'"
+                    )
 
+                # 4. Собираем итоговый объект для UI
                 reconstructed_item = {
                     'id': item['id'],
-                    'original_path': item['original_path'],
-                    'renamed_path_preview': item.get('renamed_path') or formatter.format_filename(series, metadata, item['original_path']),
+                    'original_path': original_path,
+                    'renamed_path_preview': new_renamed_path_preview,
                     'status': item['status'],
-                    'extracted_metadata': metadata,
+                    'extracted_metadata': new_extracted_data, # Отправляем свежие метаданные
                     'is_file_present': is_file_present,
-                    'qb_hash': item['qb_hash']
+                    'qb_hash': item['qb_hash'],
+                    'is_mismatch': current_path_on_disk != new_renamed_path_preview
                 }
                 reconstructed_plan.append(reconstructed_item)
             
@@ -288,10 +362,24 @@ def get_series_composition(series_id):
 
 @series_bp.route('/<int:series_id>/reprocess', methods=['POST'])
 def reprocess_series_torrents_route(series_id):
+    """
+    Создает одну задачу на переобработку и переименование всех файлов
+    для торрент-сериала.
+    """
     try:
-        thread = threading.Thread(target=app.agent.reprocess_and_rename_files_for_series, args=(series_id,))
-        thread.start()
-        return jsonify({"success": True, "message": "Задача переобработки файлов запущена в фоновом режиме."})
+        task_data = {
+            'series_id': series_id,
+            'task_type': 'mass_torrent_reprocess'
+        }
+        # Пытаемся создать задачу. db.create_renaming_task вернет False, если активная задача уже есть.
+        task_created = app.db.create_renaming_task(task_data)
+        
+        if task_created:
+            # "Пробуждаем" агента, чтобы он немедленно начал работу
+            app.renaming_agent.trigger()
+            return jsonify({"success": True, "message": "Задача на переобработку файлов создана и запущена в фоновом режиме."})
+        else:
+            return jsonify({"success": False, "error": "Задача на переобработку уже выполняется."}), 409
     except Exception as e:
         app.logger.error("series_api", f"Ошибка при запуске переобработки для series_id {series_id}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500
@@ -299,6 +387,7 @@ def reprocess_series_torrents_route(series_id):
 @series_bp.route('/<int:series_id>', methods=['POST'])
 def update_series(series_id):
     data = request.get_json()
+    data.pop('last_scan_time', None)
     app.db.update_series(series_id, data)
     _broadcast_series_update(series_id, 'series_updated')
     return jsonify({"success": True})
@@ -442,3 +531,64 @@ def get_series_source_filenames(series_id):
     except Exception as e:
         app.logger.error("series_api", f"Ошибка получения имён файлов для series_id {series_id}: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
+
+@series_bp.route('/<int:series_id>/relocate', methods=['POST'])
+def relocate_series(series_id):
+    """
+    Создает и дожидается выполнения задачи на перемещение сериала
+    в новую директорию.
+    """
+    data = request.get_json()
+    new_path = data.get('new_path')
+
+    if not new_path:
+        return jsonify({"success": False, "error": "Новый путь не указан"}), 400
+
+    series = app.db.get_series(series_id)
+    if not series:
+        return jsonify({"success": False, "error": "Сериал не найден"}), 404
+
+    if series['save_path'] == new_path:
+        return jsonify({"success": True, "message": "Новый путь совпадает со старым. Действий не требуется."})
+
+    try:
+        # 1. Проверяем, нет ли уже активной задачи, или создаем новую
+        task_id = None
+        # Используем get_pending_renaming_task, так как он ищет по series_id и типу, но нам нужна задача RelocationTask
+        # Исправляем: нужна новая функция для поиска активной задачи на перемещение
+        # Давайте упростим: сначала создаем, а агент уже разберется.
+        
+        task_created = app.db.create_relocation_task(series_id, new_path)
+        if not task_created:
+                return jsonify({"success": False, "error": "Активная задача на перемещение уже существует."}), 409
+        
+        # Получаем только что созданную задачу, чтобы узнать её ID
+        newly_created_task = app.db.get_pending_relocation_task(series_id=series_id) # <-- нужна новая функция get_pending_relocation_task
+        if not newly_created_task:
+            raise Exception("Не удалось получить созданную задачу на перемещение из БД.")
+            
+        task_id = newly_created_task['id']
+        app.scanner_agent.trigger_relocation_check()
+
+        # 2. Входим в цикл ожидания
+        wait_timeout = 600  # 10 минут
+        start_time = time.time()
+        while True:
+            task = app.db.get_relocation_task(task_id)
+            
+            # Задача выполнена (агент удалил её)
+            if not task:
+                return jsonify({"success": True, "message": "Сериал успешно перемещен."})
+            
+            # Задача завершилась с ошибкой
+            if task.get('status') == 'error':
+                 return jsonify({"success": False, "error": f"Ошибка перемещения: {task.get('error_message')}"}), 500
+
+            if time.time() - start_time > wait_timeout:
+                return jsonify({"success": False, "error": "Таймаут ожидания завершения задачи на перемещение."}), 500
+            
+            time.sleep(2) # Пауза между проверками
+
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка создания/ожидания задачи на перемещение для series_id {series_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500

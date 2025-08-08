@@ -13,8 +13,8 @@ from models import (
     Base, Auth, Series, SeriesStatus,
     Torrent, Setting, Log, AgentTask, ScanTask,
     ParserProfile, ParserRule, ParserRuleCondition, MediaItem, DownloadTask,
-    SlicingTask, SlicedFile, TorrentFile,
-    RenamingTask
+    SlicingTask, SlicedFile, TorrentFile, RelocationTask,
+    RenamingTask, Tracker
 )
 
 class Database:
@@ -29,6 +29,10 @@ class Database:
 
         if self.ENABLE_DEBUG_SCHEMA_CHECK:
             self._debug_check_and_migrate_tables_individually()
+        
+        self._run_path_migration_if_needed()
+
+        self._seed_trackers_if_empty()
 
     def _debug_check_and_migrate_tables_individually(self):
         self.logger.info("db", "DEBUG: Начат детальный анализ схемы базы данных (по таблицам).")
@@ -617,6 +621,31 @@ class Database:
             try:
                 existing_items_query = session.query(MediaItem).filter_by(series_id=series_id_to_update).all()
                 existing_items_map = {item.unique_id: item for item in existing_items_query}
+
+                # 1. Получаем ID всех актуальных элементов из нового списка
+                new_unique_ids = {item_data['unique_id'] for item_data in items_to_process if 'unique_id' in item_data}
+
+                # 2. Находим фантомные записи (есть в БД, но нет в новом списке)
+                phantom_items_to_delete = []
+                for existing_uid, existing_item in existing_items_map.items():
+                    if existing_uid not in new_unique_ids:
+                        # 3. Применяем строгую проверку безопасности
+                        is_in_pristine_state = (
+                            existing_item.status == 'pending' and
+                            existing_item.slicing_status == 'none' and
+                            not existing_item.is_ignored_by_user
+                        )
+                        if is_in_pristine_state:
+                            phantom_items_to_delete.append(existing_item)
+                        else:
+                            self.logger.warning("db", f"Фантомная запись {existing_uid} для series_id {series_id_to_update} не будет удалена, так как она уже обработана (status: {existing_item.status}, slicing_status: {existing_item.slicing_status}).")
+                
+                # 4. Удаляем только безопасные фантомные записи
+                if phantom_items_to_delete:
+                    self.logger.info("db", f"Обнаружено {len(phantom_items_to_delete)} безопасных фантомных записей для series_id {series_id_to_update}. Удаление...")
+                    for item in phantom_items_to_delete:
+                        session.delete(item)
+                    session.flush() # Применяем удаление в рамках транзакции
                 
                 items_added = 0
                 items_updated = 0
@@ -1235,17 +1264,36 @@ class Database:
     def create_renaming_task(self, task_data: Dict[str, Any]):
         """Создает новую задачу на переименование в БД."""
         with self.Session() as session:
-            # Проверяем, нет ли уже активной задачи для этого файла
-            exists = session.query(RenamingTask).filter(
-                RenamingTask.media_item_unique_id == task_data['media_item_unique_id'],
+            # --- НАЧАЛО ИЗМЕНЕНИЙ: Более гибкая проверка на дубликаты ---
+            task_type = task_data.get('task_type', 'single_vk')
+            
+            query = session.query(RenamingTask).filter(
                 RenamingTask.status.in_(['pending', 'in_progress'])
-            ).first()
+            )
+            
+            # В зависимости от типа задачи, ищем дубликаты по разным полям
+            if task_type == 'single_vk':
+                unique_id = task_data.get('media_item_unique_id')
+                if not unique_id:
+                    # Для одиночных задач это поле обязательно
+                    return False
+                query = query.filter(RenamingTask.media_item_unique_id == unique_id)
+            else: # Для массовых задач
+                query = query.filter(
+                    RenamingTask.series_id == task_data.get('series_id'),
+                    RenamingTask.task_type == task_type
+                )
+            
+            exists = query.first()
+            # --- КОНЕЦ ИЗМЕНЕНИЙ ---
             
             if not exists:
                 new_task = RenamingTask(**task_data)
                 session.add(new_task)
                 session.commit()
                 return True
+            
+            self.logger.warning("db", f"Активная задача на переименование ({task_type}) уже существует.")
             return False
 
     def update_renaming_task(self, task_id: int, updates: Dict[str, Any]):
@@ -1325,3 +1373,198 @@ class Database:
                 file_dict['qb_hash'] = qb_hash
                 files_with_hash.append(file_dict)
             return files_with_hash
+        
+    def _run_path_migration_if_needed(self):
+        """
+        Выполняет единоразовую миграцию для преобразования абсолютных путей
+        к файлам в относительные.
+        """
+        with self.Session() as session:
+            try:
+                migration_flag = session.query(Setting).filter_by(key='path_migration_v1_completed').first()
+                if migration_flag and migration_flag.value == 'true':
+                    # Миграция уже была успешно выполнена, ничего не делаем.
+                    return
+
+                self.logger.warning("db_migration", "Обнаружена необходимость миграции путей. Запуск единоразового преобразования из абсолютных в относительные...")
+
+                all_series = session.query(Series).all()
+                series_path_map = {s.id: s.save_path for s in all_series}
+                
+                # --- 1. Миграция media_items.final_filename ---
+                media_items = session.query(MediaItem).filter(MediaItem.final_filename.isnot(None)).all()
+                for item in media_items:
+                    base_path = series_path_map.get(item.series_id)
+                    if base_path and os.path.isabs(item.final_filename):
+                        new_relative_path = os.path.relpath(item.final_filename, base_path).replace('\\', '/')
+                        item.final_filename = new_relative_path
+
+                # --- 2. Миграция sliced_files.file_path ---
+                sliced_files = session.query(SlicedFile).filter(SlicedFile.file_path.isnot(None)).all()
+                for item in sliced_files:
+                    base_path = series_path_map.get(item.series_id)
+                    if base_path and os.path.isabs(item.file_path):
+                        new_relative_path = os.path.relpath(item.file_path, base_path).replace('\\', '/')
+                        item.file_path = new_relative_path
+                
+                # --- 3. Миграция renaming_tasks (old_path и new_path) ---
+                renaming_tasks = session.query(RenamingTask).all()
+                for task in renaming_tasks:
+                    base_path = series_path_map.get(task.series_id)
+                    if base_path:
+                        if task.old_path and os.path.isabs(task.old_path):
+                            task.old_path = os.path.relpath(task.old_path, base_path).replace('\\', '/')
+                        if task.new_path and os.path.isabs(task.new_path):
+                            task.new_path = os.path.relpath(task.new_path, base_path).replace('\\', '/')
+
+                # --- 4. Устанавливаем флаг, что миграция завершена ---
+                session.merge(Setting(key='path_migration_v1_completed', value='true'))
+                
+                session.commit()
+                self.logger.warning("db_migration", "Миграция путей успешно завершена!")
+
+            except Exception as e:
+                self.logger.error("db_migration", f"КРИТИЧЕСКАЯ ОШИБКА во время миграции путей: {e}. Все изменения отменены.", exc_info=True)
+                session.rollback()
+
+    def create_relocation_task(self, series_id: int, new_path: str) -> bool:
+        """Создает задачу на перемещение, если активной задачи еще нет."""
+        with self.Session() as session:
+            existing_task = session.query(RelocationTask).filter(
+                RelocationTask.series_id == series_id,
+                RelocationTask.status.in_(['pending', 'in_progress'])
+            ).first()
+            if existing_task:
+                self.logger.warning("db", f"Активная задача на перемещение для series_id {series_id} уже существует.")
+                return False
+            
+            new_task = RelocationTask(series_id=series_id, new_path=new_path)
+            session.add(new_task)
+            session.commit()
+            return True
+
+    def get_pending_relocation_task(self, series_id: int = None) -> Optional[Dict[str, Any]]:
+        """Извлекает одну ожидающую задачу на перемещение для конкретного сериала."""
+        with self.Session() as session:
+            query = session.query(RelocationTask).filter(RelocationTask.status.in_(['pending', 'in_progress']))
+            if series_id:
+                query = query.filter_by(series_id=series_id)
+            task = query.order_by(RelocationTask.created_at).first()
+            if not task: return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+
+    def update_relocation_task(self, task_id: int, updates: Dict[str, Any]):
+        """Обновляет статус или сообщение об ошибке для задачи на перемещение."""
+        with self.Session() as session:
+            session.query(RelocationTask).filter_by(id=task_id).update(updates)
+            session.commit()
+
+    def delete_relocation_task(self, task_id: int):
+        """Удаляет завершенную задачу на перемещение."""
+        with self.Session() as session:
+            task = session.query(RelocationTask).filter_by(id=task_id).first()
+            if task:
+                session.delete(task)
+                session.commit()
+
+    def get_renaming_task(self, task_id: int) -> Optional[Dict[str, Any]]:
+        """Возвращает одну задачу на переименование по ее ID."""
+        with self.Session() as session:
+            task = session.query(RenamingTask).filter_by(id=task_id).first()
+            if not task:
+                return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+        
+    def get_pending_renaming_task(self, series_id: int = None, task_type: str = None) -> Optional[Dict[str, Any]]:
+        """
+        Извлекает одну ожидающую задачу на переименование.
+        Если указаны series_id и task_type, ищет конкретную задачу для этого сериала.
+        Иначе, возвращает первую задачу в общей очереди.
+        """
+        with self.Session() as session:
+            query = session.query(RenamingTask).filter_by(status='pending')
+            
+            if series_id and task_type:
+                query = query.filter_by(series_id=series_id, task_type=task_type)
+            
+            task = query.order_by(RenamingTask.created_at).first()
+            
+            if not task:
+                return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+        
+    def get_relocation_task(self, task_id: int) -> Optional[Dict[str, Any]]:
+        """Возвращает одну задачу на перемещение по ее ID."""
+        with self.Session() as session:
+            task = session.query(RelocationTask).filter_by(id=task_id).first()
+            if not task:
+                return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+
+    def _seed_trackers_if_empty(self):
+        """Заполняет таблицу трекеров значениями по умолчанию, если она пуста."""
+        with self.Session() as session:
+            if session.query(Tracker).first():
+                return # Таблица уже заполнена
+            
+            self.logger.info("db", "Таблица трекеров пуста. Заполнение значениями по умолчанию...")
+            
+            default_trackers = [
+                Tracker(
+                    canonical_name='anilibria', display_name='Anilibria',
+                    mirrors='["anilibria.top", "aniliberty.top"]',
+                    parser_class='AnilibriaParser',
+                    auth_type='none', # <-- ДОБАВЛЕНО
+                    ui_features='{"quality_selector": "anilibria"}'
+                ),
+                Tracker(
+                    canonical_name='anilibria_tv', display_name='Anilibria.TV',
+                    mirrors='["anilibria.tv"]',
+                    parser_class='AnilibriaTvParser',
+                    auth_type='none', # <-- ДОБАВЛЕНО
+                    ui_features='{}'
+                ),
+                Tracker(
+                    canonical_name='kinozal', display_name='Kinozal.me',
+                    mirrors='["kinozal.me", "kinozal.tv"]',
+                    parser_class='KinozalParser',
+                    auth_type='kinozal', # <-- ДОБАВЛЕНО
+                    ui_features='{}'
+                ),
+                Tracker(
+                    canonical_name='astar', display_name='Astar.bz',
+                    mirrors='["astar.bz"]',
+                    parser_class='AstarParser',
+                    auth_type='astar', # <-- ДОБАВЛЕНО
+                    ui_features='{"quality_selector": "astar"}'
+                )
+            ]
+            session.add_all(default_trackers)
+            session.commit()
+
+    def get_all_trackers(self) -> List[Dict[str, Any]]:
+        """Возвращает список всех трекеров и их настроек."""
+        with self.Session() as session:
+            trackers = session.query(Tracker).order_by(Tracker.display_name).all()
+            result = []
+            for t in trackers:
+                result.append({
+                    "id": t.id,
+                    "canonical_name": t.canonical_name,
+                    "display_name": t.display_name,
+                    "mirrors": json.loads(t.mirrors or '[]'),
+                    # --- НАЧАЛО ИЗМЕНЕНИЙ: Добавляем недостающие поля ---
+                    "parser_class": t.parser_class,
+                    "auth_type": t.auth_type,
+                    # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+                    "ui_features": json.loads(t.ui_features or '{}')
+                })
+            return result
+
+    def update_tracker_mirrors(self, tracker_id: int, mirrors: List[str]):
+        """Обновляет список зеркал для указанного трекера."""
+        with self.Session() as session:
+            tracker = session.query(Tracker).filter_by(id=tracker_id).first()
+            if tracker:
+                tracker.mirrors = json.dumps(mirrors)
+                session.commit()

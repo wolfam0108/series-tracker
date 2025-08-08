@@ -8,7 +8,9 @@ from requests.exceptions import Timeout
 from db import Database
 from logger import Logger
 from auth import AuthManager
-from file_cache import read_from_cache, save_to_cache # --- ИЗМЕНЕНИЕ: Импортируем функции кэша
+from file_cache import read_from_cache, save_to_cache
+from utils.tracker_resolver import TrackerResolver
+
 
 class QBittorrentClient:
     def __init__(self, auth_manager: AuthManager, db: Database, logger: Logger):
@@ -88,11 +90,16 @@ class QBittorrentClient:
                 if app.debug_manager.is_debug_enabled('qbittorrent'):
                     self.logger.debug("qbittorrent", f"Файл для торрента {torrent_id} не найден в кэше. Скачивание...")
                 try:
-                    if 'kinozal' in link:
+                    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+                    resolver = TrackerResolver(self.db)
+                    tracker_info = resolver.get_tracker_by_url(link)
+                    auth_type = tracker_info['auth_type'] if tracker_info else 'none'
+
+                    if auth_type == 'kinozal':
                         session = self.auth_manager.get_kinozal_session(link)
-                    elif 'astar' in link:
+                    elif auth_type == 'astar':
                         session = self.auth_manager.get_scraper()
-                    else:
+                    else: # 'none'
                         session = requests.Session()
                     
                     if not session:
@@ -219,3 +226,19 @@ class QBittorrentClient:
         if not hashes: return
         self.logger.info("qbittorrent", f"Удаление торрентов: {', '.join(h[:8] for h in hashes)}. Удалить файлы: {delete_files}")
         self._request_with_retries("post", "api/v2/torrents/delete", data={"hashes": '|'.join(hashes), "deleteFiles": str(delete_files).lower()})
+    
+    def set_location(self, torrent_hash: str, new_location: str) -> bool:
+        """Изменяет путь сохранения для одного торрента."""
+        self.logger.info("qbittorrent", f"Изменение пути для торрента {torrent_hash[:8]} на '{new_location}'")
+        response = self._request_with_retries(
+            "post", "api/v2/torrents/setLocation",
+            data={"hashes": torrent_hash, "location": new_location}
+        )
+        if response and response.status_code == 200:
+            self.logger.info("qbittorrent", "Команда на перемещение успешно отправлена.")
+            return True
+        else:
+            status = response.status_code if response is not None else 'N/A'
+            text = response.text if response is not None else 'No response'
+            self.logger.error(f"qbittorrent", f"Ошибка перемещения торрента. Статус: {status}, Ответ: {text}")
+            return False

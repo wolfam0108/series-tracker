@@ -7,6 +7,7 @@ from .system import system_bp
 from .parser import profiles_bp, rules_bp
 # --- ИЗМЕНЕНИЕ: Импортируем новый чертеж ---
 from .media import media_bp
+from .trackers import trackers_bp
 
 def init_all_routes(app):
     """
@@ -20,11 +21,10 @@ def init_all_routes(app):
 
     app.register_blueprint(main_bp)
     
-    # Регистрируем чертежи для API
     app.register_blueprint(series_bp)
     app.register_blueprint(settings_bp)
     app.register_blueprint(system_bp)
     app.register_blueprint(profiles_bp)
     app.register_blueprint(rules_bp)
-    # --- ИЗМЕНЕНИЕ: Регистрируем новый чертеж ---
     app.register_blueprint(media_bp)
+    app.register_blueprint(trackers_bp)

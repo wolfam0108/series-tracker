@@ -8,6 +8,7 @@ from parsers.kinozal_parser import KinozalParser
 from parsers.anilibria_parser import AnilibriaParser
 from parsers.astar_parser import AstarParser
 from parsers.anilibria_tv_parser import AnilibriaTvParser
+from utils.tracker_resolver import TrackerResolver
 
 settings_bp = Blueprint('settings_api', __name__, url_prefix='/api')
 
@@ -43,11 +44,12 @@ LOGGING_MODULES = {
         {'name': 'astar_parser', 'description': 'Парсинг Astar.'},
     ]
 }
-PARSER_DUMP_FLAGS = [
-    {'name': 'save_html_kinozal', 'description': 'Kinozal'},
-    {'name': 'save_html_anilibria', 'description': 'Anilibria'},
-    {'name': 'save_html_anilibria_tv', 'description': 'Anilibria.TV'},
-    {'name': 'save_html_astar', 'description': 'Astar.bz'},
+FILE_DUMP_FLAGS = [
+    {'name': 'save_html_kinozal', 'description': 'Kinozal (HTML)'},
+    {'name': 'save_html_anilibria', 'description': 'Anilibria (HTML)'},
+    {'name': 'save_html_anilibria_tv', 'description': 'Anilibria.TV (HTML)'},
+    {'name': 'save_html_astar', 'description': 'Astar.bz (HTML)'},
+    {'name': 'save_json_vk_scraper', 'description': 'VK Scraper (JSON)'}
 ]
 
 @settings_bp.route('/auth', methods=['GET'])
@@ -77,42 +79,50 @@ def save_all_auth():
 def parse_url():
     data = request.get_json()
     url = data['url']
-    try:
-        domain = url.split('/')[2]
-        site = re.sub(r'^(www\.)', '', domain)
-        
-        parser_key = site
-        if 'anilibria.tv' in site:
-            parser_key = 'anilibria.tv'
-        elif 'anilibria' in site or 'aniliberty' in site:
-            parser_key = 'anilibria.top'
-        elif 'kinozal' in site:
-            parser_key = 'kinozal.me'
-        elif 'astar' in site:
-            parser_key = 'astar.bz'
-
-    except IndexError:
-         return jsonify({"error": "Некорректный URL"}), 400
     
-    auth_manager = AuthManager(app.db, app.logger)
-    parsers = {
-        'kinozal.me': KinozalParser(auth_manager, app.db, app.logger),
-        'anilibria.top': AnilibriaParser(app.db, app.logger),
-        'anilibria.tv': AnilibriaTvParser(app.db, app.logger),
-        'astar.bz': AstarParser(app.db, app.logger)
-    }
-    parser = parsers.get(parser_key)
-    if not parser:
-        return jsonify({"error": f"Указан недопустимый сайт: {site}"}), 400
+    try:
+        auth_manager = AuthManager(app.db, app.logger)
 
+        resolver = TrackerResolver(app.db)
+        tracker_info = resolver.get_tracker_by_url(url)
+        
+        if not tracker_info:
+            return jsonify({"error": f"Не удалось определить трекер для URL: {url}"}), 400
+
+        parser_class_name = tracker_info['parser_class']
+        parser_classes = {
+            'KinozalParser': KinozalParser,
+            'AnilibriaParser': AnilibriaParser,
+            'AnilibriaTvParser': AnilibriaTvParser,
+            'AstarParser': AstarParser
+        }
+        
+        parser_class = parser_classes.get(parser_class_name)
+        if not parser_class:
+            return jsonify({"error": f"Парсер с классом '{parser_class_name}' не найден"}), 500
+        
+        # Создаем экземпляр парсера, УЧИТЫВАЯ РАЗНЫЕ АРГУМЕНТЫ
+        if parser_class_name == 'KinozalParser':
+            parser = parser_class(auth_manager, app.db, app.logger)
+        else:
+            parser = parser_class(app.db, app.logger)
+
+    except Exception as e:
+         return jsonify({"error": f"Ошибка при инициализации парсера: {e}"}), 500
+
+    # Запускаем парсинг
     result = parser.parse_series(url)
     if result.get('error'):
         return jsonify(result), 400
     
+    # Генерируем ID для найденных торрентов
     for torrent in result.get("torrents", []):
         link_for_id = torrent.get('raw_link_for_id_gen', torrent.get('link'))
         if link_for_id:
             torrent["torrent_id"] = generate_torrent_id(link_for_id, torrent.get("date_time"))
+    
+    # Добавляем в ответ информацию о трекере для UI
+    result['tracker_info'] = tracker_info
     
     return jsonify({"success": True, **result})
 
@@ -138,14 +148,14 @@ def handle_debug_flags():
             key = f"debug_enabled_{module['name']}"
             module['enabled'] = saved_flags.get(key, 'false') == 'true'
 
-    parser_dump_structure = json.loads(json.dumps(PARSER_DUMP_FLAGS))
-    for flag in parser_dump_structure:
+    file_dump_structure = json.loads(json.dumps(FILE_DUMP_FLAGS))
+    for flag in file_dump_structure:
         key = f"debug_enabled_{flag['name']}"
         flag['enabled'] = saved_flags.get(key, 'false') == 'true'
             
     return jsonify({
         "logging_modules": logging_structure,
-        "parser_dump_flags": parser_dump_structure
+        "file_dump_flags": file_dump_structure
     })
 
 @settings_bp.route('/settings/force_replace', methods=['GET', 'POST'])

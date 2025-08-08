@@ -4,6 +4,7 @@ from flask import Blueprint, jsonify, request, current_app as app
 import json
 from utils.chapter_parser import get_chapters # Импортируем новый парсер
 from logic.metadata_processor import build_final_metadata
+from filename_formatter import FilenameFormatter
 
 media_bp = Blueprint('media_api', __name__, url_prefix='/api')
 
@@ -121,15 +122,29 @@ def verify_sliced_files(unique_id):
     """
     app.logger.info("media_api", f"Запуск верификации нарезанных файлов для UID {unique_id}")
     try:
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Получаем родительский элемент и сериал, чтобы узнать базовый путь ---
+        media_item = app.db.get_media_item_by_uid(unique_id)
+        if not media_item:
+            return jsonify({"error": "Родительский медиа-элемент не найден"}), 404
+        
+        series = app.db.get_series(media_item['series_id'])
+        if not series:
+            return jsonify({"error": "Сериал не найден"}), 404
+        
+        base_path = series['save_path']
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
         sliced_files = app.db.get_sliced_files_for_source(unique_id)
         if not sliced_files:
-            # Если файлов в БД нет, но проверка вызвана, значит что-то не так. Сбрасываем.
             app.db.update_media_item_slicing_status_by_uid(unique_id, 'none')
             return jsonify({"status": "none", "message": "Записи о нарезанных файлах не найдены, статус сброшен."})
 
         has_missing_files = False
         for file_record in sliced_files:
-            file_exists = os.path.exists(file_record['file_path'])
+            # --- НАЧАЛО ИЗМЕНЕНИЙ: Собираем абсолютный путь из базового и относительного перед проверкой ---
+            absolute_path = os.path.join(base_path, file_record['file_path'])
+            file_exists = os.path.exists(absolute_path)
+            # --- КОНЕЦ ИЗМЕНЕНИЙ ---
             
             if file_exists and file_record['status'] == 'missing':
                 app.db.update_sliced_file_status(file_record['id'], 'completed')
@@ -139,7 +154,6 @@ def verify_sliced_files(unique_id):
             elif not file_exists:
                 has_missing_files = True
 
-        # Обновляем статус родительского элемента
         final_status = 'completed_with_errors' if has_missing_files else 'completed'
         app.db.update_media_item_slicing_status_by_uid(unique_id, final_status)
         
@@ -174,7 +188,8 @@ def _run_deep_adoption_task(app, series_id):
             is_potential_compilation = (
                 bool(item.get('episode_end')) and
                 item.get('status') == 'pending' and
-                not item.get('chapters')
+                not item.get('chapters') and
+                item.get('plan_status') == 'in_plan_compilation'
             )
 
             if not is_potential_compilation:
@@ -205,7 +220,7 @@ def _run_deep_adoption_task(app, series_id):
                     expected_path = os.path.join(series['save_path'], expected_filename)
 
                     if os.path.exists(expected_path):
-                        db.add_sliced_file_if_not_exists(series_id, item['unique_id'], episode_number, expected_path)
+                        db.add_sliced_file_if_not_exists(series_id, item['unique_id'], episode_number, expected_filename)
                         found_children_count += 1
                 
                 if found_children_count == expected_children_count and expected_children_count > 0:

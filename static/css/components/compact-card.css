@@ -385,3 +385,12 @@
     border-color: rgba(0,0,0,0.2);
     font-weight: 600;
 }
+/* --- Стиль для кликабельной пилюли-ссылки --- */
+.pill.pill-link {
+    cursor: pointer;
+    transition: all 0.2s ease;
+}
+.pill.pill-link:hover {
+    background-color: rgba(0,0,0,0.1);
+    border-color: rgba(0,0,0,0.2);
+}

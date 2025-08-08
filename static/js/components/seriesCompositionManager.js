@@ -160,6 +160,10 @@ const SeriesCompositionManager = {
                                     <div class="pill"><i class="bi bi-check-circle"></i><span>Статус: <strong>{{ item.status }}</strong></span></div>
                                     <div class="pill"><i class="bi bi-fingerprint"></i><span>ID: <strong>{{ item.unique_id.substring(0, 8) }}</strong></span></div>
                                     <div class="pill"><i class="bi bi-scissors"></i><span>Нарезка: <strong>{{ item.slicing_status }}</strong></span></div>
+                                    <div class="pill pill-link" @click="copyUrl(item.source_data.url)" title="Нажмите, чтобы скопировать URL">
+                                        <i class="bi bi-link-45deg"></i>
+                                        <span>{{ formatVkUrl(item.source_data.url) }}</span>
+                                    </div>
                                 </div>
 
                                 <div class="controls-column">
@@ -265,12 +269,55 @@ computed: {
                 unique_id: `sliced-${file.id}`,
                 new_filename_preview: preview ? preview.new_filename_preview : null,
                 parent_resolution: parent ? parent.source_data.resolution : null,
-                // Явно добавляем ключи для сортировки и группировки
                 season: file.season ?? (parent ? parent.season : 1),
                 episode_start: file.episode_number,
             });
         });
-        
+                // 1. Группируем существующие элементы по сезонам
+        const itemsBySeason = items.reduce((acc, item) => {
+            const season = item.season ?? item.result?.extracted?.season ?? 'undefined';
+            if (!acc[season]) acc[season] = [];
+            acc[season].push(item);
+            return acc;
+        }, {});
+
+        // 2. Для каждого сезона ищем "дыры"
+        for (const seasonKey in itemsBySeason) {
+            const seasonItems = itemsBySeason[seasonKey];
+            if (seasonItems.length < 2) continue; // Не можем найти дыру, если меньше 2 элементов
+
+            // 3. Определяем диапазон (min/max) и все существующие номера эпизодов
+            const singleEpisodes = seasonItems
+                .filter(item => !item.episode_end || item.episode_start === item.episode_end)
+                .map(item => item.episode_start);
+            
+            if (singleEpisodes.length < 2) continue;
+
+            const minEp = Math.min(...singleEpisodes);
+            const maxEp = Math.max(...singleEpisodes);
+            
+            const existingEpNumbers = new Set();
+            seasonItems.forEach(item => {
+                const start = item.episode_start;
+                const end = item.episode_end || start;
+                for (let i = start; i <= end; i++) {
+                    existingEpNumbers.add(i);
+                }
+            });
+
+            // 4. Создаем плейсхолдеры для отсутствующих эпизодов
+            for (let i = minEp; i <= maxEp; i++) {
+                if (!existingEpNumbers.has(i)) {
+                    items.push({
+                        type: 'missing',
+                        unique_id: `missing-s${seasonKey}-e${i}`,
+                        season: seasonKey === 'undefined' ? undefined : parseInt(seasonKey, 10),
+                        episode_start: i,
+                    });
+                }
+            }
+        }
+
         // ВЫПОЛНЯЕМ ЕДИНУЮ СОРТИРОВКУ ДЛЯ ВСЕХ ЭЛЕМЕНТОВ СРАЗУ
         items.sort((a, b) => {
             const epA = this.getEpisodeStart(a);
@@ -620,5 +667,27 @@ computed: {
         if (!path) return '';
         return path.split(/[\\/]/).pop();
     },
+    formatVkUrl(url) {
+        if (!url) return 'no_url';
+        try {
+            // Извлекаем последнюю часть URL, например, "video-12345_67890"
+            const parts = url.split('/');
+            return parts.pop() || url;
+        } catch (e) {
+            return url;
+        }
+    },
+    copyUrl(url) {
+        if (!navigator.clipboard) {
+            this.$emit('show-toast', 'Clipboard API не поддерживается в вашем браузере.', 'danger');
+            return;
+        }
+        navigator.clipboard.writeText(url).then(() => {
+            this.$emit('show-toast', 'URL скопирован в буфер обмена!', 'success');
+        }, (err) => {
+            this.$emit('show-toast', `Не удалось скопировать URL: ${err}`, 'danger');
+        });
+    },
+
   },
 };

@@ -138,7 +138,7 @@ template: `
                 </div>
             </div>
 
-            <div v-if="editableSeries.source_type === 'torrent' && editableSeries.site && (editableSeries.site.includes('anilibria') || editableSeries.site.includes('aniliberty'))" class="modern-fieldset mb-4">
+            <div v-if="trackerInfo && trackerInfo.ui_features.quality_selector === 'anilibria'" class="modern-fieldset mb-4">
                  <div class="fieldset-header"><h6 class="fieldset-title mb-0">Выбор качества</h6></div>
                  <div class="fieldset-content">
                     <constructor-group>
@@ -148,7 +148,7 @@ template: `
                  </div>
             </div>
             
-             <div v-if="editableSeries.source_type === 'torrent' && editableSeries.site && editableSeries.site.includes('astar')" class="modern-fieldset mb-4">
+             <div v-if="trackerInfo && trackerInfo.ui_features.quality_selector === 'astar'" class="modern-fieldset mb-4">
                  <div class="fieldset-header"><h6 class="fieldset-title mb-0">Выбор качества</h6></div>
                  <div class="fieldset-content">
                     <div v-for="(episodes, index) in sortedQualityOptionsKeys" :key="episodes">
@@ -197,13 +197,14 @@ template: `
     seriesId: { type: Number, required: true },
     isActive: { type: Boolean, default: false },
   },
-  emits: ['show-toast', 'series-updated'],
+  emits: ['show-toast', 'series-updated', 'saving-state'],
   data() {
     return {
       isSaving: false,
       siteTorrentsLoading: false,
       siteDataIsStale: false,
       editableSeries: { qualityByEpisodes: {} },
+      originalSavePath: '',
       allSiteTorrents: [],
       episodeQualityOptions: {},
       isSeasonless: false,
@@ -298,6 +299,7 @@ template: `
             }
             
             this.editableSeries = seriesData;
+            this.originalSavePath = seriesData.save_path;
             
             const sourceType = this.editableSeries.source_type;
             const site = this.editableSeries.site || '';
@@ -368,51 +370,60 @@ template: `
         }
     },
     async updateSeries() {
-        this.isSaving = true;
+        this.$emit('saving-state', true);
+
+        const pathHasChanged = this.editableSeries.save_path !== this.originalSavePath;
+
+        // Собираем все остальные изменения, кроме пути
+        const otherChangesPayload = { ...this.editableSeries };
+        delete otherChangesPayload.save_path;
+
+        let qualityString = '';
+        const site = otherChangesPayload.site;
+        if (site && (site.includes('anilibria') || site.includes('aniliberty'))) {
+            qualityString = otherChangesPayload.quality;
+        } else if (site && site.includes('astar')) {
+            const qualitiesToSave = [], singleVersionQualities = new Set();
+            this.sortedQualityOptionsKeys.forEach(episodes => { if (this.episodeQualityOptions[episodes] && this.episodeQualityOptions[episodes].length > 1) qualitiesToSave.push(otherChangesPayload.qualityByEpisodes[episodes]); });
+            this.sortedQualityOptionsKeys.forEach(episodes => { if (this.episodeQualityOptions[episodes] && this.episodeQualityOptions[episodes].length === 1) singleVersionQualities.add(this.episodeQualityOptions[episodes][0]); });
+            qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
+        }
+        otherChangesPayload.quality = qualityString;
+        otherChangesPayload.season = this.isSeasonless ? '' : otherChangesPayload.season;
+
+        if (otherChangesPayload.source_type === 'vk_video') {
+            otherChangesPayload.url = this.reconstructedUrl;
+        }
+
+        const savePromises = [];
+
+        // Если путь изменился, создаем задачу на перемещение
+        if (pathHasChanged) {
+            const relocatePromise = fetch(`/api/series/${this.seriesId}/relocate`, {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ new_path: this.editableSeries.save_path })
+            }).then(res => res.json().then(data => { if (!res.ok) throw new Error(data.error || 'Ошибка создания задачи на перемещение'); return data; }));
+            savePromises.push(relocatePromise);
+        }
+
+        // Всегда отправляем запрос на обновление остальных данных
+        const updatePromise = fetch(`/api/series/${this.seriesId}`, {
+            method: 'POST',
+            headers: { 'Content-Type': 'application/json' },
+            body: JSON.stringify(otherChangesPayload)
+        }).then(res => res.json().then(data => { if (!res.ok) throw new Error(data.error || 'Ошибка сохранения свойств'); return data; }));
+        savePromises.push(updatePromise);
+
         try {
-            // --- Сборка `quality` для торрентов (остаётся без изменений) ---
-            let qualityString = ''; 
-            const site = this.editableSeries.site;
-            if (site.includes('anilibria') || site.includes('aniliberty')) { 
-                qualityString = this.editableSeries.quality; 
-            } else if (site.includes('astar')) {
-                const qualitiesToSave = [], singleVersionQualities = new Set();
-                this.sortedQualityOptionsKeys.forEach(episodes => { if (this.episodeQualityOptions[episodes] && this.episodeQualityOptions[episodes].length > 1) qualitiesToSave.push(this.editableSeries.qualityByEpisodes[episodes]); });
-                this.sortedQualityOptionsKeys.forEach(episodes => { if (this.episodeQualityOptions[episodes] && this.episodeQualityOptions[episodes].length === 1) singleVersionQualities.add(this.episodeQualityOptions[episodes][0]); });
-                qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
-            }
-
-            // --- ИСПРАВЛЕНИЕ: Формируем "чистый" объект для отправки ---
-            const payload = {
-                name: this.editableSeries.name,
-                name_en: this.editableSeries.name_en,
-                save_path: this.editableSeries.save_path,
-                quality_override: this.editableSeries.quality_override,
-                resolution_override: this.editableSeries.resolution_override,
-                season: this.isSeasonless ? '' : this.editableSeries.season,
-                quality: qualityString,
-            };
-
-            // Добавляем поля, специфичные для типа сериала
-            if (this.editableSeries.source_type === 'vk_video') {
-                payload.url = this.reconstructedUrl;
-                payload.vk_search_mode = this.editableSeries.vk_search_mode;
-            } else { // Для торрентов
-                payload.parser_profile_id = this.editableSeries.parser_profile_id;
-            }
-            // --- КОНЕЦ ИСПРАВЛЕНИЯ ---
-
-            const response = await fetch(`/api/series/${this.seriesId}`, { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify(payload) });
-            if (response.ok) { 
-                this.$emit('show-toast', 'Изменения сохранены', 'success'); 
-                this.$emit('series-updated'); 
-            } else { 
-                throw new Error((await response.json()).error || 'Ошибка сохранения'); 
-            }
-        } catch (error) { 
-            this.$emit('show-toast', `Сетевая ошибка: ${error.message}`, 'danger'); 
-        } finally { 
-            this.isSaving = false; 
+            await Promise.all(savePromises);
+            this.$emit('show-toast', 'Изменения успешно сохранены. Перемещение запущено в фоновом режиме, если путь был изменен.', 'success');
+            this.$emit('series-updated');
+            this.originalSavePath = this.editableSeries.save_path;
+        } catch (error) {
+            this.$emit('show-toast', `Ошибка сохранения: ${error.message}`, 'danger');
+        } finally {
+            this.$emit('saving-state', false);
         }
     },
   }

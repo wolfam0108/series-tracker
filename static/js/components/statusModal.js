@@ -37,8 +37,16 @@ const StatusModal = {
                     <div v-if="!series.id" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
                     <div v-else class="tab-content modern-tab-content" id="statusTabContent">
                         
-                        <div class="tab-pane fade show active" id="pane-properties" role="tabpanel">
-                            <status-tab-properties ref="propertiesTab" v-if="seriesId" :series-id="seriesId" :is-active="activeTab === 'properties'" @show-toast="emitToast" @series-updated="emitSeriesUpdated" />
+                    <div class="tab-pane fade show active" id="pane-properties" role="tabpanel">
+                            <status-tab-properties 
+                                ref="propertiesTab" 
+                                v-if="seriesId" 
+                                :series-id="seriesId" 
+                                :is-active="activeTab === 'properties'" 
+                                @show-toast="emitToast" 
+                                @series-updated="emitSeriesUpdated"
+                                @saving-state="onSavingStateChange" 
+                            />
                         </div>
 
                         <div class="tab-pane fade" id="pane-composition" role="tabpanel">
@@ -59,8 +67,10 @@ const StatusModal = {
                     </div>
                 </div>
                 <div class="modal-footer modern-footer">
-                    <button v-if="activeTab === 'properties'" class="btn btn-primary" @click="saveProperties">
-                        <i class="bi bi-check-lg me-2"></i>Сохранить
+                    <button v-if="activeTab === 'properties'" class="btn btn-primary" @click="saveProperties" :disabled="isSaving">
+                        <span v-if="isSaving" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                        <i v-else class="bi bi-check-lg me-2"></i>
+                        {{ isSaving ? 'Сохранение...' : 'Сохранить' }}
                     </button>
                     <button class="btn btn-secondary" @click="close"><i class="bi bi-x-lg me-2"></i>Закрыть</button>
                 </div>
@@ -75,6 +85,7 @@ const StatusModal = {
         series: {},
         activeTab: 'properties',
         isFullscreen: false,
+        isSaving: false,
     };
   },
   emits: ['series-updated', 'show-toast'],
@@ -132,6 +143,15 @@ const StatusModal = {
     },
     emitSeriesUpdated() {
         this.$emit('series-updated');
+    },
+        onSavingStateChange(savingStatus) {
+        this.isSaving = savingStatus;
+    },
+
+    saveProperties() {
+        if (this.$refs.propertiesTab) {
+            this.$refs.propertiesTab.updateSeries();
+        }
     }
   }
 };

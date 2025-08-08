@@ -40,15 +40,15 @@ const SettingsLoggingTab = {
 
         <div class="modern-fieldset">
             <div class="fieldset-header">
-                <h6 class="fieldset-title mb-0">Сохранение HTML-дампов парсеров</h6>
+                <h6 class="fieldset-title mb-0">Сохранение файлов отладки</h6>
             </div>
             <div class="fieldset-content">
                  <p class="text-muted small mb-3">
-                    Включите эту опцию для конкретного парсера, чтобы при сканировании он сохранял полученную HTML-страницу в папку <code>parser_dumps</code>. Это полезно для отладки проблем с парсингом.
+                    Включите опцию, чтобы при сканировании парсер или скрейпер сохранял полученные сырые данные (HTML/JSON) в папку отладки. Это полезно для анализа проблем.
                 </p>
                 <div v-if="isLoading" class="text-center p-3"><div class="spinner-border spinner-border-sm" role="status"></div></div>
                 <div v-else class="row">
-                    <div v-for="flag in parserDumpFlags" :key="flag.name" class="col-md-4">
+                    <div v-for="flag in fileDumpFlags" :key="flag.name" class="col-md-4">
                         <div class="modern-form-check form-switch">
                             <input class="form-check-input" type="checkbox" role="switch" 
                                    :id="'flag-switch-' + flag.name" 
@@ -66,7 +66,7 @@ const SettingsLoggingTab = {
     return {
       isLoading: true,
       loggingModuleGroups: {},
-      parserDumpFlags: [],
+      fileDumpFlags: [],
     };
   },
   emits: ['show-toast'],
@@ -78,7 +78,7 @@ const SettingsLoggingTab = {
             if (!response.ok) throw new Error('Ошибка загрузки модулей логирования');
             const data = await response.json();
             this.loggingModuleGroups = data.logging_modules;
-            this.parserDumpFlags = data.parser_dump_flags;
+            this.fileDumpFlags = data.file_dump_flags;
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
         } finally {
@@ -116,7 +116,7 @@ const SettingsLoggingTab = {
         } catch (error) {
             this.$emit('show-toast', error.message, 'danger');
             // Откатываем состояние переключателя в UI в случае ошибки
-            const flag = [...Object.values(this.loggingModuleGroups).flat(), ...this.parserDumpFlags].find(f => f.name === moduleName);
+            const flag = [...Object.values(this.loggingModuleGroups).flat(), ...this.fileDumpFlags].find(f => f.name === moduleName);
             if(flag) flag.enabled = !isEnabled;
         }
     }

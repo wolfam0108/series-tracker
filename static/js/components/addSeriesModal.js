@@ -148,10 +148,10 @@ const AddSeriesModal = {
                             </div>
                         </div>
                         
-                        <div class="modern-fieldset mt-4" v-if="sourceType === 'torrent' && (site.includes('anilibria') || site.includes('aniliberty') || site.includes('astar'))">
+                        <div v-if="trackerInfo && trackerInfo.ui_features.quality_selector" class="modern-fieldset mt-4">
                             <div class="fieldset-header"><h6 class="fieldset-title mb-0">Выбор качества</h6></div>
                             <div class="fieldset-content">
-                                <div v-if="site.includes('anilibria') || site.includes('aniliberty')">
+                                <div v-if="trackerInfo.ui_features.quality_selector === 'anilibria'">
                                     <div v-if="isQualityOptionsReady && qualityOptionsAnilibria.length > 0" class="field-group">
                                         <constructor-group>
                                             <div class="constructor-item item-label">Качество</div>
@@ -161,7 +161,7 @@ const AddSeriesModal = {
                                     <div v-else-if="isQualityOptionsReady" class="text-danger">Качества не найдены</div>
                                 </div>
                                 
-                                <div v-if="site.includes('astar') && isQualityOptionsReady">
+                                <div v-if="trackerInfo.ui_features.quality_selector === 'astar' && isQualityOptionsReady">
                                     <p class="text-muted small">Для релизов Astar можно выбрать предпочтительную версию для каждой группы эпизодов.</p>
                                     <div v-for="(episodes, index) in sortedQualityOptionsKeys" :key="episodes">
                                         <div v-if="episodeQualityOptions[episodes].length > 1" class="field-group">
@@ -234,6 +234,7 @@ const AddSeriesModal = {
         vkChannelUrl: '',
         vkQuery: '',
         parserProfiles: [],
+        trackerInfo: null,
     };
   },
     emits: ['series-added', 'show-toast'],
@@ -418,6 +419,8 @@ const AddSeriesModal = {
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Ошибка парсинга URL');
             
+            this.trackerInfo = data.tracker_info;           
+
             this.newSeries.name = data.title.ru || '';
             this.newSeries.name_en = data.title.en || '';
             this.parserData = data;

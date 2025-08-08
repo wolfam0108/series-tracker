@@ -4,6 +4,7 @@ const SettingsModal = {
     'settings-agents-tab': SettingsAgentsTab,
     'settings-debug-tab': SettingsDebugTab,
     'settings-parser-tab': SettingsParserTab,
+    'settings-trackers-tab': SettingsTrackersTab,
   },
   props: {
     series: { type: Array, required: true },
@@ -11,7 +12,7 @@ const SettingsModal = {
     downloadQueue: { type: Array, required: true },
     slicingQueue: { type: Array, required: true }
   },
-  template: `
+template: `
     <div class="modal fade" ref="settingsModal" tabindex="-1" aria-labelledby="settingsModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-xl">
             <div class="modal-content modern-modal" style="max-height: 90vh; display: flex; flex-direction: column;">
@@ -29,13 +30,15 @@ const SettingsModal = {
                                 <i class="bi bi-key me-2"></i>Авторизация
                             </button>
                         </li>
+                        
                         <li class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link" 
-                                    id="naming-tab" data-bs-toggle="tab" data-bs-target="#naming-tab-pane" 
-                                    type="button" role="tab" @click="setActiveTab('naming')">
-                                <i class="bi bi-tag me-2"></i>Нейминг
+                                    id="trackers-tab" data-bs-toggle="tab" data-bs-target="#trackers-tab-pane" 
+                                    type="button" role="tab" @click="setActiveTab('trackers')">
+                                <i class="bi bi-broadcast me-2"></i>Трекеры
                             </button>
                         </li>
+
                         <li class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link" 
                                     id="parser-tab" data-bs-toggle="tab" data-bs-target="#parser-tab-pane" 
@@ -43,6 +46,7 @@ const SettingsModal = {
                                 <i class="bi bi-funnel me-2"></i>Фильтры VK
                             </button>
                         </li>
+
                         <li class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link" 
                                     id="agents-tab" data-bs-toggle="tab" data-bs-target="#agents-tab-pane" 
@@ -50,6 +54,7 @@ const SettingsModal = {
                                 <i class="bi bi-motherboard me-2"></i>Агенты
                             </button>
                         </li>
+
                         <li class="nav-item" role="presentation">
                             <button class="nav-link modern-tab-link" 
                                     id="debug-tab" data-bs-toggle="tab" data-bs-target="#debug-tab-pane" 
@@ -63,18 +68,23 @@ const SettingsModal = {
                 </div>
                 <div class="modal-body modern-body" style="overflow-y: auto; flex-grow: 1;">
                     <div class="tab-content modern-tab-content" id="settingsTabContent">
+
                         <div class="tab-pane fade show active" id="auth-tab-pane" role="tabpanel">
                             <settings-auth-tab ref="authTab" @show-toast="emitToast" @saving-state="onSavingStateChange"></settings-auth-tab>
                         </div>
-                        <div class="tab-pane fade" id="naming-tab-pane" role="tabpanel">
-                           <settings-naming-tab ref="namingTab" @show-toast="emitToast"></settings-naming-tab>
+
+                        <div class="tab-pane fade" id="trackers-tab-pane" role="tabpanel">
+                           <settings-trackers-tab ref="trackersTab" @show-toast="emitToast"></settings-trackers-tab>
                         </div>
+                        
                         <div class="tab-pane fade" id="parser-tab-pane" role="tabpanel">
                            <settings-parser-tab ref="parserTab" @show-toast="emitToast"></settings-parser-tab>
                         </div>
+
                         <div class="tab-pane fade" id="agents-tab-pane" role="tabpanel">
                            <settings-agents-tab ref="agentsTab" :series="series" :agentQueue="agentQueue" :downloadQueue="downloadQueue" :slicing-queue="slicingQueue"></settings-agents-tab>
                         </div>
+
                         <div class="tab-pane fade" id="debug-tab-pane" role="tabpanel">
                            <settings-debug-tab ref="debugTab" @show-toast="emitToast" @reload-series="emitReload"></settings-debug-tab>
                         </div>

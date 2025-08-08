@@ -1,5 +1,3 @@
-# Файл: smart_collector.py
-
 import json
 from typing import List, Dict, Any, Set
 from collections import defaultdict
@@ -8,7 +6,7 @@ class SmartCollector:
     """
     Рассчитывает оптимальный "план загрузки", используя алгоритм,
     приоритетом которого является максимальная полнота покрытия серий.
-    Версия алгоритма: 4.0 "Полнота > Качество > Одиночные"
+    Версия алгоритма: 4.1 "Полнота > Качество > Одиночные"
     """
     def __init__(self, logger, db):
         self.logger = logger
@@ -24,13 +22,12 @@ class SmartCollector:
             except ValueError:
                 pass
         return (priority_index, -resolution)
-    # --- КОНЕЦ БЛОКА ДЛЯ ВСТАВКИ ---
 
     def _build_plan_for_tier(
         self,
         base_plan_singles: List[Dict[str, Any]],
         all_compilations: List[Dict[str, Any]],
-        episodes_to_cover: Set[int]
+        episodes_to_cover: Set[tuple]  # Ожидает кортежи (сезон, эпизод)
     ) -> List[Dict[str, Any]]:
         """
         Строит наиболее полный план из предоставленного набора элементов.
@@ -38,17 +35,27 @@ class SmartCollector:
         2. Итеративно закрывает дыры самыми оптимальными компиляциями.
         3. Очищает план от одиночных серий, которые были покрыты компиляциями.
         """
+        # Вспомогательная функция для получения эпизодов из элемента в виде сета кортежей (сезон, эпизод)
+        def get_item_episodes(item: Dict[str, Any]) -> Set[tuple]:
+            season = item.get('season')
+            if season is None:
+                season = 1
+            start = item['episode_start']
+            end = item.get('episode_end') or start
+            return {(season, ep) for ep in range(start, end + 1)}
+
         plan_compilations = []
         covered_by_compilations = set()
         
-        covered_by_singles = {item['episode_start'] for item in base_plan_singles}
+        # Каждая одиночная серия покрывает ровно один кортеж (сезон, эпизод)
+        covered_by_singles = {get_item_episodes(item).pop() for item in base_plan_singles}
         gaps_to_fill = episodes_to_cover - covered_by_singles
 
         # --- Шаг 1: Итеративно выбираем лучшие компиляции для закрытия дыр ---
         while gaps_to_fill:
             gap_filler_candidates = [
                 c for c in all_compilations 
-                if not set(range(c['episode_start'], c['episode_end'] + 1)).isdisjoint(gaps_to_fill)
+                if not get_item_episodes(c).isdisjoint(gaps_to_fill)
             ]
             if not gap_filler_candidates:
                 break
@@ -56,11 +63,11 @@ class SmartCollector:
             non_dominated_candidates = []
             for candidate in gap_filler_candidates:
                 is_dominated = False
-                cand_gaps = set(range(candidate['episode_start'], candidate['episode_end'] + 1)).intersection(gaps_to_fill)
+                cand_gaps = get_item_episodes(candidate).intersection(gaps_to_fill)
                 
                 for other in gap_filler_candidates:
                     if candidate == other: continue
-                    other_gaps = set(range(other['episode_start'], other['episode_end'] + 1)).intersection(gaps_to_fill)
+                    other_gaps = get_item_episodes(other).intersection(gaps_to_fill)
                     if cand_gaps.issubset(other_gaps) and len(other_gaps) > len(cand_gaps):
                         is_dominated = True
                         break
@@ -73,29 +80,28 @@ class SmartCollector:
             best_compilation = max(
                 non_dominated_candidates,
                 key=lambda c: (
-                    len(set(range(c['episode_start'], c['episode_end'] + 1)).intersection(gaps_to_fill)),
-                    -len(set(range(c['episode_start'], c['episode_end'] + 1)).intersection(covered_by_singles)),
+                    len(get_item_episodes(c).intersection(gaps_to_fill)),
+                    -len(get_item_episodes(c).intersection(covered_by_singles)),
                     -(c['episode_end'] - c['episode_start'])
                 )
             )
 
             plan_compilations.append(best_compilation)
-            newly_covered = set(range(best_compilation['episode_start'], best_compilation['episode_end'] + 1))
+            newly_covered = get_item_episodes(best_compilation)
             covered_by_compilations.update(newly_covered)
             gaps_to_fill -= newly_covered
         
         # --- Шаг 2: Очищаем базовый план от одиночных серий, покрытых компиляциями ---
         final_plan_singles = [
             s for s in base_plan_singles 
-            if s['episode_start'] not in covered_by_compilations
+            if get_item_episodes(s).pop() not in covered_by_compilations
         ]
 
         # --- Шаг 3: Собираем итоговый чистый план ---
-        final_plan = plan_compilations + final_plan_singles
-        return final_plan
+        return plan_compilations + final_plan_singles
 
     def collect(self, series_id: int):
-        self.logger.info(f"smart_collector: Запуск нового планировщика (v4.0, 'Сначала полнота') для series_id: {series_id}")
+        self.logger.info(f"smart_collector: Запуск нового планировщика (v4.1, 'Сначала полнота') для series_id: {series_id}")
 
         series_data = self.db.get_series(series_id)
         if not series_data: return
@@ -111,13 +117,19 @@ class SmartCollector:
                 quality_priority = json.loads(series_data['vk_quality_priority'])
         except (json.JSONDecodeError, TypeError): pass
 
-        # --- НАЧАЛО НОВОГО АЛГОРИТМА ---
+        # --- НАЧАЛО ИСПРАВЛЕННОГО АЛГОРИТМА ---
 
         # 1. Подготовка: определяем полный диапазон и отбираем лучшие одиночные серии
         full_potential_range = set()
         for item in candidate_items:
+            # Используем сезон. Сезон 0 - валидный. Фолбэк на 1, если сезона нет.
+            season = item.get('season')
+            if season is None:
+                season = 1
+            
             start, end = item['episode_start'], item.get('episode_end') or item['episode_start']
-            full_potential_range.update(range(start, end + 1))
+            # Добавляем в сет кортеж (сезон, эпизод)
+            full_potential_range.update((season, ep) for ep in range(start, end + 1))
         
         if not full_potential_range: return
 
@@ -127,11 +139,17 @@ class SmartCollector:
             if item.get('episode_end') and item['episode_end'] > item['episode_start']:
                 all_compilations.append(item)
             else:
-                singles_by_ep[item['episode_start']].append(item)
+                # Ключ словаря теперь (сезон, эпизод)
+                season = item.get('season')
+                if season is None:
+                    season = 1
+                key = (season, item['episode_start'])
+                singles_by_ep[key].append(item)
 
         base_plan_singles = []
-        for ep_num in singles_by_ep:
-            best_single = max(singles_by_ep[ep_num], key=lambda i: self._get_quality_sort_key(i, quality_priority))
+        # Итерируемся по ключам (кортежам)
+        for ep_key in singles_by_ep:
+            best_single = max(singles_by_ep[ep_key], key=lambda i: self._get_quality_sort_key(i, quality_priority))
             base_plan_singles.append(best_single)
 
         # 2. Строим план, используя все доступные файлы
@@ -139,7 +157,15 @@ class SmartCollector:
         
         # 3. Финальный этап: апгрейд качества за счет необязательных компиляций
         final_plan_items = list(best_plan)
-        plan_map = {item['episode_start']:item for item in final_plan_items if not item.get('episode_end') or item['episode_end'] == item['episode_start']}
+        # Карта плана также использует ключ (сезон, эпизод)
+        plan_map = {}
+        for item in final_plan_items:
+            if not item.get('episode_end') or item['episode_end'] == item['episode_start']:
+                season = item.get('season')
+                if season is None:
+                    season = 1
+                key = (season, item['episode_start'])
+                plan_map[key] = item
 
         for comp in all_compilations:
             if comp in final_plan_items: continue
@@ -147,20 +173,23 @@ class SmartCollector:
             comp_quality = self._get_quality_sort_key(comp, quality_priority)
             episodes_it_could_replace = []
             is_valid_for_upgrade = True
-            is_strictly_better = False # Флаг, что есть реальное улучшение качества
+            is_strictly_better = False
 
+            comp_season = comp.get('season')
+            if comp_season is None:
+                comp_season = 1
             start, end = comp['episode_start'], comp['episode_end']
             for ep_num in range(start, end + 1):
-                if ep_num in plan_map:
-                    single_in_plan = plan_map[ep_num]
+                # Проверяем ключ (сезон, эпизод) в карте
+                ep_key = (comp_season, ep_num)
+                if ep_key in plan_map:
+                    single_in_plan = plan_map[ep_key]
                     single_quality = self._get_quality_sort_key(single_in_plan, quality_priority)
                     
-                    # 1. Проверяем, что компиляция НЕ ХУЖЕ ни одной из одиночных серий
                     if comp_quality > single_quality:
                         is_valid_for_upgrade = False
                         break
                     
-                    # 2. Проверяем, что компиляция СТРОГО ЛУЧШЕ хотя бы одной из серий
                     if comp_quality < single_quality:
                         is_strictly_better = True
                     
@@ -169,21 +198,31 @@ class SmartCollector:
             if not is_valid_for_upgrade:
                 continue
 
-            # 3. Замена происходит, только если компиляция СТРОГО ЛУЧШЕ
             if episodes_it_could_replace and is_strictly_better:
                 self.logger.debug(f"smart_collector: Апгрейд качества! Компиляция {comp['unique_id'][:8]} заменяет {len(episodes_it_could_replace)} одиночных серий.")
                 final_plan_items = [item for item in final_plan_items if item not in episodes_it_could_replace]
                 final_plan_items.append(comp)
-                plan_map = {item['episode_start']:item for item in final_plan_items if not item.get('episode_end') or item['episode_end'] == item['episode_start']}
-
+                # Перестраиваем карту плана с ключами (сезон, эпизод)
+                plan_map = {}
+                for item in final_plan_items:
+                    if not item.get('episode_end') or item['episode_end'] == item['episode_start']:
+                        season = item.get('season')
+                        if season is None:
+                            season = 1
+                        key = (season, item['episode_start'])
+                        plan_map[key] = item
 
         # 4. Финализируем статусы на основе лучшего найденного плана
         final_plan_ids = {item['unique_id'] for item in final_plan_items}
         
         final_covered_episodes = set()
         for item in final_plan_items:
+            # Используем сезон при построении сета покрытых эпизодов
+            season = item.get('season')
+            if season is None:
+                season = 1
             start, end = item['episode_start'], item.get('episode_end') or item['episode_start']
-            final_covered_episodes.update(range(start, end + 1))
+            final_covered_episodes.update((season, ep) for ep in range(start, end + 1))
 
         final_plan_statuses: Dict[str, str] = {}
         for item in candidate_items:
@@ -192,8 +231,13 @@ class SmartCollector:
                 is_compilation = item.get('episode_end') and item['episode_end'] > item['episode_start']
                 final_plan_statuses[unique_id] = 'in_plan_compilation' if is_compilation else 'in_plan_single'
             else:
+                # Проверяем покрытие с учетом сезона
+                season = item.get('season')
+                if season is None:
+                    season = 1
                 start, end = item['episode_start'], item.get('episode_end') or item['episode_start']
-                is_covered = any(i in final_covered_episodes for i in range(start, end + 1))
+                item_episodes = {(season, ep) for ep in range(start, end + 1)}
+                is_covered = not item_episodes.isdisjoint(final_covered_episodes)
                 final_plan_statuses[unique_id] = 'replaced' if is_covered else 'redundant'
         
         if final_plan_statuses:
