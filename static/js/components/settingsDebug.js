@@ -99,14 +99,6 @@ const SettingsDebugTab = {
             <div class="fieldset-content">
                 <div class="d-flex flex-column gap-3">
                     <div class="d-flex align-items-center gap-3">
-                        <button class="btn btn-warning flex-shrink-0" @click="resetAgentState"><i class="bi bi-arrow-counterclockwise me-2"></i>Сбросить агент торрентов</button>
-                        <p class="form-text text-muted mb-0">Очищает очередь агента обработки торрентов и сбрасывает "зависшие" статусы сериалов.</p>
-                    </div>
-                    <div class="d-flex align-items-center gap-3">
-                        <button class="btn btn-danger flex-shrink-0" @click="clearDownloadQueue"><i class="bi bi-x-circle me-2"></i>Очистить очередь загрузок</button>
-                        <p class="form-text text-muted mb-0">Удаляет все ожидающие и ошибочные задачи из очереди загрузчика VK видео.</p>
-                    </div>
-                    <div class="d-flex align-items-center gap-3">
                         <button class="btn btn-info flex-shrink-0" @click="openDbViewer">
                             <i class="bi bi-database me-2"></i>Просмотр БД
                         </button>
@@ -225,19 +217,6 @@ const SettingsDebugTab = {
         if (this.countdownTimer) {
             clearInterval(this.countdownTimer);
             this.countdownTimer = null;
-        }
-    },
-    async clearDownloadQueue() {
-        if (!confirm('Вы уверены, что хотите очистить очередь загрузок? Это действие не остановит уже идущие процессы.')) return;
-        try {
-            const response = await fetch('/api/downloads/queue/clear', { method: 'POST' });
-            const data = await response.json();
-            if (!response.ok || !data.success) {
-                throw new Error(data.error || 'Ошибка при очистке очереди');
-            }
-            this.$emit('show-toast', data.message || 'Очередь загрузок очищена.', 'success');
-        } catch (error) {
-            this.$emit('show-toast', error.message, 'danger');
         }
     },
     async loadParallelDownloads() {
@@ -361,19 +340,6 @@ const SettingsDebugTab = {
             this.scannerStatus = JSON.parse(event.data);
         });
     },
-    async resetAgentState() {
-        if (!confirm('Вы уверены, что хотите сбросить все активные задачи сканирования и проверки?')) return;
-        try {
-            const response = await fetch('/api/agent/reset', { method: 'POST' });
-            const data = await response.json();
-            if (!response.ok || !data.success) {
-                throw new Error(data.error || 'Ошибка при сбросе состояния');
-            }
-            this.$emit('show-toast', data.message || 'Состояние успешно сброшено.', 'success');
-        } catch (error) {
-            this.$emit('show-toast', error.message, 'danger');
-        }
-    },
     async loadTables() {
         try {
             const response = await fetch('/api/database/tables');
@@ -385,7 +351,13 @@ const SettingsDebugTab = {
     },
     async clearSelectedTable() {
         if (this.selectedTableToClear) {
-            if (!confirm(`ВНИМАНИЕ! Вы уверены, что хотите удалить ВСЕ записи из таблицы '${this.selectedTableToClear}'? Это действие необратимо.`)) return;
+            try {
+                const result = await this.$root.$refs.confirmationModal.open(
+                    'Очистка таблицы',
+                    `ВНИМАНИЕ! Вы уверены, что хотите удалить <b>ВСЕ</b> записи из таблицы '<strong>${this.selectedTableToClear}</strong>'? <br><br>Это действие необратимо.`
+                );
+                if (!result.confirmed) return;
+            } catch (e) { return; }
             try {
                 const response = await fetch('/api/database/clear_table', {
                     method: 'POST',

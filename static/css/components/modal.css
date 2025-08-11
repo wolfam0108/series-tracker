@@ -212,3 +212,8 @@
         justify-content: center;
     }
 }
+
+/* Повышаем z-index для окна подтверждения, чтобы оно было выше окна статуса */
+#confirmationModalDialog {
+    z-index: 1060;
+}

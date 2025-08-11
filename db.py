@@ -296,6 +296,31 @@ class Database:
                 session.commit()
                 self.logger.info("db", f"Сериал {series_id} и все связанные с ним записи удалены.")
     
+    def delete_torrents_for_series(self, series_id: int) -> int:
+        """Удаляет все торренты и связанные с ними файлы для указанного сериала."""
+        with self.Session() as session:
+            try:
+                # Находим ID всех торрентов, связанных с сериалом
+                torrents_query = session.query(Torrent).filter_by(series_id=series_id)
+                torrents_to_delete = torrents_query.all()
+                if not torrents_to_delete:
+                    return 0
+                
+                torrent_ids_to_delete = [t.id for t in torrents_to_delete]
+
+                # Удаляем все файлы, связанные с этими торрентами
+                session.query(TorrentFile).filter(TorrentFile.torrent_db_id.in_(torrent_ids_to_delete)).delete(synchronize_session=False)
+                
+                # Удаляем сами торренты
+                deleted_count = torrents_query.delete(synchronize_session=False)
+                
+                session.commit()
+                return deleted_count
+            except Exception as e:
+                self.logger.error("db", f"Ошибка при удалении торрентов для series_id {series_id}: {e}", exc_info=True)
+                session.rollback()
+                raise
+
     def add_torrent(self, series_id: int, torrent_data: Dict[str, Any], is_active: bool = True, qb_hash: Optional[str] = None):
         with self.Session() as session:
             torrent = Torrent(
@@ -1443,15 +1468,19 @@ class Database:
             session.commit()
             return True
 
-    def get_pending_relocation_task(self, series_id: int = None) -> Optional[Dict[str, Any]]:
-        """Извлекает одну ожидающую задачу на перемещение для конкретного сериала."""
+    def get_pending_relocation_task(self, series_id: int = None) -> List[Dict[str, Any]]:
+        """
+        Извлекает ожидающие задачи на перемещение.
+        Если series_id указан, возвращает список задач для этого сериала.
+        Если series_id не указан, возвращает список ВСЕХ ожидающих задач.
+        """
         with self.Session() as session:
             query = session.query(RelocationTask).filter(RelocationTask.status.in_(['pending', 'in_progress']))
             if series_id:
                 query = query.filter_by(series_id=series_id)
-            task = query.order_by(RelocationTask.created_at).first()
-            if not task: return None
-            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+            tasks = query.order_by(RelocationTask.created_at).all()
+            return [{c.name: getattr(t, c.name) for c in t.__table__.columns} for t in tasks]
+
 
     def update_relocation_task(self, task_id: int, updates: Dict[str, Any]):
         """Обновляет статус или сообщение об ошибке для задачи на перемещение."""
@@ -1568,3 +1597,35 @@ class Database:
             if tracker:
                 tracker.mirrors = json.dumps(mirrors)
                 session.commit()
+
+    def bulk_update_media_item_paths(self, path_updates: list[dict]):
+        """Пакетно обновляет пути для final_filename в media_items."""
+        with self.Session() as session:
+            try:
+                session.bulk_update_mappings(MediaItem, path_updates)
+                session.commit()
+            except Exception as e:
+                self.logger.error("db", f"Ошибка пакетного обновления путей media_items: {e}", exc_info=True)
+                session.rollback()
+                raise
+
+    def bulk_update_sliced_file_paths(self, path_updates: list[dict]):
+        """Пакетно обновляет пути для file_path в sliced_files."""
+        with self.Session() as session:
+            try:
+                session.bulk_update_mappings(SlicedFile, path_updates)
+                session.commit()
+            except Exception as e:
+                self.logger.error("db", f"Ошибка пакетного обновления путей sliced_files: {e}", exc_info=True)
+                session.rollback()
+                raise
+
+    def get_all_renaming_tasks(self, series_id: int = None) -> List[Dict[str, Any]]:
+        """Возвращает все активные задачи на переименование (pending или in_progress)."""
+        with self.Session() as session:
+            query = session.query(RenamingTask).filter(RenamingTask.status.in_(['pending', 'in_progress']))
+            if series_id:
+                query = query.filter_by(series_id=series_id)
+            tasks = query.order_by(RenamingTask.created_at).all()
+            return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
+

@@ -28,53 +28,51 @@ class AuthManager:
 
     def get_kinozal_session(self, url: str) -> Optional[requests.Session]:
         """
-        Получает или создает валидную сессию для указанного URL Kinozal.
-        Сессии кэшируются по домену (kinozal.me, kinozal.tv).
+        Получает или создает и КЭШИРУЕТ валидную сессию для Kinozal.
         """
+        if app.debug_manager.is_debug_enabled('auth'):
+            self.logger.debug("auth", f"[get_kinozal_session] Вызван для URL {url} из AuthManager ID: {id(self)}")
+
         try:
             parsed_url = urlparse(url)
-            # Нормализуем домен, убирая 'dl.' для авторизации
-            domain = parsed_url.netloc.replace('dl.', '')
+            domain = parsed_url.netloc.replace('dl.', '').replace('www.', '')
             base_url = f"{parsed_url.scheme}://{domain}"
         except Exception as e:
             self.logger.error("auth", f"Не удалось распарсить URL '{url}' для получения сессии: {e}")
             return None
 
-        # Проверяем, есть ли уже рабочая сессия в кэше
         if domain in self.kinozal_sessions:
-            return self.kinozal_sessions[domain]
+            session = self.kinozal_sessions[domain]
+            if app.debug_manager.is_debug_enabled('auth'):
+                self.logger.debug("auth", f"Использована кэшированная сессия ID: {id(session)} для {domain}")
+            return session
 
-        # Если сессии нет, проходим аутентификацию
         self.logger.info("auth", f"Создание новой сессии для домена {domain}")
         credentials = self.db.get_auth("kinozal")
-        if not credentials:
-            self.logger.error("auth", "Учетные данные для kinozal не найдены")
-            return None
+        if not credentials: return None
 
         try:
             session = requests.Session()
             login_url = f"{base_url}/takelogin.php"
-            
-            response = session.post(
-                login_url,
-                data={"username": credentials["username"], "password": credentials["password"], "returnto": ""},
-                headers={"User-Agent": "Mozilla/5.0"},
-                timeout=10
-            )
+            response = session.post(login_url, data={"username": credentials["username"], "password": credentials["password"], "returnto": ""}, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
             response.raise_for_status()
-
             if "takelogin.php" in response.url:
                 self.logger.error("auth", f"Не удалось авторизоваться на {domain}. Проверьте логин/пароль.")
                 return None
             
             self.logger.info("auth", f"Успешная авторизация на {domain} для скачивания.")
-            self.kinozal_sessions[domain] = session  # Кэшируем новую сессию
-            return session
+            if app.debug_manager.is_debug_enabled('auth'):
+                self.logger.debug("auth", f"[ОТЛАДКА] Cookies ПОСЛЕ ЛОГИНА: {session.cookies.get_dict()}")
 
+            self.kinozal_sessions[domain] = session
+            if app.debug_manager.is_debug_enabled('auth'):
+                self.logger.debug("auth", f"Сессия ID: {id(session)} сохранена в кэш для домена {domain}")
+                
+            return session
         except requests.RequestException as e:
             self.logger.error("auth", f"Ошибка авторизации на {domain}: {str(e)}", exc_info=e)
             return None
-
+        
     def get_scraper(self) -> cloudscraper.CloudScraper:
         if self.scraper is None:
             if app.debug_manager.is_debug_enabled('auth'):

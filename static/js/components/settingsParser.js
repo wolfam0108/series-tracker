@@ -454,7 +454,14 @@ template: `
         finally { this.isLoading = false; }
     },
     async deleteProfile() {
-        if (!this.selectedProfileId || !confirm(`Вы уверены, что хотите удалить профиль "${this.selectedProfileName}" и все его правила?`)) return;
+        if (!this.selectedProfileId) return;
+        try {
+            const result = await this.$root.$refs.confirmationModal.open(
+                'Удаление профиля',
+                `Вы уверены, что хотите удалить профиль "<strong>${this.selectedProfileName}</strong>" и все его правила?`
+            );
+            if (!result.confirmed) return;
+        } catch (e) { return; }
         this.isLoading = true;
         try {
             const response = await fetch(`/api/parser-profiles/${this.selectedProfileId}`, { method: 'DELETE' });
@@ -538,7 +545,10 @@ template: `
             this.rules = this.rules.filter(r => r.id !== ruleId);
             return;
         }
-        if (!confirm('Удалить это правило?')) return;
+        try {
+            const result = await this.$root.$refs.confirmationModal.open('Удаление правила', 'Вы уверены, что хотите удалить это правило?');
+            if (!result.confirmed) return;
+        } catch (e) { return; }
         try {
             const response = await fetch(`/api/parser-rules/${ruleId}`, { method: 'DELETE' });
             if (!response.ok) throw new Error('Ошибка удаления правила');

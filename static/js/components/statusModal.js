@@ -6,7 +6,7 @@ const StatusModal = {
       'status-tab-history': StatusTabHistory,
       'status-tab-torrent-composition': StatusTabTorrentComposition,
   },
-  template: `
+template: `
     <div class="modal fade" ref="statusModal" tabindex="-1" aria-labelledby="statusModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-xl" :class="{'modal-fullscreen': isFullscreen}">
             <div class="modal-content modern-modal" style="max-height: 90vh; display: flex; flex-direction: column;">
@@ -18,16 +18,16 @@ const StatusModal = {
                             <button class="nav-link modern-tab-link active" data-bs-toggle="tab" data-bs-target="#pane-properties" type="button" role="tab" @click="setActiveTab('properties')"><i class="bi bi-info-circle me-2"></i>Свойства</button>
                         </li>
                         <li v-if="series.source_type === 'vk_video'" class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" data-bs-toggle="tab" data-bs-target="#pane-composition" type="button" role="tab" @click="setActiveTab('composition')"><i class="bi bi-diagram-3 me-2"></i>Композиция</button>
+                            <button class="nav-link modern-tab-link" :class="{ 'disabled': isBusy }" data-bs-toggle="tab" data-bs-target="#pane-composition" type="button" role="tab" @click="setActiveTab('composition')"><i class="bi bi-diagram-3 me-2"></i>Композиция</button>
                         </li>
                         <li v-if="series.source_type === 'vk_video'" class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" data-bs-toggle="tab" data-bs-target="#pane-slicing" type="button" role="tab" @click="setActiveTab('slicing')"><i class="bi bi-scissors me-2"></i>Нарезка</button>
+                            <button class="nav-link modern-tab-link" :class="{ 'disabled': isBusy }" data-bs-toggle="tab" data-bs-target="#pane-slicing" type="button" role="tab" @click="setActiveTab('slicing')"><i class="bi bi-scissors me-2"></i>Нарезка</button>
                         </li>
                         <li v-if="series.source_type === 'torrent'" class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" data-bs-toggle="tab" data-bs-target="#pane-torrent-composition" type="button" role="tab" @click="setActiveTab('torrent-composition')"><i class="bi bi-diagram-3 me-2"></i>Композиция</button>
+                            <button class="nav-link modern-tab-link" :class="{ 'disabled': isBusy }" data-bs-toggle="tab" data-bs-target="#pane-torrent-composition" type="button" role="tab" @click="setActiveTab('torrent-composition')"><i class="bi bi-diagram-3 me-2"></i>Композиция</button>
                         </li>
                         <li class="nav-item" role="presentation">
-                            <button class="nav-link modern-tab-link" data-bs-toggle="tab" data-bs-target="#pane-history" type="button" role="tab" @click="setActiveTab('history')"><i class="bi bi-clock-history me-2"></i>История</button>
+                            <button class="nav-link modern-tab-link" :class="{ 'disabled': isBusy }" data-bs-toggle="tab" data-bs-target="#pane-history" type="button" role="tab" @click="setActiveTab('history')"><i class="bi bi-clock-history me-2"></i>История</button>
                         </li>
                     </ul>
                     
@@ -37,7 +37,7 @@ const StatusModal = {
                     <div v-if="!series.id" class="text-center p-5"><div class="spinner-border" role="status"></div></div>
                     <div v-else class="tab-content modern-tab-content" id="statusTabContent">
                         
-                    <div class="tab-pane fade show active" id="pane-properties" role="tabpanel">
+                        <div class="tab-pane fade show active" id="pane-properties" role="tabpanel">
                             <status-tab-properties 
                                 ref="propertiesTab" 
                                 v-if="seriesId" 
@@ -45,8 +45,8 @@ const StatusModal = {
                                 :is-active="activeTab === 'properties'" 
                                 @show-toast="emitToast" 
                                 @series-updated="emitSeriesUpdated"
-                                @saving-state="onSavingStateChange" 
-                            />
+                                @saving-state="onSavingStateChange"
+                                />
                         </div>
 
                         <div class="tab-pane fade" id="pane-composition" role="tabpanel">
@@ -67,10 +67,10 @@ const StatusModal = {
                     </div>
                 </div>
                 <div class="modal-footer modern-footer">
-                    <button v-if="activeTab === 'properties'" class="btn btn-primary" @click="saveProperties" :disabled="isSaving">
-                        <span v-if="isSaving" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
+                    <button v-if="activeTab === 'properties'" class="btn btn-primary" @click="saveProperties" :disabled="isSaving || isBusy">
+                        <span v-if="isSaving || isBusy" class="spinner-border spinner-border-sm me-2" role="status" aria-hidden="true"></span>
                         <i v-else class="bi bi-check-lg me-2"></i>
-                        {{ isSaving ? 'Сохранение...' : 'Сохранить' }}
+                        {{ isBusy ? 'Обработка...' : (isSaving ? 'Сохранение...' : 'Сохранить') }}
                     </button>
                     <button class="btn btn-secondary" @click="close"><i class="bi bi-x-lg me-2"></i>Закрыть</button>
                 </div>
@@ -89,14 +89,34 @@ const StatusModal = {
     };
   },
   emits: ['series-updated', 'show-toast'],
+  computed: {
+  isBusy() {
+    // Блокируем вкладки, если идет сохранение ИЛИ если бэкенд сообщает о фоновой задаче.
+    return this.isSaving || !!this.series.is_busy;
+  }
+},
   methods: {
+    async loadSeriesData() {
+        this.isSaving = false; // Сбрасываем флаг сохранения при каждой перезагрузке данных
+        try {
+            const response = await fetch(`/api/series/${this.seriesId}`);
+            if (!response.ok) throw new Error('Сериал не найден');
+            this.series = await response.json();
+            if (this.$refs.propertiesTab) {
+                this.$refs.propertiesTab.load();
+            }
+        } catch (error) { 
+            this.emitToast(error.message, 'danger'); 
+        }
+    },
+    onSavingStateChange(savingStatus) {
+        this.isSaving = savingStatus;
+    },
     setActiveTab(tabName) {
         this.activeTab = tabName;
         this.isFullscreen = (tabName === 'history');
 
-        // Используем $nextTick, чтобы убедиться, что компонент видим перед вызовом
         this.$nextTick(() => {
-            // Даем явную команду на обновление при каждом переключении на вкладку
             if (tabName === 'composition' && this.$refs.compositionTab) {
                 this.$refs.compositionTab.initialize();
             }
@@ -107,6 +127,7 @@ const StatusModal = {
         this.series = {}; 
         this.activeTab = 'properties';
         this.isFullscreen = false;
+        this.isSaving = false;
         
         if (!this.modal) this.modal = new bootstrap.Modal(this.$refs.statusModal);
         this.modal.show();
@@ -114,27 +135,21 @@ const StatusModal = {
         const firstTabEl = this.$refs.statusModal.querySelector('.modern-tab-link');
         if (firstTabEl) bootstrap.Tab.getOrCreateInstance(firstTabEl).show();
         
-        try {
-            const response = await fetch(`/api/series/${this.seriesId}`);
-            if (!response.ok) throw new Error('Сериал не найден');
-            this.series = await response.json();
-        } catch (error) { 
-            this.emitToast(error.message, 'danger'); 
-            this.close(); 
-        }
+        await this.loadSeriesData();
     },
     close() {
+        this.isSaving = false;
         this.modal.hide();
     },
     onRenamingComplete() {
-        // Вызываем метод дочернего компонента, если он активен
         if (this.activeTab === 'composition' && this.$refs.compositionTab) {
             this.$refs.compositionTab.onRenamingComplete();
         }
     },    
-    // --- НОВЫЙ МЕТОД: Вызывает метод сохранения в дочернем компоненте ---
     saveProperties() {
         if (this.$refs.propertiesTab) {
+            // Сообщаем родительскому компоненту (app.js), что для этого ID началась операция сохранения
+            this.$emit('save-started', this.seriesId);
             this.$refs.propertiesTab.updateSeries();
         }
     },
@@ -143,15 +158,6 @@ const StatusModal = {
     },
     emitSeriesUpdated() {
         this.$emit('series-updated');
-    },
-        onSavingStateChange(savingStatus) {
-        this.isSaving = savingStatus;
-    },
-
-    saveProperties() {
-        if (this.$refs.propertiesTab) {
-            this.$refs.propertiesTab.updateSeries();
-        }
     }
   }
 };

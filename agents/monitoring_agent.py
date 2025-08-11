@@ -49,46 +49,89 @@ class MonitoringAgent(threading.Thread):
     def _process_relocation_task(self):
         """Обрабатывает одну ожидающую задачу на перемещение."""
         with self.app.app_context():
-            task = self.db.get_pending_relocation_task()
-            if not task:
+            tasks = self.db.get_pending_relocation_task()
+            if not tasks:
                 return
 
+            task = tasks[0]
             task_id = task['id']
             series_id = task['series_id']
-            new_path = task['new_path']
-            self.logger.info("monitoring_agent", f"Начата обработка задачи на перемещение ID {task_id} для series_id {series_id} в '{new_path}'")
+
+            # Код проверки был здесь, теперь его нет.
+            # Сразу начинаем обработку задачи.
+            
+            new_base_path = task['new_path']
+            series = self.db.get_series(series_id)
+            old_base_path = series['save_path']
+            
+            self.logger.info("monitoring_agent", f"Начата обработка задачи на перемещение ID {task_id} для series_id {series_id} в '{new_base_path}'")
 
             try:
                 self.db.update_relocation_task(task_id, {'status': 'in_progress'})
+                self.broadcaster.broadcast('relocation_started', {'series_id': series_id})
 
-                # Получаем все активные торренты для этого сериала
-                active_torrents = self.db.get_torrents(series_id, is_active=True)
-                active_hashes = [t['qb_hash'] for t in active_torrents if t.get('qb_hash')]
+                # 1. Предварительная проверка возможности перемещения
+                if os.path.exists(old_base_path) and os.path.exists(os.path.dirname(new_base_path)):
+                    if os.stat(old_base_path).st_dev != os.stat(os.path.dirname(new_base_path)).st_dev:
+                        raise Exception("Перемещение между разными дисками не поддерживается.")
 
-                if not active_hashes:
-                    self.logger.info("monitoring_agent", "Активных торрентов для перемещения не найдено.")
-                else:
-                    # Отправляем команды в qBittorrent
-                    for qb_hash in active_hashes:
-                        self.logger.info("monitoring_agent", f"Отправка команды setLocation для хеша {qb_hash[:8]}...")
-                        success = self.qb_client.set_location(qb_hash, new_path)
-                        if not success:
-                            raise Exception(f"qBittorrent не смог переместить торрент с хешем {qb_hash[:8]}.")
-                
-                # Если все команды для qb прошли успешно, обновляем путь в нашей БД
-                self.db.update_series(series_id, {'save_path': new_path})
+                # 2. Обработка в зависимости от типа сериала
+                if series.get('source_type') == 'vk_video':
+                    # Собираем все файлы: основные и нарезанные
+                    media_items = self.db.get_media_items_with_filename(series_id)
+                    sliced_files = self.db.get_all_sliced_files_for_series(series_id)
+                    
+                    media_updates, sliced_updates = [], []
+                    
+                    # Обновляем пути для media_items
+                    for item in media_items:
+                        old_relative_path = item.get('final_filename')
+                        if not old_relative_path: continue
+                        
+                        old_abs_path = os.path.join(old_base_path, old_relative_path)
+                        new_abs_path = os.path.join(new_base_path, old_relative_path)
+                        
+                        if os.path.exists(old_abs_path):
+                            os.makedirs(os.path.dirname(new_abs_path), exist_ok=True)
+                            os.rename(old_abs_path, new_abs_path)
+                    
+                    # Обновляем пути для sliced_files
+                    for s_file in sliced_files:
+                        old_relative_path = s_file.get('file_path')
+                        if not old_relative_path: continue
+
+                        old_abs_path = os.path.join(old_base_path, old_relative_path)
+                        new_abs_path = os.path.join(new_base_path, old_relative_path)
+
+                        if os.path.exists(old_abs_path):
+                            os.makedirs(os.path.dirname(new_abs_path), exist_ok=True)
+                            os.rename(old_abs_path, new_abs_path)
+
+                    self.db.update_series(series_id, {'save_path': new_base_path})
+
+                elif series.get('source_type') == 'torrent':
+                    active_torrents = self.db.get_torrents(series_id, is_active=True)
+                    active_hashes = [t['qb_hash'] for t in active_torrents if t.get('qb_hash')]
+                    if active_hashes:
+                        for qb_hash in active_hashes:
+                            if not self.qb_client.set_location(qb_hash, new_base_path):
+                                raise Exception(f"qBittorrent не смог переместить торрент {qb_hash[:8]}.")
+                    self.db.update_series(series_id, {'save_path': new_base_path})
                 
                 # Завершаем задачу
+                # Завершаем задачу
                 self.db.delete_relocation_task(task_id)
-                
-                self.logger.info("monitoring_agent", f"Задача на перемещение ID {task_id} успешно завершена.")
-                self.broadcaster.broadcast('series_relocated', {'series_id': series_id, 'success': True, 'message': 'Сериал успешно перемещен.'})
+                self.logger.info("monitoring_agent", f"Задача на перемещение ID {task_id} успешно завершена. Запуск агента переименования...")
+
+                # Вместо отправки сигнала в UI, "будим" следующего агента в цепочке
+                self.app.renaming_agent.trigger()
+                self.broadcaster.broadcast('relocation_finished', {'series_id': series_id, 'success': True, 'message': 'Сериал успешно перемещен.'})
 
             except Exception as e:
                 error_message = str(e)
                 self.logger.error("monitoring_agent", f"Ошибка при выполнении задачи на перемещение ID {task_id}: {error_message}", exc_info=True)
                 self.db.update_relocation_task(task_id, {'status': 'error', 'error_message': error_message})
-                self.broadcaster.broadcast('series_relocated', {'series_id': series_id, 'success': False, 'message': error_message})
+                self.broadcaster.broadcast('relocation_finished', {'series_id': series_id, 'success': False, 'message': error_message})
 
     def _broadcast_scanner_status(self):
         with self.app.app_context():

@@ -140,7 +140,11 @@
         
         <confirmation-modal ref="confirmationModal"></confirmation-modal>
         <add-series-modal ref="addModal" @show-toast="showToast"></add-series-modal>
-        <status-modal ref="statusModal" @series-updated="loadInitialSeries" @show-toast="showToast"></status-modal>
+        <status-modal 
+            ref="statusModal" 
+            @series-updated="loadInitialSeries" 
+            @show-toast="showToast"
+            @save-started="handleSaveStarted">  </status-modal>
         <logs-modal ref="logsModal" @reload-series="loadInitialSeries" @show-toast="showToast"></logs-modal>
         
         <settings-modal 

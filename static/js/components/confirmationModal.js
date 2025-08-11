@@ -1,6 +1,6 @@
 const ConfirmationModal = {
   template: `
-    <div class="modal fade" ref="confirmationModal" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
+    <div class="modal fade" ref="confirmationModal" id="confirmationModalDialog" tabindex="-1" aria-labelledby="confirmationModalLabel" aria-hidden="true">
       <div class="modal-dialog modal-dialog-centered">
         <div class="modal-content modern-modal">
           <div class="modal-header modern-header">

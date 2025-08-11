@@ -18,7 +18,8 @@ class TrackerResolver:
         Возвращает полную информацию о трекере из БД.
         """
         try:
-            domain = urlparse(url).netloc.replace('www.', '')
+            # --- ИЗМЕНЕНИЕ: Добавляем .replace('dl.', '') как в AuthManager ---
+            domain = urlparse(url).netloc.replace('www.', '').replace('dl.', '')
             all_trackers = self._get_all_trackers_with_mirrors()
             
             for tracker in all_trackers:

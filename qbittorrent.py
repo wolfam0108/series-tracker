@@ -3,7 +3,7 @@ import time
 import uuid
 from typing import Dict, List, Optional, Tuple
 from flask import current_app as app
-
+from urllib.parse import urlparse
 from requests.exceptions import Timeout
 from db import Database
 from logger import Logger
@@ -21,6 +21,8 @@ class QBittorrentClient:
         self.base_url = None
         self.MAX_RETRIES = 5
         self.RETRY_DELAY = 2
+        if app.debug_manager.is_debug_enabled('auth'):
+            self.logger.debug("auth", f"[QBittorrentClient] Инициализирован с AuthManager ID: {id(self.auth_manager)}")
 
     def _ensure_authenticated(self) -> bool:
         if self.session:
@@ -45,11 +47,22 @@ class QBittorrentClient:
                     self.logger.debug("qbittorrent", f"Запрос {method.upper()} к {url} (попытка {attempt + 1})")
                 
                 response = self.session.request(method, url, timeout=request_timeout, **kwargs)
+
+                # Обработка 403 Forbidden (проблема с авторизацией) -> Повторяем попытку
                 if response.status_code == 403:
                     self.logger.warning("qbittorrent", "Получен статус 403 (Forbidden). Попытка повторной аутентификации.")
                     self.session = None
                     if not self._ensure_authenticated(): return None
                     continue
+
+                # --- НАЧАЛО ИЗМЕНЕНИЙ ---
+                # Обработка 404 Not Found (торрент не существует) -> НЕ повторяем попытку
+                if response.status_code == 404:
+                    self.logger.warning("qbittorrent", f"Получен статус 404 (Not Found) от {url}. Ресурс не существует в qBittorrent.")
+                    return None # Немедленно выходим с результатом None
+                # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+
+                # Для всех остальных ошибок (500, 401 и т.д.) вызываем исключение и повторяем попытку
                 response.raise_for_status()
                 return response
             except Timeout:
@@ -84,28 +97,40 @@ class QBittorrentClient:
             link_type = 'magnet'
         else:
             link_type = 'file'
-            # --- ИЗМЕНЕНИЕ: Внедрена логика кэширования ---
             file_content = read_from_cache(torrent_id)
             if not file_content:
                 if app.debug_manager.is_debug_enabled('qbittorrent'):
                     self.logger.debug("qbittorrent", f"Файл для торрента {torrent_id} не найден в кэше. Скачивание...")
                 try:
-                    # --- НАЧАЛО ИЗМЕНЕНИЙ ---
                     resolver = TrackerResolver(self.db)
                     tracker_info = resolver.get_tracker_by_url(link)
                     auth_type = tracker_info['auth_type'] if tracker_info else 'none'
+                    self.logger.info("qbittorrent", f"Определен тип аутентификации для ссылки '{link}': {auth_type}")
 
                     if auth_type == 'kinozal':
                         session = self.auth_manager.get_kinozal_session(link)
+                        if app.debug_manager.is_debug_enabled('auth') and session:
+                            self.logger.debug("auth", f"[QBittorrentClient] Получена сессия ID: {id(session)} от AuthManager")
                     elif auth_type == 'astar':
                         session = self.auth_manager.get_scraper()
-                    else: # 'none'
+                    else:
                         session = requests.Session()
                     
                     if not session:
                         raise Exception("Не удалось получить сессию для скачивания .torrent файла.")
 
-                    response = session.get(link, timeout=20)
+                    request_kwargs = {'timeout': 20}
+                    if auth_type == 'kinozal':
+                        parsed_link = urlparse(link)
+                        base_domain = parsed_link.netloc.replace('dl.', '')
+                        referer_url = f"{parsed_link.scheme}://{base_domain}/"
+                        request_kwargs['headers'] = {'Referer': referer_url}
+                        self.logger.debug("qbittorrent", f"Добавлен заголовок Referer для Kinozal: {referer_url}")
+
+                    if app.debug_manager.is_debug_enabled('auth'):
+                        self.logger.debug("auth", f"[ОТЛАДКА] Cookies ПЕРЕД СКАЧИВАНИЕМ .torrent: {session.cookies.get_dict()}")
+                    
+                    response = session.get(link, **request_kwargs)
                     response.raise_for_status()
                     
                     content_type = response.headers.get('Content-Type', '')
@@ -117,26 +142,42 @@ class QBittorrentClient:
                         return None, None
 
                     file_content = response.content
-                    save_to_cache(torrent_id, file_content) # Сохраняем в кэш
+                    save_to_cache(torrent_id, file_content)
 
                 except Exception as e:
                     self.logger.error("qbittorrent", f"Не удалось скачать .torrent файл {link}: {e}", exc_info=True)
                     return None, None
             
             files_payload = {'torrents': ('file.torrent', file_content, 'application/x-bittorrent')}
-            # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         
         if files_payload:
             add_params['files'] = files_payload
 
         response = self._request_with_retries("post", "api/v2/torrents/add", **add_params)
         
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+        # Если qBittorrent ответил "Fails."
+        if response and response.status_code == 200 and "Fails." in response.text:
+            self.logger.warning("qbittorrent", f"qBittorrent вернул 'Fails.' для торрента {torrent_id}. Проверяем, может он уже существует...")
+            # Пытаемся найти хеш по временному тегу. Если найдем - значит, торрент уже был добавлен.
+            qb_hash = self._get_torrent_hash_by_tag(final_tag, retries=3, delay=1)
+            if qb_hash:
+                self.logger.info("qbittorrent", f"Торрент {torrent_id} уже существует в qBittorrent. Используем его хеш: {qb_hash}")
+                self._remove_tag(final_tag, qb_hash) # Просто удаляем тег
+                return qb_hash, link_type
+            else:
+                # Если хеш не нашелся, то это реальная ошибка
+                self.logger.error("qbittorrent", f"Не удалось добавить торрент {torrent_id} и он не найден по тегу. Ответ: {response.text}")
+                return None, None
+
+        # Если ответ успешный ("Ok.")
         if response and response.status_code == 200 and "Ok." in response.text:
             qb_hash = self._get_torrent_hash_by_tag(final_tag, retries=15, delay=2)
             if qb_hash:
                 self.logger.info("qbittorrent", f"Торрент {torrent_id} успешно добавлен на паузе, qb_hash: {qb_hash}")
                 self._remove_tag(final_tag, qb_hash)
                 return qb_hash, link_type
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
         
         error_text = response.text if response else 'No response'
         status_code = response.status_code if response else 'N/A'

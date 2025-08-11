@@ -133,7 +133,22 @@ const ChapterManager = {
         return statusMap[item.slicing_status] || 'Начать нарезку';
     },
     async createSlicingTask(item) {
-        if (!confirm(`Вы уверены, что хотите запустить нарезку для файла "${this.getBaseName(item.final_filename)}"?`)) return;
+        try {
+            const result = await this.$root.$refs.confirmationModal.open(
+                'Запуск нарезки',
+                `Вы уверены, что хотите запустить нарезку для файла: <br><strong>${this.getBaseName(item.final_filename)}</strong>?`
+            );
+            if (!result.confirmed) {
+                this.$emit('show-toast', 'Нарезка отменена.', 'info');
+                return;
+            }
+        } catch (isCancelled) {
+             if (isCancelled === false) {
+                this.$emit('show-toast', 'Нарезка отменена.', 'info');
+             }
+             // Если isCancelled не false, значит произошла ошибка, но здесь нам не нужно ее обрабатывать
+             return;
+        }
         
         item.slicing_status = 'pending';
         

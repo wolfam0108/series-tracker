@@ -606,7 +606,19 @@ computed: {
         }
     },
     async triggerDeepAdoption() {
-        if (!confirm('Запустить глубокое усыновление? Процесс проверит все компиляции, для которых нет данных о главах, с помощью yt-dlp. Это может занять некоторое время.')) {
+        try {
+            const result = await this.$root.$refs.confirmationModal.open(
+                'Глубокое усыновление',
+                'Запустить проверку всех компиляций через yt-dlp для поиска оглавлений? <br><br><b>Это может занять продолжительное время.</b>'
+            );
+            if (!result.confirmed) {
+                this.$emit('show-toast', 'Операция отменена.', 'info');
+                return;
+            }
+        } catch (isCancelled) {
+            if (isCancelled === false) {
+                 this.$emit('show-toast', 'Операция отменена.', 'info');
+            }
             return;
         }
         this.isDeepAdopting = true;

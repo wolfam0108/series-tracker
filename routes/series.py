@@ -21,9 +21,20 @@ series_bp = Blueprint('series_api', __name__, url_prefix='/api/series')
 @series_bp.route('', methods=['GET'])
 def get_series():
     series_list = app.db.get_all_series()
+    
+    # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+    # Получаем ID всех сериалов, для которых есть активные задачи
+    relocating_ids = {task['series_id'] for task in app.db.get_pending_relocation_task()}
+    renaming_ids = {task['series_id'] for task in app.db.get_all_renaming_tasks()} # Получаем ВСЕ задачи переименования
+    busy_ids = relocating_ids.union(renaming_ids) # Объединяем множества
+    # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
     for s in series_list:
         if s.get('last_scan_time'):
             s['last_scan_time'] = s['last_scan_time'].isoformat()
+        # Добавляем новый ОБЩИЙ флаг занятости
+        s['is_busy'] = s['id'] in busy_ids
+            
     return jsonify(series_list)
 
 @series_bp.route('', methods=['POST'])
@@ -53,12 +64,17 @@ def get_series_details(series_id):
         if series.get('last_scan_time'):
             series['last_scan_time'] = series['last_scan_time'].isoformat()
         
-        # --- НАЧАЛО ИЗМЕНЕНИЙ: Добавляем информацию о трекере в ответ ---
+        # --- НАЧАЛО ИЗМЕНЕНИЯ ---
+        relocation_tasks = app.db.get_pending_relocation_task(series_id=series_id)
+        renaming_tasks = app.db.get_all_renaming_tasks(series_id=series_id)
+        # Сериал "занят", если есть хотя бы одна задача перемещения ИЛИ переименования
+        series['is_busy'] = bool(relocation_tasks) or bool(renaming_tasks)
+        # --- КОНЕЦ ИЗМЕНЕНИЯ ---
+
         if series.get('source_type') == 'torrent':
             resolver = TrackerResolver(app.db)
             tracker_info = resolver.get_tracker_by_url(series['url'])
             series['tracker_info'] = tracker_info
-        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
         
     return jsonify(series) if series else (jsonify({"error": "Сериал не найден"}), 404)
 
@@ -386,11 +402,66 @@ def reprocess_series_torrents_route(series_id):
 
 @series_bp.route('/<int:series_id>', methods=['POST'])
 def update_series(series_id):
+    """
+    Принимает все изменения из UI, выполняет их в строгом порядке:
+    1. Обновляет простые данные в БД.
+    2. Создает задачу на перемещение (если нужно).
+    3. Создает задачу на переименование/переобработку (если нужно).
+    """
     data = request.get_json()
-    data.pop('last_scan_time', None)
-    app.db.update_series(series_id, data)
-    _broadcast_series_update(series_id, 'series_updated')
-    return jsonify({"success": True})
+    app.logger.info("series_api", f"Получен запрос на комплексное обновление для series_id: {series_id}")
+
+    try:
+        series = app.db.get_series(series_id)
+        if not series:
+            return jsonify({"success": False, "error": "Сериал не найден"}), 404
+
+        # --- ШАГ 1: Обновляем "быстрые" данные в БД ---
+        original_save_path = series.get('save_path')
+        payload = data.copy()
+        payload.pop('save_path', None)
+        payload.pop('last_scan_time', None)
+        app.db.update_series(series_id, payload)
+        app.logger.info("series_api", f"Базовые свойства для series_id {series_id} обновлены.")
+
+        # --- ШАГ 2: Создаем задачу на перемещение (если путь изменился) ---
+        new_path = data.get('save_path')
+        relocation_task_created = False  # Флаг для отслеживания
+
+        if new_path and new_path != original_save_path:
+            app.logger.info("series_api", f"Обнаружено изменение пути для series_id {series_id}. Создание задачи на перемещение.")
+            if os.path.exists(original_save_path) and os.path.exists(os.path.dirname(new_path)):
+                if os.stat(original_save_path).st_dev != os.stat(os.path.dirname(new_path)).st_dev:
+                    return jsonify({"success": False, "error": "Перемещение между разными дисками не поддерживается."}), 400
+            
+            task_created = app.db.create_relocation_task(series_id, new_path)
+            if not task_created:
+                return jsonify({"success": False, "error": "Активная задача на перемещение уже выполняется."}), 409
+            
+            app.scanner_agent.trigger_relocation_check()
+            relocation_task_created = True
+
+        # --- ШАГ 3: Создаем задачу на переименование/переобработку ---
+        app.logger.info("series_api", f"Создание задачи на переобработку файлов для series_id: {series_id}.")
+        task_type = 'mass_vk_reprocess' if series.get('source_type') == 'vk_video' else 'mass_torrent_reprocess'
+        
+        renaming_task_created = app.db.create_renaming_task({
+            'series_id': series_id,
+            'task_type': task_type
+        })
+        
+        # Запускаем агент переименования напрямую, ТОЛЬКО ЕСЛИ не было задачи на перемещение
+        if renaming_task_created and not relocation_task_created:
+            app.logger.info("series_api", "Изменения не требуют перемещения. Прямой запуск агента переименования.")
+            app.renaming_agent.trigger()
+        elif not renaming_task_created:
+             app.logger.warning("series_api", f"Активная задача на переименование для series_id {series_id} уже существует.")
+
+        return jsonify({"success": True, "message": "Задача на обновление принята в обработку."})
+
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка при комплексном обновлении series_id {series_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
 
 @series_bp.route('/<int:series_id>/toggle_auto_scan', methods=['POST'])
 def toggle_auto_scan(series_id):
@@ -516,6 +587,41 @@ def get_active_torrents_monitoring():
         app.logger.error("series_api", f"Ошибка получения задач мониторинга торрентов: {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
 
+@series_bp.route('/<int:series_id>/reset_torrents', methods=['POST'])
+def reset_torrents(series_id):
+    """
+    Удаляет все активные торренты для сериала из qBittorrent (с файлами)
+    и из базы данных, готовя его к повторной загрузке с новыми параметрами.
+    """
+    app.logger.warning("series_api", f"Получен запрос на полный сброс торрентов для series_id: {series_id}")
+    try:
+        # 1. Получаем все активные торренты ПЕРЕД удалением из БД
+        torrents_to_delete = app.db.get_torrents(series_id, is_active=True)
+        if not torrents_to_delete:
+            return jsonify({"success": True, "message": "Активных торрентов для удаления не найдено."})
+
+        # 2. Удаляем из qBittorrent
+        hashes_to_delete = [t['qb_hash'] for t in torrents_to_delete if t.get('qb_hash')]
+        if hashes_to_delete:
+            qb_client = QBittorrentClient(AuthManager(app.db, app.logger), app.db, app.logger)
+            qb_client.delete_torrents(hashes_to_delete, delete_files=True)
+            app.logger.info("series_api", f"Удалено {len(hashes_to_delete)} торрентов из qBittorrent для series_id {series_id}.")
+
+        # 3. Очищаем кэш .torrent файлов
+        for torrent in torrents_to_delete:
+            if torrent.get('torrent_id'):
+                delete_from_cache(torrent['torrent_id'])
+
+        # 4. Удаляем записи из таблиц torrents и torrent_files в БД
+        deleted_db_count = app.db.delete_torrents_for_series(series_id)
+        app.logger.info("series_api", f"Удалено {deleted_db_count} записей о торрентах из БД для series_id {series_id}.")
+        
+        return jsonify({"success": True, "message": "Старые торренты и файлы успешно удалены."})
+
+    except Exception as e:
+        app.logger.error("series_api", f"Ошибка при сбросе торрентов для series_id {series_id}: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
 def _broadcast_series_update(series_id, event_name):
     series_data = app.db.get_series(series_id)
     if series_data:
@@ -535,8 +641,7 @@ def get_series_source_filenames(series_id):
 @series_bp.route('/<int:series_id>/relocate', methods=['POST'])
 def relocate_series(series_id):
     """
-    Создает и дожидается выполнения задачи на перемещение сериала
-    в новую директорию.
+    Создает задачу на перемещение сериала в новую директорию.
     """
     data = request.get_json()
     new_path = data.get('new_path')
@@ -548,47 +653,25 @@ def relocate_series(series_id):
     if not series:
         return jsonify({"success": False, "error": "Сериал не найден"}), 404
 
-    if series['save_path'] == new_path:
-        return jsonify({"success": True, "message": "Новый путь совпадает со старым. Действий не требуется."})
-
+    old_path = series['save_path']
+    if old_path == new_path:
+        return jsonify({"success": True, "message": "Новый путь совпадает со старым."})
+    
     try:
-        # 1. Проверяем, нет ли уже активной задачи, или создаем новую
-        task_id = None
-        # Используем get_pending_renaming_task, так как он ищет по series_id и типу, но нам нужна задача RelocationTask
-        # Исправляем: нужна новая функция для поиска активной задачи на перемещение
-        # Давайте упростим: сначала создаем, а агент уже разберется.
-        
+        # Предварительная проверка возможности перемещения
+        if os.path.exists(old_path) and os.path.exists(os.path.dirname(new_path)):
+             if os.stat(old_path).st_dev != os.stat(os.path.dirname(new_path)).st_dev:
+                return jsonify({"success": False, "error": "Перемещение между разными дисками не поддерживается."}), 400
+
         task_created = app.db.create_relocation_task(series_id, new_path)
         if not task_created:
-                return jsonify({"success": False, "error": "Активная задача на перемещение уже существует."}), 409
+            return jsonify({"success": False, "error": "Активная задача на перемещение уже выполняется для этого сериала."}), 409
         
-        # Получаем только что созданную задачу, чтобы узнать её ID
-        newly_created_task = app.db.get_pending_relocation_task(series_id=series_id) # <-- нужна новая функция get_pending_relocation_task
-        if not newly_created_task:
-            raise Exception("Не удалось получить созданную задачу на перемещение из БД.")
-            
-        task_id = newly_created_task['id']
+        # "Будим" агента для немедленной обработки
         app.scanner_agent.trigger_relocation_check()
-
-        # 2. Входим в цикл ожидания
-        wait_timeout = 600  # 10 минут
-        start_time = time.time()
-        while True:
-            task = app.db.get_relocation_task(task_id)
-            
-            # Задача выполнена (агент удалил её)
-            if not task:
-                return jsonify({"success": True, "message": "Сериал успешно перемещен."})
-            
-            # Задача завершилась с ошибкой
-            if task.get('status') == 'error':
-                 return jsonify({"success": False, "error": f"Ошибка перемещения: {task.get('error_message')}"}), 500
-
-            if time.time() - start_time > wait_timeout:
-                return jsonify({"success": False, "error": "Таймаут ожидания завершения задачи на перемещение."}), 500
-            
-            time.sleep(2) # Пауза между проверками
+        
+        return jsonify({"success": True, "message": "Задача на перемещение принята в обработку."}), 202
 
     except Exception as e:
-        app.logger.error("series_api", f"Ошибка создания/ожидания задачи на перемещение для series_id {series_id}: {e}", exc_info=True)
+        app.logger.error("series_api", f"Ошибка создания задачи на перемещение для series_id {series_id}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500

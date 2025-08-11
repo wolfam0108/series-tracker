@@ -1,10 +1,10 @@
-# Файл: scanner.py
 import os
 import time
 import json
 import hashlib
 from datetime import datetime, timezone
 from flask import current_app as app
+from urllib.parse import urlparse # <-- Добавлен импорт
 
 from auth import AuthManager
 from db import Database
@@ -57,12 +57,10 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
         status_manager.set_status(series_id, 'scanning', True)
 
         try:
-            # --- ЭТАП 1: ЗАПУСК ЗАДАЧИ НА ПЕРЕОБРАБОТКУ ---
+            # --- ЭТАП 1: ЗАПУСК ЗАДАЧИ НА ПЕРЕОБРАБОТКУ (если необходимо) ---
             task_type = 'mass_torrent_reprocess' if series['source_type'] == 'torrent' else 'mass_vk_reprocess'
             task_data = {'series_id': series_id, 'task_type': task_type}
             
-            # Мы используем get_pending_renaming_task для получения ID, если задача уже создана,
-            # но еще не выполнена, на случай сбоя на этапе ожидания.
             task_id = None
             existing_pending_task = flask_app.db.get_pending_renaming_task(series_id, task_type)
             
@@ -79,10 +77,10 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
             
             # --- ЭТАП 2: АКТИВНОЕ ОЖИДАНИЕ ЗАВЕРШЕНИЯ ---
             if task_id:
-                wait_timeout = 600  # 10 минут - максимальное время ожидания
+                wait_timeout = 600
                 start_time = time.time()
                 while True:
-                    time.sleep(3) # Проверяем каждые 3 секунды
+                    time.sleep(3)
                     task = flask_app.db.get_renaming_task(task_id)
                     if not task:
                         flask_app.logger.info("scanner", f"Задача на переобработку ID {task_id} завершена. Продолжение сканирования.")
@@ -93,6 +91,7 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                         raise Exception(f"Таймаут ожидания завершения задачи на переобработку ID {task_id}.")
            
             if series.get('source_type') == 'vk_video':
+                # ... (весь блок для vk_video остается без изменений) ...
                 flask_app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 1 - Сбор кандидатов.")
                 channel_url, query = series['url'].split('|', 1)
                 search_mode = series.get('vk_search_mode', 'search')
@@ -182,12 +181,14 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                 return {"success": True, "message": "Сканирование и планирование для VK-сериала завершены."}
             
             else:
-                # --- ШАГ 1: Создаем ОДИН экземпляр клиента в самом начале ---
+                # --- Логика для торрент-сериалов ---
                 auth_manager = AuthManager(flask_app.db, flask_app.logger)
-                
+                if flask_app.debug_manager.is_debug_enabled('auth'):
+                    flask_app.logger.debug("auth", f"[Scanner] Создан ЕДИНЫЙ AuthManager ID: {id(auth_manager)} для всего сканирования.")
+
                 resolver = TrackerResolver(flask_app.db)
                 tracker_info = resolver.get_tracker_by_url(series['url'])
-                
+
                 if not tracker_info:
                     raise Exception(f"Не удалось определить трекер для URL: {series['url']}")
 
@@ -198,12 +199,11 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                     'AnilibriaTvParser': AnilibriaTvParser,
                     'AstarParser': AstarParser
                 }
-                
+
                 parser_class = parser_classes.get(parser_class_name)
                 if not parser_class:
                     raise Exception(f"Парсер с классом '{parser_class_name}' не найден")
-                
-                # Создаем экземпляр парсера, УЧИТЫВАЯ РАЗНЫЕ АРГУМЕНТЫ
+
                 if parser_class_name == 'KinozalParser':
                     parser = parser_class(auth_manager, flask_app.db, flask_app.logger)
                 else:
@@ -211,7 +211,6 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
 
                 qb_client = QBittorrentClient(auth_manager, flask_app.db, flask_app.logger)
 
-                # --- ШАГ 2: Проверяем 'missing' файлы и создаем задачу для Агента ---
                 files_in_db = flask_app.db.get_torrent_files_for_series(series_id)
                 missing_files = [f for f in files_in_db if f.get('status') == 'missing']
 
@@ -229,7 +228,6 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                         else:
                             flask_app.logger.warning("scanner", f"Не удалось найти торрент в БД по хешу {qb_hash} для создания задачи на recheck.")
                 
-                # --- ШАГ 3: Продолжаем использовать этот же экземпляр для остальной логики ---
                 task_id = None
                 task_data_torrents = []
                 results_data = {}
@@ -242,34 +240,48 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                 else:
                     flask_app.logger.info("scanner", f"Начало сканирования для series_id: {series_id}. Режим отладки: {'ВКЛ' if debug_force_replace else 'ВЫКЛ'}")
                     
-                    site_key = series['site']
-                    if 'anilibria.tv' in site_key:
-                        site_key = 'anilibria.tv'
-                    elif 'anilibria' in site_key or 'aniliberty' in site_key:
-                        site_key = 'anilibria.top'
-                    elif 'kinozal' in site_key:
-                        site_key = 'kinozal.me'
-                    elif 'astar' in site_key:
-                        site_key = 'astar.bz'
-
-                    parsers = {
-                        'kinozal.me': KinozalParser(auth_manager, flask_app.db, flask_app.logger),
-                        'anilibria.top': AnilibriaParser(flask_app.db, flask_app.logger),
-                        'anilibria.tv': AnilibriaTvParser(flask_app.db, flask_app.logger),
-                        'astar.bz': AstarParser(flask_app.db, flask_app.logger)
-                    }
-                    
-                    parser = parsers.get(site_key)
-                    if not parser:
-                        raise Exception(f"Парсер для сайта {series['site']} (ключ: {site_key}) не найден")
-
                     all_db_torrents = flask_app.db.get_torrents(series_id)
                     db_hashes = [t['qb_hash'] for t in all_db_torrents if t.get('qb_hash')]
                     torrents_in_qb = qb_client.get_torrents_info(db_hashes) if db_hashes else []
                     hashes_in_qb = {t['hash'] for t in torrents_in_qb} if torrents_in_qb else set()
                     active_db_torrents = [t for t in all_db_torrents if t.get('qb_hash') in hashes_in_qb]
                     
-                    parsed_data = parser.parse_series(series['url'], last_known_torrents=active_db_torrents, debug_force_replace=debug_force_replace)
+                    # --- НАЧАЛО НОВОЙ ЛОГИКИ ПЕРЕБОРА ЗЕРКАЛ ---
+                    primary_url = series['url']
+                    flask_app.logger.info("scanner", f"Попытка парсинга основного URL: {primary_url}")
+                    
+                    # 1. Сначала пробуем основной URL, сохраненный для сериала
+                    parsed_data = parser.parse_series(primary_url, last_known_torrents=active_db_torrents, debug_force_replace=debug_force_replace)
+                    
+                    # 2. Если парсинг основного URL НЕ удался, пробуем другие зеркала
+                    if parsed_data.get('error'):
+                        flask_app.logger.warning(f"scanner", f"Основной URL не сработал: {parsed_data.get('error')}. Пробуем зеркала...")
+                        
+                        original_parsed_url = urlparse(primary_url)
+                        failed_domain = original_parsed_url.netloc
+                        
+                        # Получаем список всех зеркал и убираем из него то, что уже пробовали
+                        all_mirrors = tracker_info.get('mirrors', [])
+                        fallback_mirrors = [m for m in all_mirrors if m != failed_domain]
+                        
+                        if not fallback_mirrors:
+                            flask_app.logger.warning("scanner", "Других зеркал для переключения не найдено.")
+                        else:
+                            for mirror in fallback_mirrors:
+                                # Собираем новый URL на основе зеркала
+                                new_url = original_parsed_url._replace(netloc=mirror).geturl()
+                                flask_app.logger.info("scanner", f"Попытка парсинга зеркала: {new_url}")
+                                
+                                current_result = parser.parse_series(new_url, last_known_torrents=active_db_torrents, debug_force_replace=debug_force_replace)
+                                
+                                if not current_result.get('error'):
+                                    parsed_data = current_result # Сохраняем успешный результат
+                                    flask_app.logger.info("scanner", f"Зеркало {mirror} успешно распарсено.")
+                                    break # Успех, выходим из цикла по зеркалам
+                                else:
+                                    flask_app.logger.warning("scanner", f"Ошибка парсинга зеркала {mirror}: {current_result.get('error')}")
+
+                    # --- КОНЕЦ НОВОЙ ЛОГИКИ ПЕРЕБОРА ЗЕРКАЛ ---
 
                     if parsed_data.get('error'):
                         raise Exception(f"Ошибка парсера: {parsed_data['error']}")
@@ -305,7 +317,7 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                         active_db_torrents = []
 
                     torrents_to_process = []
-                    site_type = 'fixed' if series['site'].startswith('astar') else 'rolling'
+                    site_type = 'fixed' if 'astar' in tracker_info.get('canonical_name', '') else 'rolling'
                     for site_torrent in site_torrents:
                         existing_active_entry = next((t for t in active_db_torrents if t['torrent_id'] == site_torrent['torrent_id']), None)
                         if existing_active_entry: continue

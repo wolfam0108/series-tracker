@@ -18,6 +18,7 @@ const app = createApp({
       activeSeriesId: null,
       isLoading: true,
       eventSource: null,
+      savingSeriesIds: new Set(),
       
       agentIndicators: {
           monitoring: { color: 'bg-secondary', pulse: false, timeoutId: null },
@@ -55,7 +56,6 @@ const app = createApp({
   computed: {
         seriesWithPills() {
           return this.series.map(s => {
-            // Используем готовый массив английских ключей. Если его нет, парсим state.
             let uniqueStates = s.statuses || s.state.split(',').map(st => st.trim());
             
             const totalCount = uniqueStates.length;
@@ -73,7 +73,6 @@ const app = createApp({
                     });
                 }
                 visibleKeys.forEach(key => {
-                    // Теперь мы напрямую используем ключ для получения названия и иконки
                     pillsToDisplay.push({
                         key: key,
                         title: this.stateConfig[key]?.title || key,
@@ -85,12 +84,20 @@ const app = createApp({
             return {
               ...s,
               pills: pillsToDisplay.reverse(),
-              displayStates: uniqueStates // Теперь здесь английские ключи
+              displayStates: uniqueStates
             };
           });
         }
     },
   methods: {
+    handleSaveStarted(seriesId) {
+        this.savingSeriesIds.add(seriesId);
+    },
+    isSeriesBusy(series) {
+        // Сериал считается занятым, если бэкенд сообщает об этом (флаг is_busy),
+        // ИЛИ если мы только что запустили для него операцию сохранения (ID есть в savingSeriesIds).
+        return series.is_busy || this.savingSeriesIds.has(series.id);
+    },
     _updateIndicatorState(name, isActive) {
         const indicator = this.agentIndicators[name];
         if (!indicator) return;
@@ -123,7 +130,6 @@ const app = createApp({
             this.agentQueue = await response.json();
         } catch (error) { this.showToast(error.message, 'danger'); }
     },
-
     async loadDownloadQueue() {
         try {
             const response = await fetch('/api/downloads/queue');
@@ -131,7 +137,6 @@ const app = createApp({
             this.downloadQueue = await response.json();
         } catch (error) { this.showToast(error.message, 'danger'); }
     },
-
     connectEventSource() {
         if (this.eventSource) this.eventSource.close();
         this.eventSource = new EventSource('/api/stream');
@@ -145,15 +150,39 @@ const app = createApp({
             this.agentQueue = JSON.parse(event.data);
         });
 
-        // ---> НАЧАЛО ИЗМЕНЕНИЙ В ЛОГИКЕ ИНДИКАТОРОВ <---
+        this.eventSource.addEventListener('relocation_started', (event) => {
+            const data = JSON.parse(event.data);
+            const series = this.series.find(s => s.id === data.series_id);
+            if (series) {
+                series.is_busy = true;
+            }
+        });
+
+        this.eventSource.addEventListener('relocation_finished', (event) => {
+            const data = JSON.parse(event.data);
+            this.loadInitialSeries();
+            this.showToast(data.message, data.success ? 'success' : 'danger');
+            if (this.$refs.statusModal && this.$refs.statusModal.seriesId === data.series_id) {
+                this.$refs.statusModal.loadSeriesData();
+            }
+        });
+
+        this.eventSource.addEventListener('renaming_complete', (event) => {
+            const data = JSON.parse(event.data);
+            this.loadInitialSeries();
+            if (this.$refs.statusModal && this.$refs.statusModal.seriesId === data.series_id) {
+                this.$refs.statusModal.onRenamingComplete();
+                this.$refs.statusModal.loadSeriesData();
+            }
+        });
 
         this.eventSource.addEventListener('download_queue_update', (event) => {
             this.downloadQueue = JSON.parse(event.data);
             const indicator = this.agentIndicators.downloader;
             const isActive = this.downloadQueue.length > 0;
             
-            clearTimeout(indicator.timeoutId); // Отменяем любой таймер от heartbeat
-            indicator.color = isActive ? 'bg-primary' : 'bg-secondary'; // Синий, если активен
+            clearTimeout(indicator.timeoutId);
+            indicator.color = isActive ? 'bg-primary' : 'bg-secondary';
             indicator.pulse = isActive;
         });
         
@@ -162,8 +191,8 @@ const app = createApp({
             const indicator = this.agentIndicators.slicing;
             const isActive = this.slicingQueue.length > 0;
 
-            clearTimeout(indicator.timeoutId); // Отменяем любой таймер от heartbeat
-            indicator.color = isActive ? 'bg-primary' : 'bg-secondary'; // Синий, если активен
+            clearTimeout(indicator.timeoutId);
+            indicator.color = isActive ? 'bg-primary' : 'bg-secondary';
             indicator.pulse = isActive;
         });
         
@@ -184,16 +213,15 @@ const app = createApp({
         
         this.eventSource.addEventListener('agent_heartbeat', (event) => {
             const data = JSON.parse(event.data);
-            const indicatorName = data.name === 'torrents' ? 'monitoring' : data.name; // 'torrents' это тоже 'monitoring'
+            const indicatorName = data.name === 'torrents' ? 'monitoring' : data.name;
             const indicator = this.agentIndicators[indicatorName];
             if (!indicator) return;
 
-            // Если индикатор уже горит синим (активная работа), не перебиваем его зеленым heartbeat'ом
             if (indicator.color === 'bg-primary') return;
 
             clearTimeout(indicator.timeoutId);
             
-            let pulseColor = 'bg-success'; // Зеленый для heartbeat по умолчанию
+            let pulseColor = 'bg-success';
             if (indicatorName === 'monitoring') {
                  if (data.activity === 'qbit_check') pulseColor = 'bg-success';
                  else if (data.activity === 'file_verify') pulseColor = 'bg-info';
@@ -203,7 +231,6 @@ const app = createApp({
             indicator.pulse = true;
             
             indicator.timeoutId = setTimeout(() => {
-                // Возвращаемся к базовому состоянию (серому или синему, если идет скан)
                 if (indicatorName === 'monitoring' && (this.scannerStatus.is_scanning || this.scannerStatus.is_awaiting_tasks)) {
                     indicator.color = 'bg-primary';
                     indicator.pulse = true;
@@ -224,6 +251,10 @@ const app = createApp({
             const index = this.series.findIndex(s => s.id === updatedSeries.id);
             if (index !== -1) {
                 Object.assign(this.series[index], updatedSeries);
+                // Если обновление говорит, что сериал больше не занят, убираем его из нашего временного набора.
+                if (!updatedSeries.is_busy) {
+                    this.savingSeriesIds.delete(updatedSeries.id); // <--- ДОБАВЬТЕ ЭТУ СТРОКУ
+                }
             }
         });
         this.eventSource.addEventListener('series_deleted', (event) => {
@@ -235,19 +266,8 @@ const app = createApp({
                 this.showToast(`Удален сериал: ${seriesName}`, 'warning');
             }
         });
-        this.eventSource.addEventListener('renaming_complete', (event) => {
-            const data = JSON.parse(event.data);
-            // Если модальное окно статуса открыто и ID совпадает, вызываем его метод
-            if (this.$refs.statusModal && this.$refs.statusModal.seriesId === data.series_id) {
-                this.$refs.statusModal.onRenamingComplete();
-            }
-        });
     },
-    isSeriesBusy(series) {
-        const busyStates = ['scanning', 'metadata', 'renaming', 'checking', 'activation'];
-        if (!series || !series.displayStates) return false;
-        return series.displayStates.some(state => busyStates.includes(state));
-    },
+    
     getLayerStyle(series, layerName) {
         const activeLayers = this.layerHierarchy.filter(l => series.displayStates.includes(l));
         const visibleCount = activeLayers.length;
@@ -261,6 +281,7 @@ const app = createApp({
         }
         return style;
     },
+
     getAnimationClass(series) {
         const states = series.displayStates;
         const hasReady = states.includes('ready');
@@ -277,30 +298,25 @@ const app = createApp({
 
         return 'stripes-normal';
     },
+
     async openStatusModal(id) {
         this.activeSeriesId = id;
         try {
-            // 1. Устанавливаем статус 'viewing' при открытии
             await this.setSeriesState(id, ['viewing']);
 
-            // 2. Запускаем "пульс" каждые 30 секунд
             this.viewingHeartbeatInterval = setInterval(() => {
                 fetch(`/api/series/${id}/viewing_heartbeat`, { method: 'POST' });
             }, 30000);
 
-            // 3. Открываем модальное окно
             const modalComponent = this.$refs.statusModal;
             if (modalComponent) {
                 modalComponent.open(id);
                 const modalEl = modalComponent.$refs.statusModal;
 
-                // 4. Навешиваем событие на ЗАКРЫТИЕ окна
                 modalEl.addEventListener('hidden.bs.modal', async () => {
-                    // Останавливаем "пульс"
                     clearInterval(this.viewingHeartbeatInterval);
                     this.viewingHeartbeatInterval = null;
                     
-                    // Снимаем статус 'viewing'
                     await this.setSeriesState(id, []);
                     
                     this.activeSeriesId = null;
@@ -314,19 +330,22 @@ const app = createApp({
             }
         }
     },
+
     openAddModal() {
       this.activeSeriesId = null;
       this.$refs.addModal.open();
     },
+
     openSettingsModal() {
         this.$refs.settingsModal.open();
     },
+
     openLogsModal() {
         this.$refs.logsModal.open();
     },
+
     async setSeriesState(id, state) {
         try {
-            // Теперь мы просто отправляем массив напрямую, без преобразований
             const response = await fetch(`/api/series/${id}/state`, {
                 method: 'POST',
                 headers: { 'Content-Type': 'application/json' },
@@ -335,6 +354,7 @@ const app = createApp({
             if (!response.ok) throw new Error('Ошибка обновления статуса');
         } catch (error) { this.showToast(error.message, 'danger'); }
     },
+
     async scanSeries(id) {
         this.activeSeriesId = id;
         try {
@@ -356,20 +376,27 @@ const app = createApp({
             this.showToast(error.message, 'danger');
         } finally { this.activeSeriesId = null; }
     },
+
     async deleteSeries(id) {
         const seriesToDelete = this.series.find(s => s.id === id);
         if (!seriesToDelete) return;
         
         try {
+            let checkboxConfig = null;
+
+            if (seriesToDelete.source_type === 'torrent') {
+                checkboxConfig = {
+                    text: 'Удалить также записи из qBittorrent (файлы на диске останутся)',
+                    checked: true
+                };
+            }
+
             const result = await this.$refs.confirmationModal.open(
                 'Удаление сериала', 
                 `Вы уверены, что хотите удалить сериал <strong>${seriesToDelete.name}</strong>?`,
-                {
-                    text: 'Удалить также записи из qBittorrent (файлы на диске останутся)',
-                    checked: true
-                }
+                checkboxConfig
             );
-
+            
             if (result.confirmed) {
                 const deleteFromQb = result.checkboxState;
                 const response = await fetch(`/api/series/${id}?delete_from_qb=${deleteFromQb}`, { method: 'DELETE' });
@@ -386,6 +413,7 @@ const app = createApp({
             }
         }
     },
+
     async toggleAutoScan(id, enabled) {
         try {
             const response = await fetch(`/api/series/${id}/toggle_auto_scan`, {
@@ -401,11 +429,13 @@ const app = createApp({
             if (seriesItem) seriesItem.auto_scan_enabled = !enabled;
         }
     },
+
     formatScanTime(isoString) {
         if (!isoString) return 'Никогда';
         const date = new Date(isoString.endsWith('Z') ? isoString : isoString + 'Z');
         return date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
     },
+    
     showToast(message, type = 'success') {
       this.toastMessage = message;
       const toastEl = document.getElementById('saveToast');
@@ -417,22 +447,34 @@ const app = createApp({
   watch: {
     'agentIndicators': {
       handler(newIndicators) {
+        // Карта для сопоставления имени класса Bootstrap с реальным цветом
+        const colorMap = {
+            'secondary': '#6c757d',
+            'success': '#198754',
+            'primary': '#0d6efd',
+            'info': '#0dcaf0'
+        };
+
         const monitorEl = document.getElementById('indicator-monitoring');
         if (monitorEl) {
           monitorEl.className = newIndicators.monitoring.pulse ? 'indicator-pulse' : '';
-          monitorEl.style.backgroundColor = `var(--bs-${newIndicators.monitoring.color.replace('bg-', '')})`;
+          // Устанавливаем цвет напрямую из нашей карты
+          const colorKey = newIndicators.monitoring.color.replace('bg-', '');
+          monitorEl.style.backgroundColor = colorMap[colorKey] || colorMap['secondary'];
         }
         
         const downloaderEl = document.getElementById('indicator-downloader');
         if (downloaderEl) {
           downloaderEl.className = newIndicators.downloader.pulse ? 'indicator-pulse' : '';
-          downloaderEl.style.backgroundColor = `var(--bs-${newIndicators.downloader.color.replace('bg-', '')})`;
+          const colorKey = newIndicators.downloader.color.replace('bg-', '');
+          downloaderEl.style.backgroundColor = colorMap[colorKey] || colorMap['secondary'];
         }
         
         const slicerEl = document.getElementById('indicator-slicing');
         if (slicerEl) {
           slicerEl.className = newIndicators.slicing.pulse ? 'indicator-pulse' : '';
-          slicerEl.style.backgroundColor = `var(--bs-${newIndicators.slicing.color.replace('bg-', '')})`;
+          const colorKey = newIndicators.slicing.color.replace('bg-', '');
+          slicerEl.style.backgroundColor = colorMap[colorKey] || colorMap['secondary'];
         }
       },
       deep: true
