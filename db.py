@@ -1629,3 +1629,28 @@ class Database:
             tasks = query.order_by(RenamingTask.created_at).all()
             return [{c.name: getattr(task, c.name) for c in task.__table__.columns} for task in tasks]
 
+    def get_renaming_task(self, task_id: int) -> Optional[Dict[str, Any]]:
+        """Возвращает одну задачу на переименование по ее ID."""
+        with self.Session() as session:
+            task = session.query(RenamingTask).filter_by(id=task_id).first()
+            if not task:
+                return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}
+        
+    def get_pending_renaming_task(self, series_id: int = None, task_type: str = None) -> Optional[Dict[str, Any]]:
+        """
+        Извлекает одну ожидающую задачу на переименование.
+        Если указаны series_id и task_type, ищет конкретную задачу для этого сериала.
+        Иначе, возвращает первую задачу в общей очереди.
+        """
+        with self.Session() as session:
+            query = session.query(RenamingTask).filter(RenamingTask.status.in_(['pending', 'in_progress']))
+            
+            if series_id and task_type:
+                query = query.filter_by(series_id=series_id, task_type=task_type)
+            
+            task = query.order_by(RenamingTask.created_at).first()
+            
+            if not task:
+                return None
+            return {c.name: getattr(task, c.name) for c in task.__table__.columns}

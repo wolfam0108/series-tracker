@@ -13,6 +13,7 @@ from datetime import datetime, timezone
 from status_manager import StatusManager
 from rule_engine import RuleEngine
 from filename_formatter import FilenameFormatter
+from logic.renaming_processor import process_and_rename_torrent_files
 
 class Agent(threading.Thread):
     def __init__(self, app: Flask, logger: Logger, db: Database, broadcaster: ServerSentEvent, status_manager: StatusManager):
@@ -141,9 +142,12 @@ class Agent(threading.Thread):
                     self.qb_client.pause_torrents([torrent_hash])
 
             elif stage == 'renaming':
-                # Сложное переименование теперь обрабатывается RenamingAgent'ом через задачу,
-                # которую создает сканер. Эта стадия теперь является простым переходом.
-                self.logger.info("agent", f"[{torrent_hash[:8]}] Этап 'renaming' завершен. Переход к 'rechecking'.")
+                self.logger.info("agent", f"[{torrent_hash[:8]}] Запуск централизованной функции переименования.")
+
+                # Вызываем нашу новую единую функцию
+                process_and_rename_torrent_files(self.app, task['series_id'], torrent_hash)
+
+                self.logger.info("agent", f"[{torrent_hash[:8]}] Переименование завершено. Переход к 'rechecking'.")
                 next_stage = 'rechecking'
 
             elif stage == 'rechecking':

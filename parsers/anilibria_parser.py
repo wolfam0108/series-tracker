@@ -52,13 +52,13 @@ class AnilibriaParser:
             # 4. Делаем его "осведомленным", сказав, что это время в UTC
             dt_utc = dt_naive.replace(tzinfo=utc_tz)
 
-            # 5. Конвертируем время из UTC в локальный часовой пояс сервера
-            dt_local = dt_utc.astimezone(local_tz)
-            
-            final_str = dt_local.strftime('%d.%m.%Y %H:%M:%S')
+            # 5. НЕ КОНВЕРТИРУЕМ в локальное время. Работаем только с UTC.
+            #    Форматируем строку напрямую из объекта UTC.
+            final_str = dt_utc.strftime('%d.%m.%Y %H:%M:%S')
 
             if app.debug_manager.is_debug_enabled('anilibria_parser_debug'):
-                self.logger.debug("anilibria_parser_debug", f"PARSED UTC: {dt_utc}, CONVERTED TO LOCAL ({local_tz}): {dt_local}, FINAL STRING: '{final_str}'")
+                # Обновим лог для ясности
+                self.logger.debug("anilibria_parser_debug", f"PARSED UTC: {dt_utc}, FINAL UTC STRING: '{final_str}'")
 
             return final_str
 

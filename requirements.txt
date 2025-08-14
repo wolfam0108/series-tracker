@@ -1,17 +1,9 @@
-# Flask and extensions
-Flask
-Flask-Cors
-
-# Database
-SQLAlchemy
-
-# HTTP Requests
-requests
-cloudscraper
-
-# HTML Parsing
-beautifulsoup4
-lxml
-
-# Browser Automation for astar.bz parser
-playwright
+beautifulsoup4==4.12.3
+cloudscraper==1.2.71
+Flask==3.0.3
+Flask-Cors==5.0.0
+lxml==6.0.0
+playwright==1.52.0
+requests==2.32.3
+SQLAlchemy==2.0.35
+gunicorn==22.0.0

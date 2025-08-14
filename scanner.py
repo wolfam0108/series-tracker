@@ -4,7 +4,7 @@ import json
 import hashlib
 from datetime import datetime, timezone
 from flask import current_app as app
-from urllib.parse import urlparse # <-- Добавлен импорт
+from urllib.parse import urlparse
 
 from auth import AuthManager
 from db import Database
@@ -71,9 +71,10 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                 task_created = flask_app.db.create_renaming_task(task_data)
                 if task_created:
                     newly_created_task = flask_app.db.get_pending_renaming_task(series_id, task_type)
-                    task_id = newly_created_task['id']
-                    flask_app.logger.info("scanner", f"Создана задача на переобработку ID {task_id} перед сканированием.")
-                    flask_app.renaming_agent.trigger()
+                    if newly_created_task:
+                        task_id = newly_created_task['id']
+                        flask_app.logger.info("scanner", f"Создана задача на переобработку ID {task_id} перед сканированием.")
+                        flask_app.renaming_agent.trigger()
             
             # --- ЭТАП 2: АКТИВНОЕ ОЖИДАНИЕ ЗАВЕРШЕНИЯ ---
             if task_id:
@@ -90,8 +91,8 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                     if time.time() - start_time > wait_timeout:
                         raise Exception(f"Таймаут ожидания завершения задачи на переобработку ID {task_id}.")
            
+            # --- ЭТАП 3: ОСНОВНАЯ ЛОГИКА СКАНИРОВАНИЯ ---
             if series.get('source_type') == 'vk_video':
-                # ... (весь блок для vk_video остается без изменений) ...
                 flask_app.logger.info("scanner", f"VK-Сериал ID {series_id}: Этап 1 - Сбор кандидатов.")
                 channel_url, query = series['url'].split('|', 1)
                 search_mode = series.get('vk_search_mode', 'search')
@@ -181,7 +182,6 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                 return {"success": True, "message": "Сканирование и планирование для VK-сериала завершены."}
             
             else:
-                # --- Логика для торрент-сериалов ---
                 auth_manager = AuthManager(flask_app.db, flask_app.logger)
                 if flask_app.debug_manager.is_debug_enabled('auth'):
                     flask_app.logger.debug("auth", f"[Scanner] Создан ЕДИНЫЙ AuthManager ID: {id(auth_manager)} для всего сканирования.")
@@ -246,21 +246,17 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                     hashes_in_qb = {t['hash'] for t in torrents_in_qb} if torrents_in_qb else set()
                     active_db_torrents = [t for t in all_db_torrents if t.get('qb_hash') in hashes_in_qb]
                     
-                    # --- НАЧАЛО НОВОЙ ЛОГИКИ ПЕРЕБОРА ЗЕРКАЛ ---
                     primary_url = series['url']
                     flask_app.logger.info("scanner", f"Попытка парсинга основного URL: {primary_url}")
                     
-                    # 1. Сначала пробуем основной URL, сохраненный для сериала
                     parsed_data = parser.parse_series(primary_url, last_known_torrents=active_db_torrents, debug_force_replace=debug_force_replace)
                     
-                    # 2. Если парсинг основного URL НЕ удался, пробуем другие зеркала
                     if parsed_data.get('error'):
                         flask_app.logger.warning(f"scanner", f"Основной URL не сработал: {parsed_data.get('error')}. Пробуем зеркала...")
                         
                         original_parsed_url = urlparse(primary_url)
                         failed_domain = original_parsed_url.netloc
                         
-                        # Получаем список всех зеркал и убираем из него то, что уже пробовали
                         all_mirrors = tracker_info.get('mirrors', [])
                         fallback_mirrors = [m for m in all_mirrors if m != failed_domain]
                         
@@ -268,20 +264,17 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                             flask_app.logger.warning("scanner", "Других зеркал для переключения не найдено.")
                         else:
                             for mirror in fallback_mirrors:
-                                # Собираем новый URL на основе зеркала
                                 new_url = original_parsed_url._replace(netloc=mirror).geturl()
                                 flask_app.logger.info("scanner", f"Попытка парсинга зеркала: {new_url}")
                                 
                                 current_result = parser.parse_series(new_url, last_known_torrents=active_db_torrents, debug_force_replace=debug_force_replace)
                                 
                                 if not current_result.get('error'):
-                                    parsed_data = current_result # Сохраняем успешный результат
+                                    parsed_data = current_result
                                     flask_app.logger.info("scanner", f"Зеркало {mirror} успешно распарсено.")
-                                    break # Успех, выходим из цикла по зеркалам
+                                    break
                                 else:
                                     flask_app.logger.warning("scanner", f"Ошибка парсинга зеркала {mirror}: {current_result.get('error')}")
-
-                    # --- КОНЕЦ НОВОЙ ЛОГИКИ ПЕРЕБОРА ЗЕРКАЛ ---
 
                     if parsed_data.get('error'):
                         raise Exception(f"Ошибка парсера: {parsed_data['error']}")

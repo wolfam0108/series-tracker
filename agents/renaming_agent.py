@@ -10,6 +10,7 @@ from logic.metadata_processor import build_final_metadata
 from auth import AuthManager
 from qbittorrent import QBittorrentClient
 from rule_engine import RuleEngine
+from logic.renaming_processor import process_and_rename_torrent_files
 
 class RenamingAgent(threading.Thread):
     def __init__(self, app: Flask, logger: Logger, db: Database):
@@ -188,8 +189,8 @@ class RenamingAgent(threading.Thread):
 
     def _process_mass_torrent_task(self, task):
         """
-        Обрабатывает пакетную задачу на переобработку и переименование
-        всех файлов торрент-сериала.
+        Обрабатывает пакетную задачу на переобработку, вызывая централизованную функцию
+        для каждого активного торрента.
         """
         series_id = task['series_id']
         with self.app.app_context():
@@ -199,63 +200,12 @@ class RenamingAgent(threading.Thread):
                 return
 
             self.logger.info("renaming_agent", f"Запуск переобработки файлов для series_id: {series_id}")
-            
-            engine = RuleEngine(self.db, self.logger)
-            formatter = FilenameFormatter(self.logger)
-            auth_manager = AuthManager(self.db, self.logger)
-            qb_client = QBittorrentClient(auth_manager, self.db, self.logger)
-            profile_id = series.get('parser_profile_id')
 
             active_torrents = self.db.get_torrents(series_id, is_active=True)
             for torrent_db_entry in active_torrents:
                 qb_hash = torrent_db_entry.get('qb_hash')
-                if not qb_hash: continue
+                if not qb_hash:
+                    continue
 
-                self.logger.info("renaming_agent", f"Обработка торрента {qb_hash[:8]}...")
-                
-                files_in_qbit = qb_client.get_torrent_files_by_hash(qb_hash)
-                if not files_in_qbit: continue
-                
-                files_in_db_map = {f['original_path']: f for f in self.db.get_torrent_files_for_torrent(torrent_db_entry['id'])}
-
-                files_to_update_in_db = []
-                video_extensions = ['.mkv', '.avi', '.mp4', '.mov', '.wmv', '.webm']
-
-                for current_path in files_in_qbit:
-                    if not any(current_path.lower().endswith(ext) for ext in video_extensions):
-                        continue
-
-                    db_record = next((r for r in files_in_db_map.values() if (r.get('renamed_path') or r['original_path']) == current_path), None)
-                    original_path = db_record['original_path'] if db_record else current_path
-                    
-                    basename_for_rules = os.path.basename(original_path)
-                    processed_result = engine.process_videos(profile_id, [{'title': basename_for_rules}])[0]
-                    extracted_data = processed_result.get('result', {}).get('extracted', {})
-
-                    final_renamed_path = None
-                    file_status = 'skipped'
-
-                    has_episode = extracted_data.get('episode') is not None or extracted_data.get('start') is not None
-                    if has_episode:
-                        target_new_path = formatter.format_filename(series, extracted_data, original_path)
-                        
-                        if current_path == target_new_path:
-                            file_status = 'renamed'
-                            final_renamed_path = current_path
-                        else:
-                            success = qb_client.rename_file(qb_hash, current_path, target_new_path)
-                            if success:
-                                file_status = 'renamed'
-                                final_renamed_path = target_new_path
-                            else:
-                                file_status = 'rename_error'
-                    
-                    files_to_update_in_db.append({
-                        "original_path": original_path,
-                        "renamed_path": final_renamed_path,
-                        "status": file_status,
-                        "extracted_metadata": json.dumps(extracted_data)
-                    })
-
-                if files_to_update_in_db:
-                    self.db.add_or_update_torrent_files(torrent_db_entry['id'], files_to_update_in_db)
+                # Вызываем нашу новую единую функцию для каждого торрента
+                process_and_rename_torrent_files(self.app, series_id, qb_hash)
