@@ -154,7 +154,7 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                 formatter = FilenameFormatter(flask_app.logger)
 
                 for item in planned_items:
-                    if item['status'] == 'pending':
+                    if item['status'] == 'pending' and not item.get('is_ignored_by_user'):
                         if flask_app.db.get_download_task_by_uid(item['unique_id']):
                             continue
 
