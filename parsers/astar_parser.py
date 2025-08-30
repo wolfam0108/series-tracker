@@ -128,6 +128,7 @@ class AstarParser:
                 date_text = re.sub(r'\s+', ' ', div.text.strip())
                 date_match = re.search(r'Дата: (\d{2}-\d{2}-\d{4})', date_text)
                 if date_match:
+                    self.logger.info("RAW_DATE_DEBUG", f"[Astar] Raw date string found: '{date_match.group(1)}'")
                     date_time = self._normalize_date(date_match.group(1))
                     break
             

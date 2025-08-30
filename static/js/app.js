@@ -432,8 +432,16 @@ const app = createApp({
 
     formatScanTime(isoString) {
         if (!isoString) return 'Никогда';
-        const date = new Date(isoString.endsWith('Z') ? isoString : isoString + 'Z');
-        return date.toLocaleString('ru-RU', { day: '2-digit', month: '2-digit', year: 'numeric', hour: '2-digit', minute: '2-digit' });
+        // new Date() в браузере автоматически парсит ISO строку и конвертирует в локальное время
+        const date = new Date(isoString);
+        // toLocaleString() отображает дату в формате, привычном для региона пользователя
+        return date.toLocaleString('ru-RU', { 
+            day: '2-digit', 
+            month: '2-digit', 
+            year: 'numeric', 
+            hour: '2-digit', 
+            minute: '2-digit' 
+        });
     },
     
     showToast(message, type = 'success') {

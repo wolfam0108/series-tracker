@@ -256,26 +256,23 @@ class Agent(threading.Thread):
         self._broadcast_queue_update()
 
     def _recover_scan_tasks_from_db(self):
-        self.logger.info("agent", "Запуск восстановления незавершенных ЗАДАЧ СКАНИРОВАНИЯ из БД.")
+        self.logger.info("agent", "Запуск проверки незавершенных ЗАДАЧ СКАНИРОВАНИЯ из БД.")
         incomplete_scans = self.db.get_incomplete_scan_tasks()
+
         if not incomplete_scans:
             self.logger.info("agent", "Незавершенных задач сканирования не найдено.")
             return
-        
-        self.logger.warning("agent", f"Найдено {len(incomplete_scans)} незавершенных задач сканирования. Запуск восстановления...")
+
+        # --- НОВАЯ ЛОГИКА ---
+        # Вместо восстановления, мы просто удаляем устаревшие задачи,
+        # чтобы избежать бесконечных циклов при ошибках.
+        self.logger.warning("agent", f"Найдено {len(incomplete_scans)} незавершенных (устаревших) задач сканирования. Очистка...")
         for task in incomplete_scans:
             try:
-                self.logger.info("agent", f"Восстановление ScanTask ID: {task['id']} для Series ID: {task['series_id']}")
-                with self.app.app_context():
-                    perform_series_scan(
-                        series_id=task['series_id'],
-                        status_manager=self.status_manager,
-                        flask_app=self.app, 
-                        recovery_mode=True,
-                        existing_task=task
-                    )
+                self.db.delete_scan_task(task['id'])
+                self.logger.info("agent", f"Удалена устаревшая задача сканирования ID: {task['id']} для Series ID: {task['series_id']}")
             except Exception as e:
-                self.logger.error("agent", f"Критическая ошибка при восстановлении ScanTask ID {task['id']}: {e}", exc_info=True)
+                self.logger.error("agent", f"Не удалось удалить задачу сканирования ID {task['id']}: {e}", exc_info=True)
 
     def _recover_tasks(self, qb_client):
         self.logger.info("agent", "--- НАЧАЛО ПРОЦЕДУРЫ ВОССТАНОВЛЕНИЯ ---")

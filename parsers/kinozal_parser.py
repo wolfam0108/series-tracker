@@ -121,6 +121,7 @@ class KinozalParser:
                         date_span = li_tag.find('span', class_='floatright')
                         if date_span:
                             date_str = date_span.get_text(strip=True)
+                            self.logger.info("RAW_DATE_DEBUG", f"[Kinozal] Raw date string found: '{date_str}'")
                             date_text = self._normalize_date(date_str)
                             break
                 

@@ -22,22 +22,18 @@ class AnilibriaParser:
 
     def _normalize_date_from_anilibria(self, date_str: str) -> Optional[str]:
         """
-        Нормализует строку с датой от Anilibria (которая приходит в UTC)
-        и конвертирует ее в ЛОКАЛЬНОЕ время сервера.
+        Нормализует строку с датой от Anilibria и возвращает ее
+        в стандартном формате ISO 8601 (UTC).
         """
         try:
-            if app.debug_manager.is_debug_enabled('anilibria_parser_debug'):
-                self.logger.debug("anilibria_parser_debug", f"RAW DATE STRING RECEIVED: '{date_str}'")
-
-            # 1. Определяем часовые пояса: UTC и локальный часовой пояс сервера
+            # 1. Определяем часовой пояс UTC
             utc_tz = timezone.utc
-            local_tz = datetime.now().astimezone().tzinfo
 
             # 2. Ручной разбор строки
             match = re.match(r'(\d{1,2})/(\d{1,2})/(\d{4}),?\s*(\d{1,2}):(\d{2}):(\d{2})\s*(AM|PM)', date_str, re.IGNORECASE)
             if not match:
                 raise ValueError(f"Формат даты '{date_str}' не соответствует 'm/d/yyyy, h:mm:ss am/pm'")
-            
+
             month, day, year, hour, minute, second, am_pm = match.groups()
             month, day, year, hour, minute, second = map(int, [month, day, year, hour, minute, second])
 
@@ -45,22 +41,20 @@ class AnilibriaParser:
                 hour += 12
             elif am_pm.upper() == 'AM' and hour == 12:
                 hour = 0
-                
+
             # 3. Создаем "наивный" объект datetime
             dt_naive = datetime(year, month, day, hour, minute, second)
 
             # 4. Делаем его "осведомленным", сказав, что это время в UTC
             dt_utc = dt_naive.replace(tzinfo=utc_tz)
 
-            # 5. НЕ КОНВЕРТИРУЕМ в локальное время. Работаем только с UTC.
-            #    Форматируем строку напрямую из объекта UTC.
-            final_str = dt_utc.strftime('%d.%m.%Y %H:%M:%S')
+            # 5. Форматируем в строку ISO 8601 с указателем 'Z' (Zulu time / UTC)
+            final_iso_string = dt_utc.isoformat().replace('+00:00', 'Z')
 
             if app.debug_manager.is_debug_enabled('anilibria_parser_debug'):
-                # Обновим лог для ясности
-                self.logger.debug("anilibria_parser_debug", f"PARSED UTC: {dt_utc}, FINAL UTC STRING: '{final_str}'")
+                self.logger.debug("anilibria_parser_debug", f"RAW: '{date_str}' -> PARSED UTC: {dt_utc} -> FINAL ISO STRING: '{final_iso_string}'")
 
-            return final_str
+            return final_iso_string
 
         except Exception as e:
             self.logger.error(f"anilibria_parser - КРИТИЧЕСКАЯ ошибка нормализации даты '{date_str}': {e}")
@@ -151,6 +145,7 @@ class AnilibriaParser:
                 parts = [p.strip() for p in info_string.split('•')]
                 
                 date_raw = parts[0]
+                self.logger.info("RAW_DATE_DEBUG", f"[Anilibria] Raw date string found: '{date_raw}'")
                 formatted_datetime = self._normalize_date_from_anilibria(date_raw)
                 quality = " • ".join(parts[1:]) if len(parts) > 1 else None
 

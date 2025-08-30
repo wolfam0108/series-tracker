@@ -129,6 +129,8 @@ class AnilibriaTvParser:
 
             date_td = row.find('td', class_='torrent-datetime')
             date_iso = date_td['data-datetime'] if date_td and date_td.has_attr('data-datetime') else None
+            if date_iso:
+                self.logger.info("RAW_DATE_DEBUG", f"[Anilibria.TV] Raw date string found: '{date_iso}'")
             date_time = self._normalize_date(date_iso) if date_iso else None
 
             temp_torrent_id = generate_anilibria_tv_torrent_id(link, date_time)
