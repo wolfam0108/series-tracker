@@ -1,6 +1,7 @@
 from typing import Optional, Dict
 import requests
-import cloudscraper 
+import cloudscraper
+import time
 from db import Database
 from logger import Logger
 from dataclasses import dataclass
@@ -29,7 +30,11 @@ class AuthManager:
     def get_kinozal_session(self, url: str) -> Optional[requests.Session]:
         """
         Получает или создает и КЭШИРУЕТ валидную сессию для Kinozal.
+        Теперь с циклом повторных попыток при авторизации.
         """
+        MAX_LOGIN_RETRIES = 5
+        RETRY_LOGIN_DELAY = 5
+
         if app.debug_manager.is_debug_enabled('auth'):
             self.logger.debug("auth", f"[get_kinozal_session] Вызван для URL {url} из AuthManager ID: {id(self)}")
 
@@ -51,27 +56,42 @@ class AuthManager:
         credentials = self.db.get_auth("kinozal")
         if not credentials: return None
 
-        try:
-            session = requests.Session()
-            login_url = f"{base_url}/takelogin.php"
-            response = session.post(login_url, data={"username": credentials["username"], "password": credentials["password"], "returnto": ""}, headers={"User-Agent": "Mozilla/5.0"}, timeout=10)
-            response.raise_for_status()
-            if "takelogin.php" in response.url:
-                self.logger.error("auth", f"Не удалось авторизоваться на {domain}. Проверьте логин/пароль.")
-                return None
-            
-            self.logger.info("auth", f"Успешная авторизация на {domain} для скачивания.")
-            if app.debug_manager.is_debug_enabled('auth'):
-                self.logger.debug("auth", f"[ОТЛАДКА] Cookies ПОСЛЕ ЛОГИНА: {session.cookies.get_dict()}")
-
-            self.kinozal_sessions[domain] = session
-            if app.debug_manager.is_debug_enabled('auth'):
-                self.logger.debug("auth", f"Сессия ID: {id(session)} сохранена в кэш для домена {domain}")
+        # --- НАЧАЛО ИЗМЕНЕНИЙ: Добавлен цикл повторных попыток ---
+        for attempt in range(MAX_LOGIN_RETRIES):
+            try:
+                session = requests.Session()
+                login_url = f"{base_url}/takelogin.php"
+                self.logger.info("auth", f"Попытка авторизации на {domain} (попытка {attempt + 1}/{MAX_LOGIN_RETRIES})...")
                 
-            return session
-        except requests.RequestException as e:
-            self.logger.error("auth", f"Ошибка авторизации на {domain}: {str(e)}", exc_info=e)
-            return None
+                response = session.post(
+                    login_url, 
+                    data={"username": credentials["username"], "password": credentials["password"], "returnto": ""}, 
+                    headers={"User-Agent": "Mozilla/5.0"}, 
+                    timeout=15 # Немного увеличим таймаут для самого запроса
+                )
+                response.raise_for_status()
+                
+                if "takelogin.php" in response.url:
+                    self.logger.error("auth", f"Не удалось авторизоваться на {domain}. Проверьте логин/пароль.")
+                    return None # Ошибка в данных, нет смысла повторять
+                
+                self.logger.info("auth", f"Успешная авторизация на {domain} для скачивания.")
+                if app.debug_manager.is_debug_enabled('auth'):
+                    self.logger.debug("auth", f"[ОТЛАДКА] Cookies ПОСЛЕ ЛОГИНА: {session.cookies.get_dict()}")
+
+                self.kinozal_sessions[domain] = session
+                return session
+
+            except requests.RequestException as e:
+                self.logger.error("auth", f"Ошибка авторизации на {domain} (попытка {attempt + 1}): {str(e)}")
+                if attempt < MAX_LOGIN_RETRIES - 1:
+                    time.sleep(RETRY_LOGIN_DELAY)
+                else:
+                    self.logger.error("auth", f"Не удалось авторизоваться на {domain} после {MAX_LOGIN_RETRIES} попыток.")
+                    return None
+        # --- КОНЕЦ ИЗМЕНЕНИЙ ---
+        
+        return None # На всякий случай, если цикл завершится без возврата
         
     def get_scraper(self) -> cloudscraper.CloudScraper:
         if self.scraper is None:

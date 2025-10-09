@@ -11,7 +11,7 @@ from typing import List, Dict, Optional, Any
 
 from models import (
     Base, Auth, Series, SeriesStatus,
-    Torrent, Setting, Log, AgentTask, ScanTask,
+    Torrent, Setting, AgentTask, ScanTask,
     ParserProfile, ParserRule, ParserRuleCondition, MediaItem, DownloadTask,
     SlicingTask, SlicedFile, TorrentFile, RelocationTask,
     RenamingTask, Tracker
@@ -372,18 +372,6 @@ class Database:
         with self.Session() as session:
             settings = session.query(Setting).filter(Setting.key.like(f"{prefix}%")).all()
             return {s.key: s.value for s in settings}
-
-    def add_log(self, group: str, level: str, message: str):
-        with self.Session() as session:
-            session.add(Log(group=group, level=level, message=message))
-            session.commit()
-
-    def get_logs(self, group: Optional[str] = None, level: Optional[str] = None) -> List[Dict[str, str]]:
-        with self.Session() as session:
-            query = session.query(Log)
-            if group: query = query.filter_by(group=group)
-            if level: query = query.filter_by(level=level)
-            return [{"id": l.id, "timestamp": l.timestamp.isoformat(), "group": l.group, "level": l.level, "message": l.message} for l in query.order_by(Log.timestamp.asc()).all()]
             
     def clear_all_data_except_auth(self):
         with self.Session() as session:
@@ -1019,14 +1007,6 @@ class Database:
                 filter(MediaItem.series_id == series_id).\
                 group_by(MediaItem.slicing_status).all()
             return {status: count for status, count in statuses}
-    
-    def get_unique_log_groups(self) -> List[str]:
-        """Возвращает отсортированный список всех уникальных групп из логов."""
-        with self.Session() as session:
-            # Выполняем запрос на получение уникальных значений из столбца 'group'
-            query_result = session.query(Log.group).distinct().order_by(Log.group).all()
-            # Преобразуем результат (список кортежей) в простой список строк
-            return [item[0] for item in query_result]
     
     def delete_slicing_task_by_uid(self, unique_id: str):
         """Удаляет все задачи на нарезку для указанного media_item_unique_id."""

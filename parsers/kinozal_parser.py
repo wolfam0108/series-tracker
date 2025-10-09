@@ -1,5 +1,3 @@
-# Файл: kinozal_parser.py
-
 import re
 import os
 from typing import Dict, Optional, List
@@ -15,8 +13,8 @@ from urllib.parse import urlparse
 from auth import AuthManager
 
 class KinozalParser:
-    MAX_RETRIES = 3 
-    RETRY_DELAY = 2 
+    MAX_RETRIES = 5  # <-- ИЗМЕНЕНИЕ: Увеличено количество попыток до 5
+    RETRY_DELAY = 3  # <-- ИЗМЕНЕНИЕ: Немного увеличена задержка между попытками
 
     def __init__(self, auth_manager: AuthManager, db: Database, logger: Logger):
         self.db = db
@@ -26,17 +24,14 @@ class KinozalParser:
             self.logger.debug("auth", f"[KinozalParser] Инициализирован с AuthManager ID: {id(self.auth_manager)}")
 
     def _normalize_date(self, date_str: str) -> Optional[str]:
-        # Устанавливаем часовой пояс Москвы (UTC+3)
+        # (Этот метод остается без изменений)
         moscow_tz = timezone(timedelta(hours=3))
-        # Получаем текущее время с учетом этого часового пояса
         current_date = datetime.now(moscow_tz)
-        
         month_map = {
             'января': '01', 'февраля': '02', 'марта': '03', 'апреля': '04',
             'мая': '05', 'июня': '06', 'июля': '07', 'августа': '08',
             'сентября': '09', 'октября': '10', 'ноября': '11', 'декабря': '12'
         }
-
         date_str = date_str.strip().lower()
         try:
             if 'сегодня' in date_str:
@@ -74,7 +69,6 @@ class KinozalParser:
     def parse_series(self, url: str, last_known_torrents: Optional[List[Dict]] = None, debug_force_replace: bool = False) -> Dict:
         self.logger.info("kinozal_parser", f"Начало парсинга {url}")
 
-        # --- ИЗМЕНЕНИЕ: Получаем сессию из AuthManager ---
         session = self.auth_manager.get_kinozal_session(url)
         if not session:
             return {"error": f"Не удалось получить аутентифицированную сессию для {url}"}
@@ -100,9 +94,6 @@ class KinozalParser:
                 if app.debug_manager.is_debug_enabled('save_html_kinozal'):
                     self._save_html_dump(html_content)
 
-                if app.debug_manager.is_debug_enabled('kinozal_parser'):
-                    self.logger.debug("kinozal_parser", "Начало парсинга HTML")
-
                 soup = BeautifulSoup(html_content, 'lxml')
 
                 title_tag = soup.find('title')
@@ -111,9 +102,6 @@ class KinozalParser:
                 if title_text:
                     title_ru = re.sub(r'\s*::\s*Кинозал\.(ТВ|МЕ)$', '', title_text, flags=re.IGNORECASE).strip()
 
-                if app.debug_manager.is_debug_enabled('kinozal_parser'):
-                    self.logger.debug("kinozal_parser", f"Найдено название: ru='{title_ru}'")
-
                 date_text = None
                 for key_word in ['Обновлен', 'Залит']:
                     li_tag = soup.find(lambda tag: tag.name == 'li' and len(tag.contents) > 0 and key_word in tag.contents[0])
@@ -121,7 +109,6 @@ class KinozalParser:
                         date_span = li_tag.find('span', class_='floatright')
                         if date_span:
                             date_str = date_span.get_text(strip=True)
-                            self.logger.info("RAW_DATE_DEBUG", f"[Kinozal] Raw date string found: '{date_str}'")
                             date_text = self._normalize_date(date_str)
                             break
                 
@@ -155,9 +142,6 @@ class KinozalParser:
                 
                 download_domain = f"dl.{parsed_url.netloc}"
                 torrent_link = f"{parsed_url.scheme}://{download_domain}/{href}"
-
-                if app.debug_manager.is_debug_enabled('kinozal_parser'):
-                    self.logger.debug("kinozal_parser", f"Найдена ссылка на скачивание: {torrent_link}")
 
                 return {
                     "title": {"ru": title_ru, "en": None},

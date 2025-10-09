@@ -23,5 +23,6 @@ test/
 parser_dumps/
 # Папка кодом страниц для дебага
 torrent_cache/
-
+debug_kinozal.py
 vk_scraper_dumps/
+logs/

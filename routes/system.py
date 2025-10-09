@@ -1,4 +1,5 @@
 import json
+import os
 from flask import Blueprint, jsonify, request, Response, current_app as app
 
 system_bp = Blueprint('system_api', __name__, url_prefix='/api')
@@ -42,7 +43,7 @@ def clear_database():
 def get_db_tables():
     try:
         tables = app.db.get_table_names()
-        excluded_tables = {'auth', 'logs'}
+        excluded_tables = {'auth'}
         safe_tables = [t for t in tables if t not in excluded_tables]
         return jsonify(safe_tables)
     except Exception as e:
@@ -69,7 +70,60 @@ def clear_table():
 
 @system_bp.route('/logs', methods=['GET'])
 def get_logs():
-    return jsonify(app.db.get_logs(group=request.args.get('group'), level=request.args.get('level')))
+    """
+    Читает логи из файлов, фильтрует их на лету и отдает с пагинацией.
+    """
+    LOG_DIR = 'logs'
+    
+    # 1. Получаем параметры фильтрации из запроса
+    group_filter = request.args.get('group')
+    level_filter = request.args.get('level')
+    try:
+        limit = int(request.args.get('limit', 200))
+    except (ValueError, TypeError):
+        limit = 200
+
+    # 2. Определяем, какие файлы нужно читать
+    files_to_read = []
+    if level_filter:
+        # Если задан уровень, читаем только один конкретный файл
+        files_to_read.append(f'{level_filter.lower()}.log')
+    else:
+        # Иначе - читаем все файлы
+        files_to_read = ['error.log', 'warning.log', 'info.log', 'debug.log']
+
+    all_logs = []
+    
+    # 3. Читаем и фильтруем каждый файл
+    for filename in files_to_read:
+        filepath = os.path.join(LOG_DIR, filename)
+        if not os.path.exists(filepath):
+            continue
+
+        try:
+            with open(filepath, 'r', encoding='utf-8') as f:
+                # Читаем строки в обратном порядке, чтобы новые были первыми
+                for line in reversed(f.readlines()):
+                    try:
+                        log_entry = json.loads(line)
+                        
+                        # Применяем фильтр по группе, если он есть
+                        if group_filter and log_entry.get('group') != group_filter:
+                            continue
+                        
+                        all_logs.append(log_entry)
+                    except (json.JSONDecodeError, KeyError):
+                        # Пропускаем поврежденные строки JSON
+                        continue
+        except Exception as e:
+            app.logger.error("system_api", f"Ошибка чтения лог-файла {filepath}: {e}")
+
+    # 4. Сортируем все найденные записи по времени (от новых к старым)
+    # Это особенно важно, когда читаем из нескольких файлов
+    all_logs.sort(key=lambda x: x.get('timestamp', ''), reverse=True)
+
+    # 5. Отдаем только запрошенное количество записей (пагинация)
+    return jsonify(all_logs[:limit])
 
 @system_bp.route('/agent/queue', methods=['GET'])
 def get_agent_queue():
@@ -160,12 +214,3 @@ def get_table_content(table_name):
         app.logger.error("database_api", f"Ошибка получения данных из таблицы '{table_name}': {e}", exc_info=True)
         return jsonify({"error": str(e)}), 500
     
-@system_bp.route('/logs/groups', methods=['GET'])
-def get_log_groups():
-    """Возвращает список всех уникальных групп, найденных в логах."""
-    try:
-        groups = app.db.get_unique_log_groups()
-        return jsonify(groups)
-    except Exception as e:
-        app.logger.error("system_api", f"Ошибка получения групп логов: {e}", exc_info=True)
-        return jsonify({"error": "Не удалось получить группы логов"}), 500
