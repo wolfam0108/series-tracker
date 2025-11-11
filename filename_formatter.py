@@ -16,7 +16,7 @@ class FilenameFormatter:
         sanitized_name = re.sub(r'\s+', ' ', sanitized_name).strip()
         return sanitized_name
 
-    def format_filename(self, series_data: dict, metadata: dict, original_filename: str = None) -> str:
+    def format_filename(self, series_data: dict, metadata: dict, original_filename: str = None, target_directory: str = None) -> str:
         """
         Формирует стандартизированное имя файла из данных сериала и извлечённых метаданных.
         Реализует иерархию приоритетов для опциональных тегов и сохраняет исходный подкаталог.
@@ -88,7 +88,10 @@ class FilenameFormatter:
         final_basename = " ".join(filter(None, parts)) + extension
 
         # --- ИСПРАВЛЕНИЕ: Гарантированное сохранение пути ---
-        if original_filename:
+        if target_directory:
+            # Если указана целевая директория, используем её вместо оригинальной
+            return os.path.join(target_directory, final_basename).replace("\\", "/")
+        elif original_filename:
             # os.path.split() надежно разделяет путь на (каталог, имя_файла)
             original_dir, _ = os.path.split(original_filename)
             if original_dir:

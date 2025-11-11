@@ -111,6 +111,10 @@ class QBittorrentClient:
                         session = self.auth_manager.get_kinozal_session(link)
                         if app.debug_manager.is_debug_enabled('auth') and session:
                             self.logger.debug("auth", f"[QBittorrentClient] Получена сессия ID: {id(session)} от AuthManager")
+                    elif auth_type == 'rutracker':
+                        session = self.auth_manager.get_rutracker_session(link)
+                        if app.debug_manager.is_debug_enabled('auth') and session:
+                            self.logger.debug("auth", f"[QBittorrentClient] Получена сессия ID: {id(session)} от AuthManager для RuTracker")
                     elif auth_type == 'astar':
                         session = self.auth_manager.get_scraper()
                     else:
@@ -130,6 +134,24 @@ class QBittorrentClient:
                     if app.debug_manager.is_debug_enabled('auth'):
                         self.logger.debug("auth", f"[ОТЛАДКА] Cookies ПЕРЕД СКАЧИВАНИЕМ .torrent: {session.cookies.get_dict()}")
                     
+                    # Для RuTracker добавим специфичные заголовки
+                    if 'rutracker.org' in link:
+                        request_kwargs.setdefault('headers', {})
+                        # Улучшенная логика заголовков для RuTracker
+                        referer_url = link.replace('/forum/dl.php', '/forum/viewtopic.php')
+                        # Извлекаем параметр t из ссылки и добавляем его к рефереру
+                        import re
+                        match = re.search(r't=(\d+)', link)
+                        if match:
+                            topic_id = match.group(1)
+                            referer_url = f"https://rutracker.org/forum/viewtopic.php?t={topic_id}"
+                        
+                        request_kwargs['headers'].update({
+                            'Referer': referer_url,
+                            'Origin': 'https://rutracker.org',
+                            'X-Requested-With': 'XMLHttpRequest'
+                        })
+                    
                     response = session.get(link, **request_kwargs)
                     response.raise_for_status()
                     
@@ -138,6 +160,8 @@ class QBittorrentClient:
                         error_reason = "Неизвестная ошибка: трекер вернул HTML страницу."
                         if "Вы использовали доступное Вам количество торрент-файлов в сутки" in response.text:
                             error_reason = "Достигнут суточный лимит скачиваний на трекере."
+                        elif "Вам необходимо включить JavaScript, чтобы оптимизировать работу с этим сайтом" in response.text:
+                            error_reason = "Требуется включить JavaScript для скачивания."
                         self.logger.error("qbittorrent", f"Ошибка скачивания файла {link}. Причина: {error_reason}")
                         return None, None
 

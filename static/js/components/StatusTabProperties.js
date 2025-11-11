@@ -75,7 +75,7 @@ template: `
                             <constructor-group :class="savePathClasses">
                                 <div class="constructor-item item-label-icon" title="Путь сохранения"><i class="bi bi-folder2-open"></i></div>
                                 <div class="constructor-item item-floating-label">
-                                    <input v-model.trim="editableSeries.save_path" type="text" class="item-input" id="savePath-edit" placeholder=" ">
+                                    <input v-model.trim="editableSeries.save_path" type="text" @input="autoCorrectSlash($event, 'editableSeries', 'save_path')" class="item-input" id="savePath-edit" placeholder=" ">
                                     <label for="savePath-edit">Путь сохранения</label>
                                 </div>
                             </constructor-group>
@@ -118,17 +118,35 @@ template: `
                                     <i class="bi bi-funnel-fill"></i>
                                     <span>Профиль правил</span>
                                 </div>
-                                <constructor-item-select 
-                                    :options="parserProfileOptions" 
+                                <constructor-item-select
+                                    :options="parserProfileOptions"
                                     v-model="editableSeries.parser_profile_id"
                                 ></constructor-item-select>
+                            </constructor-group>
+                        </div>
+                    </div>
+                    
+                    <div v-if="editableSeries.source_type === 'torrent'" class="row mt-3">
+                        <div class="col-12">
+                            <constructor-group>
+                                <div class="constructor-item item-label-icon item-label-text-icon" title="Ссылка на торрент">
+                                    <i class="bi bi-link-45deg"></i>
+                                    <span>Ссылка на торрент</span>
+                                </div>
+                                <div class="constructor-item item-input-wrapper">
+                                    <input type="text" class="item-input" :value="editableSeries.url" readonly>
+                                </div>
+                                <div class="constructor-item item-button-group">
+                                    <button @click="copyTorrentLink" class="btn-icon btn-confirm" title="Копировать ссылку"><i class="bi bi-files me-0"></i></button>
+                                    <button @click="openTorrentLink" class="btn-icon btn-search" title="Открыть ссылку"><i class="bi bi-box-arrow-up-right me-0"></i></button>
+                                </div>
                             </constructor-group>
                         </div>
                     </div>
                     </div>
             </div>
             
-            <div v-if="editableSeries.source_type === 'vk_video' || (editableSeries.site && editableSeries.site.includes('kinozal'))" class="modern-fieldset mb-4">
+            <div v-if="editableSeries.source_type === 'vk_video' || (editableSeries.site && (editableSeries.site.includes('kinozal') || editableSeries.site.includes('rutracker')))" class="modern-fieldset mb-4">
                 <div class="fieldset-content py-3">
                     <div class="modern-form-check form-switch d-flex justify-content-center m-0">
                         <input class="form-check-input" type="checkbox" role="switch" v-model="isSeasonless">
@@ -319,7 +337,7 @@ template: `
 
             const sourceType = this.editableSeries.source_type;
             const site = this.editableSeries.site || '';
-            if (sourceType === 'vk_video' || site.includes('kinozal')) {
+            if (sourceType === 'vk_video' || site.includes('kinozal') || site.includes('rutracker')) {
                 this.isSeasonless = !this.editableSeries.season;
             }
             if (!this.editableSeries.qualityByEpisodes) this.editableSeries.qualityByEpisodes = {};
@@ -436,5 +454,71 @@ template: `
             this.$emit('saving-state', false);
         }
     },
+    async copyTorrentLink() {
+        const textToCopy = this.editableSeries.url;
+        try {
+            if (navigator.clipboard && window.isSecureContext) {
+                await navigator.clipboard.writeText(textToCopy);
+                this.$emit('show-toast', 'Ссылка скопирована в буфер обмена', 'success');
+            } else {
+                // Используем улучшенный fallback метод
+                const textArea = document.createElement("textarea");
+                textArea.value = textToCopy;
+                textArea.style.cssText = `
+                    position: fixed;
+                    top: -9999px;
+                    left: -999px;
+                    width: 1px;
+                    height: 1px;
+                    padding: 0;
+                    margin: 0;
+                    border: none;
+                    outline: none;
+                    boxShadow: none;
+                    background: transparent;
+                    color: transparent;
+                    z-index: -9999;
+                `;
+                document.body.appendChild(textArea);
+                
+                // Выбираем текст
+                textArea.focus();
+                textArea.select();
+                textArea.setSelectionRange(0, textToCopy.length); // Для мобильных устройств
+                
+                // Для Safari и других браузеров используем execCommand
+                const successful = document.execCommand('copy');
+                
+                document.body.removeChild(textArea);
+                
+                if (successful) {
+                    this.$emit('show-toast', 'Ссылка скопирована в буфер обмена', 'success');
+                } else {
+                    throw new Error('execCommand copy failed');
+                }
+            }
+        } catch (err) {
+            console.error('Ошибка при копировании ссылки: ', err);
+            this.$emit('show-toast', 'Ошибка при копировании ссылки', 'danger');
+        }
+    },
+    autoCorrectSlash(event, modelKey, fieldKey = null) {
+        const start = event.target.selectionStart;
+        const correctedValue = event.target.value.replace(/\\/g, '/');
+    
+        if (fieldKey) {
+            this[modelKey][fieldKey] = correctedValue;
+        } else {
+            this[modelKey] = correctedValue;
+        }
+    
+        this.$nextTick(() => {
+            event.target.value = correctedValue;
+            event.target.setSelectionRange(start, start);
+        });
+    },
+    openTorrentLink() {
+        window.open(this.editableSeries.url, '_blank');
+    }
   }
 };

@@ -13,6 +13,7 @@ from parsers.kinozal_parser import KinozalParser
 from parsers.anilibria_parser import AnilibriaParser
 from parsers.astar_parser import AstarParser
 from parsers.anilibria_tv_parser import AnilibriaTvParser
+from parsers.rutracker_parser import RuTrackerParser
 from scrapers.vk_scraper import VKScraper
 from rule_engine import RuleEngine
 from smart_collector import SmartCollector
@@ -197,14 +198,15 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
                     'KinozalParser': KinozalParser,
                     'AnilibriaParser': AnilibriaParser,
                     'AnilibriaTvParser': AnilibriaTvParser,
-                    'AstarParser': AstarParser
+                    'AstarParser': AstarParser,
+                    'RuTrackerParser': RuTrackerParser
                 }
 
                 parser_class = parser_classes.get(parser_class_name)
                 if not parser_class:
                     raise Exception(f"Парсер с классом '{parser_class_name}' не найден")
 
-                if parser_class_name == 'KinozalParser':
+                if parser_class_name in ['KinozalParser', 'RuTrackerParser']:
                     parser = parser_class(auth_manager, flask_app.db, flask_app.logger)
                 else:
                     parser = parser_class(flask_app.db, flask_app.logger)

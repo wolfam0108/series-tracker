@@ -1,3 +1,4 @@
+import json
 from urllib.parse import urlparse
 from db import Database
 
@@ -23,7 +24,9 @@ class TrackerResolver:
             all_trackers = self._get_all_trackers_with_mirrors()
             
             for tracker in all_trackers:
-                if domain in tracker['mirrors']:
+                # Зеркала уже десериализованы в get_all_trackers
+                mirrors = tracker['mirrors'] if tracker['mirrors'] else []
+                if domain in mirrors:
                     return tracker
             return None
         except Exception:

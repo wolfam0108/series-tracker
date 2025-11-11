@@ -8,6 +8,7 @@ from parsers.kinozal_parser import KinozalParser
 from parsers.anilibria_parser import AnilibriaParser
 from parsers.astar_parser import AstarParser
 from parsers.anilibria_tv_parser import AnilibriaTvParser
+from parsers.rutracker_parser import RuTrackerParser
 from utils.tracker_resolver import TrackerResolver
 
 settings_bp = Blueprint('settings_api', __name__, url_prefix='/api')
@@ -42,6 +43,7 @@ LOGGING_MODULES = {
         {'name': 'anilibria_parser_debug', 'description': 'Детальная отладка парсера Anilibria (время).'},
         {'name': 'anilibria_tv_parser', 'description': 'Парсинг Anilibria.TV.'},
         {'name': 'astar_parser', 'description': 'Парсинг Astar.'},
+        {'name': 'rutracker_parser', 'description': 'Парсинг RuTracker.'},
     ]
 }
 FILE_DUMP_FLAGS = [
@@ -49,6 +51,7 @@ FILE_DUMP_FLAGS = [
     {'name': 'save_html_anilibria', 'description': 'Anilibria (HTML)'},
     {'name': 'save_html_anilibria_tv', 'description': 'Anilibria.TV (HTML)'},
     {'name': 'save_html_astar', 'description': 'Astar.bz (HTML)'},
+    {'name': 'save_html_rutracker', 'description': 'RuTracker (HTML)'},
     {'name': 'save_json_vk_scraper', 'description': 'VK Scraper (JSON)'}
 ]
 
@@ -57,7 +60,8 @@ def get_all_auth():
     return jsonify({
         "qbittorrent": app.db.get_auth("qbittorrent"),
         "kinozal": app.db.get_auth("kinozal"),
-        "vk": app.db.get_auth("vk")
+        "vk": app.db.get_auth("vk"),
+        "rutracker": app.db.get_auth("rutracker")
     })
 
 @settings_bp.route('/auth', methods=['POST'])
@@ -70,6 +74,8 @@ def save_all_auth():
             app.db.add_auth('kinozal', kinozal_data.get('username'), kinozal_data.get('password'))
         if vk_data := data.get('vk'):
             app.db.add_auth('vk', username='vk_token', password=vk_data.get('token'))
+        if rutracker_data := data.get('rutracker'):
+            app.db.add_auth('rutracker', rutracker_data.get('username'), rutracker_data.get('password'))
         return jsonify({"success": True})
     except Exception as e:
         app.logger.error("auth_api", "Ошибка сохранения данных авторизации", exc_info=True)
@@ -94,7 +100,8 @@ def parse_url():
             'KinozalParser': KinozalParser,
             'AnilibriaParser': AnilibriaParser,
             'AnilibriaTvParser': AnilibriaTvParser,
-            'AstarParser': AstarParser
+            'AstarParser': AstarParser,
+            'RuTrackerParser': RuTrackerParser
         }
         
         parser_class = parser_classes.get(parser_class_name)
@@ -102,7 +109,7 @@ def parse_url():
             return jsonify({"error": f"Парсер с классом '{parser_class_name}' не найден"}), 500
         
         # Создаем экземпляр парсера, УЧИТЫВАЯ РАЗНЫЕ АРГУМЕНТЫ
-        if parser_class_name == 'KinozalParser':
+        if parser_class_name in ['KinozalParser', 'RuTrackerParser']:
             parser = parser_class(auth_manager, app.db, app.logger)
         else:
             parser = parser_class(app.db, app.logger)

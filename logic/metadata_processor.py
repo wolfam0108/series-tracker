@@ -33,7 +33,9 @@ def build_final_metadata(series_data: dict, media_item: dict, rule_engine_data: 
     if series_data.get('resolution_override'):
         base_metadata['resolution'] = series_data.get('resolution_override')
 
-    # Если сезон жестко задан в свойствах сериала, он главнее всего
+    # Определяем, является ли сериал многосезонным или односезонным
+    # Если в series_data['season'] есть значение, значит это односезонный сериал - используем этот сезон
+    # Если в series_data['season'] пусто, значит это многосезонный сериал - сезон остается из rule_engine_data или media_item
     if series_data.get('season'):
         base_metadata['season'] = series_data.get('season')
 

@@ -1511,45 +1511,65 @@ class Database:
             return {c.name: getattr(task, c.name) for c in task.__table__.columns}
 
     def _seed_trackers_if_empty(self):
-        """Заполняет таблицу трекеров значениями по умолчанию, если она пуста."""
+        """Заполняет таблицу трекеров значениями по умолчанию, если она пуста или добавляет недостающие трекеры."""
         with self.Session() as session:
-            if session.query(Tracker).first():
-                return # Таблица уже заполнена
+            existing_trackers = session.query(Tracker.canonical_name).all()
+            existing_names = {tracker.canonical_name for tracker in existing_trackers}
             
-            self.logger.info("db", "Таблица трекеров пуста. Заполнение значениями по умолчанию...")
-            
-            default_trackers = [
-                Tracker(
-                    canonical_name='anilibria', display_name='Anilibria',
-                    mirrors='["anilibria.top", "aniliberty.top"]',
-                    parser_class='AnilibriaParser',
-                    auth_type='none', # <-- ДОБАВЛЕНО
-                    ui_features='{"quality_selector": "anilibria"}'
-                ),
-                Tracker(
-                    canonical_name='anilibria_tv', display_name='Anilibria.TV',
-                    mirrors='["anilibria.tv"]',
-                    parser_class='AnilibriaTvParser',
-                    auth_type='none', # <-- ДОБАВЛЕНО
-                    ui_features='{}'
-                ),
-                Tracker(
-                    canonical_name='kinozal', display_name='Kinozal.me',
-                    mirrors='["kinozal.me", "kinozal.tv"]',
-                    parser_class='KinozalParser',
-                    auth_type='kinozal', # <-- ДОБАВЛЕНО
-                    ui_features='{}'
-                ),
-                Tracker(
-                    canonical_name='astar', display_name='Astar.bz',
-                    mirrors='["astar.bz"]',
-                    parser_class='AstarParser',
-                    auth_type='astar', # <-- ДОБАВЛЕНО
-                    ui_features='{"quality_selector": "astar"}'
-                )
+            default_trackers_data = [
+                {
+                    'canonical_name': 'anilibria',
+                    'display_name': 'Anilibria',
+                    'mirrors': '["anilibria.top", "aniliberty.top"]',
+                    'parser_class': 'AnilibriaParser',
+                    'auth_type': 'none',
+                    'ui_features': '{"quality_selector": "anilibria"}'
+                },
+                {
+                    'canonical_name': 'anilibria_tv',
+                    'display_name': 'Anilibria.TV',
+                    'mirrors': '["anilibria.tv"]',
+                    'parser_class': 'AnilibriaTvParser',
+                    'auth_type': 'none',
+                    'ui_features': '{}'
+                },
+                {
+                    'canonical_name': 'kinozal',
+                    'display_name': 'Kinozal.me',
+                    'mirrors': '["kinozal.me", "kinozal.tv"]',
+                    'parser_class': 'KinozalParser',
+                    'auth_type': 'kinozal',
+                    'ui_features': '{}'
+                },
+                {
+                    'canonical_name': 'astar',
+                    'display_name': 'Astar.bz',
+                    'mirrors': '["astar.bz"]',
+                    'parser_class': 'AstarParser',
+                    'auth_type': 'astar',
+                    'ui_features': '{"quality_selector": "astar"}'
+                },
+                {
+                    'canonical_name': 'rutracker',
+                    'display_name': 'RuTracker.org',
+                    'mirrors': '["rutracker.org"]',
+                    'parser_class': 'RuTrackerParser',
+                    'auth_type': 'rutracker',
+                    'ui_features': '{}'
+                }
             ]
-            session.add_all(default_trackers)
-            session.commit()
+            
+            trackers_to_add = []
+            for tracker_data in default_trackers_data:
+                if tracker_data['canonical_name'] not in existing_names:
+                    trackers_to_add.append(Tracker(**tracker_data))
+            
+            if trackers_to_add:
+                self.logger.info(f"db", f"Добавление {len(trackers_to_add)} недостающих трекеров в базу данных...")
+                session.add_all(trackers_to_add)
+                session.commit()
+            else:
+                self.logger.info("db", "Все трекеры уже присутствуют в базе данных.")
 
     def get_all_trackers(self) -> List[Dict[str, Any]]:
         """Возвращает список всех трекеров и их настроек."""

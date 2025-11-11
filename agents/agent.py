@@ -39,7 +39,7 @@ class Agent(threading.Thread):
             'stalledDL', 'forcedDL', 'queuedUP', 'queuedDL'
         }
         self.ACTIVATING_PAUSED_STATES = {'pausedUP', 'pausedDL'}
-        self.STABLE_PAUSED_STATES = {'pausedUP', 'pausedDL'}
+        self.STABLE_PAUSED_STATES = {'pausedUP', 'pausedDL', 'stalledUP', 'stalledDL'}
         self.CHECKING_STATES = {'checkingUP', 'checkingDL', 'checkingResumeData'}
 
 
@@ -136,18 +136,27 @@ class Agent(threading.Thread):
                 if current_state in self.STABLE_PAUSED_STATES:
                     if app.debug_manager.is_debug_enabled('agent'):
                         self.logger.debug("agent", f"[{torrent_hash[:8]}] Торрент в стабильном состоянии паузы. Переход к переименованию.")
+                    
+                    # Выполняем переименование файлов с распределением по сезонам
+                    try:
+                        self.logger.info("agent", f"[{torrent_hash[:8]}] Выполнение переименования файлов с распределением по сезонам.")
+                        process_and_rename_torrent_files(self.app, task['series_id'], torrent_hash)
+                    except Exception as e:
+                        self.logger.error("agent", f"Ошибка при переименовании файлов с распределением по сезонам для {torrent_hash}: {e}", exc_info=True)
+                    
                     next_stage = 'renaming'
                 elif current_state:
                     self.logger.warning("agent", f"[{torrent_hash[:8]}] Торрент в неожиданном состоянии '{current_state}' вместо паузы. Принудительная остановка.")
                     self.qb_client.pause_torrents([torrent_hash])
 
             elif stage == 'renaming':
-                self.logger.info("agent", f"[{torrent_hash[:8]}] Запуск централизованной функции переименования.")
+                self.logger.info("agent", f"[{torrent_hash[:8]}] Запуск централизованной функции переименования файлов.")
 
-                # Вызываем нашу новую единую функцию
-                process_and_rename_torrent_files(self.app, task['series_id'], torrent_hash)
+                # Переименование файлов с распределением по сезонам уже выполнено на предыдущем этапе
+                # Переименование файлов с распределением по сезонам уже выполнено на предыдущем этапе
+                pass
 
-                self.logger.info("agent", f"[{torrent_hash[:8]}] Переименование завершено. Переход к 'rechecking'.")
+                self.logger.info("agent", f"[{torrent_hash[:8]}] Переименование файлов завершено. Переход к 'rechecking'.")
                 next_stage = 'rechecking'
 
             elif stage == 'rechecking':

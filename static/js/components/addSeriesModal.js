@@ -139,7 +139,7 @@ const AddSeriesModal = {
                             </div>
                         </div>
                         
-                        <div v-if="sourceType === 'vk_video' || (site && site.includes('kinozal'))" class="modern-fieldset mt-4">
+                        <div v-if="sourceType === 'vk_video' || (site && (site.includes('kinozal') || site.includes('rutracker')))" class="modern-fieldset mt-4">
                              <div class="fieldset-content py-3">
                                 <div class="modern-form-check form-switch d-flex justify-content-center m-0">
                                     <input class="form-check-input" type="checkbox" role="switch" id="seasonlessSwitch" v-model="isSeasonless">
@@ -325,7 +325,7 @@ const AddSeriesModal = {
     qualityOptionsAnilibria() {
          if (!this.episodeQualityOptions.all) return [];
          return this.episodeQualityOptions.all.map(q => ({ text: q, value: q }));
-    }
+    },
     // --- КОНЕЦ ИЗМЕНЕНИЙ ---
   },
   methods: {
@@ -419,7 +419,7 @@ const AddSeriesModal = {
             const data = await response.json();
             if (!response.ok) throw new Error(data.error || 'Ошибка парсинга URL');
             
-            this.trackerInfo = data.tracker_info;           
+            this.trackerInfo = data.tracker_info;
 
             this.newSeries.name = data.title.ru || '';
             this.newSeries.name_en = data.title.en || '';
@@ -443,13 +443,20 @@ const AddSeriesModal = {
                     const options = this.episodeQualityOptions[episodes];
                     this.newSeries.qualityByEpisodes[episodes] = options.find(q => q !== 'old') || options[0] || '';
                 });
+            } else if (this.site.includes('rutracker')) {
+                // Для RuTracker также может быть доступна информация о качестве
+                this.episodeQualityOptions.all = [...new Set(data.torrents.filter(t => t.quality).map(t => t.quality))];
+                if (this.episodeQualityOptions.all.length > 0) {
+                    this.newSeries.qualityByEpisodes.all = this.episodeQualityOptions.all[0] || '';
+                }
             }
-            this.isQualityOptionsReady = true; 
+            this.isQualityOptionsReady = true;
             this.parsed = true;
             this.showValidation = true;
-        } catch (error) { 
+        } catch (error) {
             this.urlError = error.message;
-            this.parsed = false; 
+            // Даже при ошибке парсинга, если домен определен как торрент-трекер, мы все равно показываем поля
+            // Оставляем this.parsed = false, но не скрываем форму
         } finally { this.parsing = false; }
     },
     async addSeries() {
@@ -487,6 +494,9 @@ const AddSeriesModal = {
                             .map(episodes => this.episodeQualityOptions[episodes][0])
                     );
                     qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
+                } else if (this.site.includes('rutracker')) {
+                    // Для RuTracker сохраняем выбранное качество, если оно есть
+                    qualityString = this.newSeries.qualityByEpisodes.all || '';
                 }
                 payload.quality = qualityString;
                 payload.torrents = this.parserData ? this.parserData.torrents : [];

@@ -421,6 +421,7 @@ def update_series(series_id):
         payload = data.copy()
         payload.pop('save_path', None)
         payload.pop('last_scan_time', None)
+        # Исключаем только save_path и last_scan_time, но оставляем season для корректной обработки многосезонности
         app.db.update_series(series_id, payload)
         app.logger.info("series_api", f"Базовые свойства для series_id {series_id} обновлены.")
 

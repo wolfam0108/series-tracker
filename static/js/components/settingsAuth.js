@@ -91,19 +91,49 @@ template: `
                 </div>
             </div>
         </div>
+        
+        <div class="modern-fieldset">
+            <div class="fieldset-header">
+                <i class="bi bi-download me-2"></i>
+                <span class="fieldset-title">RuTracker.org</span>
+            </div>
+            <div class="fieldset-content">
+                <div class="field-group">
+                     <constructor-group>
+                        <div class="constructor-item item-label-icon" title="Логин"><i class="bi bi-person"></i></div>
+                        <div class="constructor-item item-floating-label">
+                            <input type="text" class="item-input" id="rt-login-input" placeholder=" " v-model.trim="credentials.rutracker.username">
+                            <label for="rt-login-input">Логин</label>
+                        </div>
+                        <div class="constructor-item item-label-icon" title="Пароль"><i class="bi bi-shield-lock"></i></div>
+                        <div class="constructor-item item-floating-label">
+                            <div class="item-input-wrapper">
+                                <input :type="rutrackerPasswordVisible ? 'text' : 'password'" class="item-input" id="rt-password-input" placeholder=" " v-model="credentials.rutracker.password">
+                                <label for="rt-password-input">Пароль</label>
+                                <button class="password-toggle-btn" @click="togglePasswordVisibility('rutracker')" :title="rutrackerPasswordVisible ? 'Скрыть' : 'Показать'">
+                                    <i class="bi" :class="rutrackerPasswordVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
+                                </button>
+                            </div>
+                            </div>
+                    </constructor-group>
+                </div>
+            </div>
+        </div>
     </div>
   `,
   data() {
     return {
       isSaving: false,
-      credentials: { 
-        qbittorrent: { url: '', username: '', password: '' }, 
+      credentials: {
+        qbittorrent: { url: '', username: '', password: '' },
         kinozal: { username: '', password: '' },
-        vk: { token: '' }
+        vk: { token: '' },
+        rutracker: { username: '', password: '' }
       },
-      qbPasswordVisible: false, 
+      qbPasswordVisible: false,
       kinozalPasswordVisible: false,
       vkTokenVisible: false,
+      rutrackerPasswordVisible: false,
     };
   },
   emits: ['show-toast', 'saving-state'],
@@ -112,6 +142,7 @@ template: `
         if (type === 'qb') this.qbPasswordVisible = !this.qbPasswordVisible;
         else if (type === 'kinozal') this.kinozalPasswordVisible = !this.kinozalPasswordVisible;
         else if (type === 'vk') this.vkTokenVisible = !this.vkTokenVisible;
+        else if (type === 'rutracker') this.rutrackerPasswordVisible = !this.rutrackerPasswordVisible;
     },
     async load() {
       try {
@@ -121,25 +152,26 @@ template: `
         if (data.qbittorrent) this.credentials.qbittorrent = { ...this.credentials.qbittorrent, ...data.qbittorrent };
         if (data.kinozal) this.credentials.kinozal = { ...this.credentials.kinozal, ...data.kinozal };
         if (data.vk) this.credentials.vk.token = data.vk.password || '';
-      } catch (error) { 
-        this.$emit('show-toast', error.message, 'danger'); 
+        if (data.rutracker) this.credentials.rutracker = { ...this.credentials.rutracker, ...data.rutracker };
+      } catch (error) {
+        this.$emit('show-toast', error.message, 'danger');
       }
     },
     async save() {
       this.isSaving = true;
       this.$emit('saving-state', true);
       try {
-        const response = await fetch('/api/auth', { 
-          method: 'POST', 
-          headers: { 'Content-Type': 'application/json' }, 
-          body: JSON.stringify(this.credentials) 
+        const response = await fetch('/api/auth', {
+          method: 'POST',
+          headers: { 'Content-Type': 'application/json' },
+          body: JSON.stringify(this.credentials)
         });
         const data = await response.json();
         if (!response.ok || !data.success) throw new Error(data.error || 'Ошибка сохранения настроек');
         this.$emit('show-toast', 'Настройки авторизации сохранены.', 'success');
-      } catch (error) { 
+      } catch (error) {
         this.$emit('show-toast', error.message, 'danger');
-      } finally { 
+      } finally {
         this.isSaving = false;
         this.$emit('saving-state', false);
       }
