@@ -1,5 +1,6 @@
 <!DOCTYPE html>
 <html lang="ru">
+
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
@@ -9,7 +10,7 @@
     <link rel="stylesheet" href="https://cdn.jsdelivr.net/npm/bootstrap-icons@1.10.5/font/bootstrap-icons.css">
 
     <link href="https://fonts.googleapis.com/icon?family=Material+Icons+Outlined" rel="stylesheet">
-    
+
     <link rel="stylesheet" href="/static/css/base/variables.css">
     <link rel="stylesheet" href="/static/css/base/layout.css">
     <link rel="stylesheet" href="/static/css/components/card.css">
@@ -22,15 +23,17 @@
     <link rel="stylesheet" href="/static/css/components/rule-editor.css">
     <link rel="stylesheet" href="/static/css/components/compact-card.css">
     <link rel="stylesheet" href="/static/css/components/responsive.css">
+    <link rel="stylesheet" href="/static/css/components/chapter-filter.css">
     <link rel="stylesheet" href="/static/css/utils/animations.css">
 
     <script src="https://cdn.jsdelivr.net/npm/vue@3.2.47/dist/vue.global.prod.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/bootstrap@5.3.0/dist/js/bootstrap.bundle.min.js"></script>
-    
+
     <script src="https://cdnjs.cloudflare.com/ajax/libs/Sortable/1.15.0/Sortable.min.js"></script>
     <script src="https://cdn.jsdelivr.net/npm/vuedraggable@4.1.0/dist/vuedraggable.umd.min.js"></script>
 
 </head>
+
 <body>
     <div id="app" class="container mt-5">
         <div class="toast-container position-fixed bottom-0 end-0 p-3">
@@ -70,18 +73,18 @@
 
         <transition-group name="card" tag="div" class="series-list">
             <div v-for="s in seriesWithPills" :key="s.id" class="series-card">
-                
+
                 <div class="layer-stripes" :class="getAnimationClass(s)">
-                    <div class="color-layer layer-waiting"    :style="getLayerStyle(s, 'waiting')"></div>
-                    <div class="color-layer layer-ready"      :style="getLayerStyle(s, 'ready')"></div>
-                    <div class="color-layer layer-downloading":style="getLayerStyle(s, 'downloading')"></div>
+                    <div class="color-layer layer-waiting" :style="getLayerStyle(s, 'waiting')"></div>
+                    <div class="color-layer layer-ready" :style="getLayerStyle(s, 'ready')"></div>
+                    <div class="color-layer layer-downloading" :style="getLayerStyle(s, 'downloading')"></div>
                     <div class="color-layer layer-activating" :style="getLayerStyle(s, 'activating')"></div>
-                    <div class="color-layer layer-checking"   :style="getLayerStyle(s, 'checking')"></div>
-                    <div class="color-layer layer-renaming"   :style="getLayerStyle(s, 'renaming')"></div>
-                    <div class="color-layer layer-metadata"   :style="getLayerStyle(s, 'metadata')"></div>
-                    <div class="color-layer layer-scanning"   :style="getLayerStyle(s, 'scanning')"></div>
-                    <div class="color-layer layer-viewing"    :style="getLayerStyle(s, 'viewing')"></div>
-                    <div class="color-layer layer-error"      :style="getLayerStyle(s, 'error')"></div>
+                    <div class="color-layer layer-checking" :style="getLayerStyle(s, 'checking')"></div>
+                    <div class="color-layer layer-renaming" :style="getLayerStyle(s, 'renaming')"></div>
+                    <div class="color-layer layer-metadata" :style="getLayerStyle(s, 'metadata')"></div>
+                    <div class="color-layer layer-scanning" :style="getLayerStyle(s, 'scanning')"></div>
+                    <div class="color-layer layer-viewing" :style="getLayerStyle(s, 'viewing')"></div>
+                    <div class="color-layer layer-error" :style="getLayerStyle(s, 'error')"></div>
                 </div>
 
                 <div class="card-header">
@@ -93,8 +96,10 @@
                         <span class="series-site unified-text-bg">{{ s.site }}</span>
                         <div class="auto-scan-switch unified-text-bg">
                             <span>Готовность</span>
-                            <label class="switch" :title="s.auto_scan_enabled ? 'Авто-сканирование включено' : 'Авто-сканирование выключено'">
-                                <input type="checkbox" v-model="s.auto_scan_enabled" @change="toggleAutoScan(s.id, $event.target.checked)">
+                            <label class="switch"
+                                :title="s.auto_scan_enabled ? 'Авто-сканирование включено' : 'Авто-сканирование выключено'">
+                                <input type="checkbox" v-model="s.auto_scan_enabled"
+                                    @change="toggleAutoScan(s.id, $event.target.checked)">
                                 <span class="slider"></span>
                             </label>
                         </div>
@@ -109,18 +114,27 @@
                                 <span v-if="pill.title">{{ pill.title }}</span>
                             </div>
                         </transition-group>
+
+                        <div v-if="s.tmdbPill" class="status-pill ms-auto" title="Прогресс эпизодов (Скачано / Всего)">
+                            <i class="bi" :class="s.tmdbPill.icon"></i>
+                            <span>{{ s.tmdbPill.text }}</span>
+                        </div>
                     </div>
                     <div class="scan-time unified-text-bg">
                         {{ formatScanTime(s.last_scan_time) }}
                     </div>
+
+
                     <div class="card-actions">
-                         <button class="btn action-btn btn-status" @click="openStatusModal(s.id)" title="Статус">
+                        <button class="btn action-btn btn-status" @click="openStatusModal(s.id)" title="Статус">
                             <i class="bi bi-info-circle"></i>
                         </button>
-                        <button class="btn action-btn btn-scan" @click="scanSeries(s.id)" :disabled="isSeriesBusy(s)" title="Сканировать">
+                        <button class="btn action-btn btn-scan" @click="scanSeries(s.id)" :disabled="isSeriesBusy(s)"
+                            title="Сканировать">
                             <i class="bi bi-arrow-clockwise"></i>
                         </button>
-                        <button class="btn action-btn btn-delete" @click="deleteSeries(s.id)" :disabled="isSeriesBusy(s)" title="Удалить">
+                        <button class="btn action-btn btn-delete" @click="deleteSeries(s.id)"
+                            :disabled="isSeriesBusy(s)" title="Удалить">
                             <i class="bi bi-trash"></i>
                         </button>
                     </div>
@@ -137,23 +151,15 @@
                 Добавить сериал
             </button>
         </div>
-        
+
         <confirmation-modal ref="confirmationModal"></confirmation-modal>
         <add-series-modal ref="addModal" @show-toast="showToast"></add-series-modal>
-        <status-modal 
-            ref="statusModal" 
-            @series-updated="loadInitialSeries" 
-            @show-toast="showToast"
-            @save-started="handleSaveStarted">  </status-modal>
+        <status-modal ref="statusModal" @series-updated="loadInitialSeries" @show-toast="showToast"
+            @save-started="handleSaveStarted"> </status-modal>
         <logs-modal ref="logsModal" @reload-series="loadInitialSeries" @show-toast="showToast"></logs-modal>
-        
-        <settings-modal 
-            ref="settingsModal" 
-            :series="series" 
-            :agent-queue="agentQueue" 
-            :download-queue="downloadQueue"
-            :slicing-queue="slicingQueue" @show-toast="showToast" 
-            @reload-series="loadInitialSeries">
+
+        <settings-modal ref="settingsModal" :series="series" :agent-queue="agentQueue" :download-queue="downloadQueue"
+            :slicing-queue="slicingQueue" @show-toast="showToast" @reload-series="loadInitialSeries">
         </settings-modal>
     </div>
 
@@ -167,7 +173,7 @@
             return keys.sort((a, b) => {
                 const numA = getFirstNumber(a);
                 const numB = getFirstNumber(b);
-                
+
                 if (numA === numB) {
                     return a.localeCompare(b);
                 }
@@ -175,7 +181,7 @@
             });
         }
     </script>
-    
+
     <script src="/static/js/components/confirmationModal.js"></script>
     <script src="/static/js/components/FileTree.js"></script>
     <script src="/static/js/components/ConstructorComponents.js"></script>
@@ -199,4 +205,5 @@
     <script src="/static/js/app.js"></script>
 
 </body>
+
 </html>

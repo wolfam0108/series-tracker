@@ -1,6 +1,6 @@
 // static/js/components/settingsAuth.js
 const SettingsAuthTab = {
-template: `
+    template: `
     <div class="settings-tab-content">
         <div class="modern-fieldset">
             <div class="fieldset-header">
@@ -119,62 +119,92 @@ template: `
                 </div>
             </div>
         </div>
+
+        <div class="modern-fieldset">
+            <div class="fieldset-header">
+                <i class="bi bi-film me-2"></i>
+                <span class="fieldset-title">The Movie Database (TMDB)</span>
+            </div>
+            <div class="fieldset-content">
+                <div class="field-group">
+                    <constructor-group>
+                        <div class="constructor-item item-label-icon" title="Токен"><i class="bi bi-key"></i></div>
+                        <div class="constructor-item item-floating-label">
+                            <div class="item-input-wrapper">
+                                <input :type="tmdbTokenVisible ? 'text' : 'password'" class="item-input" id="tmdb-token-input" placeholder=" " v-model="credentials.tmdb.token">
+                                <label for="tmdb-token-input">Read Access Token (v4)</label>
+                                <button class="password-toggle-btn" @click="togglePasswordVisibility('tmdb')" :title="tmdbTokenVisible ? 'Скрыть' : 'Показать'">
+                                    <i class="bi" :class="tmdbTokenVisible ? 'bi-eye-slash' : 'bi-eye'"></i>
+                                </button>
+                            </div>
+                        </div>
+                    </constructor-group>
+                     <small class="form-text text-muted mt-2 d-block">
+                        Необходим для поиска информации о сериалах и эпизодах.
+                    </small>
+                </div>
+            </div>
+        </div>
     </div>
   `,
-  data() {
-    return {
-      isSaving: false,
-      credentials: {
-        qbittorrent: { url: '', username: '', password: '' },
-        kinozal: { username: '', password: '' },
-        vk: { token: '' },
-        rutracker: { username: '', password: '' }
-      },
-      qbPasswordVisible: false,
-      kinozalPasswordVisible: false,
-      vkTokenVisible: false,
-      rutrackerPasswordVisible: false,
-    };
-  },
-  emits: ['show-toast', 'saving-state'],
-  methods: {
-    togglePasswordVisibility(type) {
-        if (type === 'qb') this.qbPasswordVisible = !this.qbPasswordVisible;
-        else if (type === 'kinozal') this.kinozalPasswordVisible = !this.kinozalPasswordVisible;
-        else if (type === 'vk') this.vkTokenVisible = !this.vkTokenVisible;
-        else if (type === 'rutracker') this.rutrackerPasswordVisible = !this.rutrackerPasswordVisible;
+    data() {
+        return {
+            isSaving: false,
+            credentials: {
+                qbittorrent: { url: '', username: '', password: '' },
+                kinozal: { username: '', password: '' },
+                vk: { token: '' },
+                rutracker: { username: '', password: '' },
+                tmdb: { token: '' }
+            },
+            qbPasswordVisible: false,
+            kinozalPasswordVisible: false,
+            vkTokenVisible: false,
+            rutrackerPasswordVisible: false,
+            tmdbTokenVisible: false,
+        };
     },
-    async load() {
-      try {
-        const response = await fetch('/api/auth');
-        if (!response.ok) throw new Error('Ошибка загрузки настроек авторизации');
-        const data = await response.json();
-        if (data.qbittorrent) this.credentials.qbittorrent = { ...this.credentials.qbittorrent, ...data.qbittorrent };
-        if (data.kinozal) this.credentials.kinozal = { ...this.credentials.kinozal, ...data.kinozal };
-        if (data.vk) this.credentials.vk.token = data.vk.password || '';
-        if (data.rutracker) this.credentials.rutracker = { ...this.credentials.rutracker, ...data.rutracker };
-      } catch (error) {
-        this.$emit('show-toast', error.message, 'danger');
-      }
-    },
-    async save() {
-      this.isSaving = true;
-      this.$emit('saving-state', true);
-      try {
-        const response = await fetch('/api/auth', {
-          method: 'POST',
-          headers: { 'Content-Type': 'application/json' },
-          body: JSON.stringify(this.credentials)
-        });
-        const data = await response.json();
-        if (!response.ok || !data.success) throw new Error(data.error || 'Ошибка сохранения настроек');
-        this.$emit('show-toast', 'Настройки авторизации сохранены.', 'success');
-      } catch (error) {
-        this.$emit('show-toast', error.message, 'danger');
-      } finally {
-        this.isSaving = false;
-        this.$emit('saving-state', false);
-      }
-    },
-  }
+    emits: ['show-toast', 'saving-state'],
+    methods: {
+        togglePasswordVisibility(type) {
+            if (type === 'qb') this.qbPasswordVisible = !this.qbPasswordVisible;
+            else if (type === 'kinozal') this.kinozalPasswordVisible = !this.kinozalPasswordVisible;
+            else if (type === 'vk') this.vkTokenVisible = !this.vkTokenVisible;
+            else if (type === 'rutracker') this.rutrackerPasswordVisible = !this.rutrackerPasswordVisible;
+            else if (type === 'tmdb') this.tmdbTokenVisible = !this.tmdbTokenVisible;
+        },
+        async load() {
+            try {
+                const response = await fetch('/api/auth');
+                if (!response.ok) throw new Error('Ошибка загрузки настроек авторизации');
+                const data = await response.json();
+                if (data.qbittorrent) this.credentials.qbittorrent = { ...this.credentials.qbittorrent, ...data.qbittorrent };
+                if (data.kinozal) this.credentials.kinozal = { ...this.credentials.kinozal, ...data.kinozal };
+                if (data.vk) this.credentials.vk.token = data.vk.password || '';
+                if (data.rutracker) this.credentials.rutracker = { ...this.credentials.rutracker, ...data.rutracker };
+                if (data.tmdb) this.credentials.tmdb.token = data.tmdb.token || '';
+            } catch (error) {
+                this.$emit('show-toast', error.message, 'danger');
+            }
+        },
+        async save() {
+            this.isSaving = true;
+            this.$emit('saving-state', true);
+            try {
+                const response = await fetch('/api/auth', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(this.credentials)
+                });
+                const data = await response.json();
+                if (!response.ok || !data.success) throw new Error(data.error || 'Ошибка сохранения настроек');
+                this.$emit('show-toast', 'Настройки авторизации сохранены.', 'success');
+            } catch (error) {
+                this.$emit('show-toast', error.message, 'danger');
+            } finally {
+                this.isSaving = false;
+                this.$emit('saving-state', false);
+            }
+        },
+    }
 };

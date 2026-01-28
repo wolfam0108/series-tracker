@@ -3,6 +3,7 @@ import threading
 from flask import Blueprint, jsonify, request, current_app as app
 import json
 from utils.chapter_parser import get_chapters # Импортируем новый парсер
+from utils.chapter_filter import ChapterFilter # Импортируем фильтр глав
 from logic.metadata_processor import build_final_metadata
 from filename_formatter import FilenameFormatter
 
@@ -61,7 +62,21 @@ def set_item_ignored_status(item_id):
         return jsonify({"success": False, "error": "Параметр is_ignored не указан"}), 400
     
     try:
+        # Получаем информацию о медиа-элементе до изменения статуса
+        with app.db.Session() as session:
+            from models import MediaItem
+            item = session.query(MediaItem).filter_by(id=item_id).first()
+            if not item:
+                return jsonify({"success": False, "error": "Медиа-элемент не найден"}), 404
+                
+            series_id = item.series_id
+            
+        # Обновляем статус игнорирования
         app.db.set_media_item_ignored_status(item_id, is_ignored)
+        
+        # Синхронизируем статусы VK-сериала после изменения
+        app.status_manager.sync_vk_statuses(series_id)
+        
         return jsonify({"success": True})
     except Exception as e:
         app.logger.error("media_api", f"Ошибка обновления статуса игнорирования для item_id {item_id}: {e}", exc_info=True)
@@ -76,7 +91,19 @@ def set_item_ignored_status_by_uid(unique_id):
         return jsonify({"success": False, "error": "Параметр is_ignored не указан"}), 400
 
     try:
+        # Получаем информацию о медиа-элементе до изменения статуса
+        item = app.db.get_media_item_by_uid(unique_id)
+        if not item:
+            return jsonify({"success": False, "error": "Медиа-элемент не найден"}), 404
+            
+        series_id = item['series_id']
+        
+        # Обновляем статус игнорирования
         app.db.set_media_item_ignored_status_by_uid(unique_id, is_ignored)
+        
+        # Синхронизируем статусы VK-сериала после изменения
+        app.status_manager.sync_vk_statuses(series_id)
+        
         return jsonify({"success": True})
     except Exception as e:
         app.logger.error("media_api", f"Ошибка обновления статуса игнорирования для UID {unique_id}: {e}", exc_info=True)
@@ -252,4 +279,177 @@ def deep_adoption(series_id):
         return jsonify({"success": True, "message": "Процесс глубокого усыновления запущен в фоновом режиме."})
     except Exception as e:
         app.logger.error("media_api", f"Ошибка запуска глубокого усыновления: {e}", exc_info=True)
+        return jsonify({"success": False, "error": str(e)}), 500
+
+@media_bp.route('/media-items/<string:unique_id>/chapters/filtered', methods=['POST'])
+def get_filtered_chapters(unique_id):
+    """
+    Получает оглавление для видео и применяет фильтрацию мусорных глав.
+    Возвращает как отфильтрованные главы, так и информацию о мусорных.
+    """
+    item = app.db.get_media_item_by_uid(unique_id)
+    if not item:
+        return jsonify({"error": "Медиа-элемент не найден"}), 404
+
+    video_url = item.get('source_url')
+    if not video_url:
+        return jsonify({"error": "URL видео не найден"}), 400
+
+    try:
+        # Получаем главы
+        chapters_list = get_chapters(video_url)
+        if not chapters_list:
+            return jsonify({"chapters": [], "filtered_chapters": [], "garbage_chapters": []})
+        
+        # Применяем фильтрацию
+        filtered_chapters = ChapterFilter.filter_chapters(chapters_list)
+        garbage_chapters = ChapterFilter.get_garbage_chapters(chapters_list)
+        
+        # Сохраняем оригинальные главы в БД
+        chapters_json = json.dumps(chapters_list)
+        app.db.update_media_item_chapters(unique_id, chapters_json)
+        
+        # Сохраняем отфильтрованные главы в БД
+        filtered_chapters_json = json.dumps(filtered_chapters)
+        app.db.update_media_item_filtered_chapters(unique_id, filtered_chapters_json)
+        
+        # Проверяем совпадение количества отфильтрованных глав с ожидаемым
+        expected_count = (item.get('episode_end', 0) - item.get('episode_start', 0) + 1)
+        if len(filtered_chapters) == expected_count:
+            app.db.update_media_item_slicing_status(unique_id, 'pending')
+            status_message = f"Количество отфильтрованных глав ({len(filtered_chapters)}) совпало с ожидаемым."
+        else:
+            status_message = f"Количество отфильтрованных глав ({len(filtered_chapters)}) НЕ совпадает с ожидаемым ({expected_count})."
+        
+        return jsonify({
+            "chapters": chapters_list,
+            "filtered_chapters": filtered_chapters,
+            "garbage_chapters": garbage_chapters,
+            "expected_count": expected_count,
+            "status_message": status_message
+        })
+    except Exception as e:
+        app.logger.error("media_api", f"Ошибка фильтрации глав для UID {unique_id}: {e}", exc_info=True)
+        return jsonify({"error": "Не удалось отфильтровать оглавление"}), 500
+
+@media_bp.route('/media-items/<string:unique_id>/chapters/mark-garbage', methods=['POST'])
+def mark_garbage_chapters(unique_id):
+    """
+    Позволяет пользователю вручную отметить главы как мусорные.
+    """
+    item = app.db.get_media_item_by_uid(unique_id)
+    if not item:
+        return jsonify({"error": "Медиа-элемент не найден"}), 404
+    
+    data = request.get_json()
+    garbage_indices = data.get('garbage_indices', [])
+    
+    if not isinstance(garbage_indices, list):
+        return jsonify({"error": "garbage_indices должен быть списком"}), 400
+    
+    try:
+        # Получаем текущие главы из БД
+        chapters_json = item.get('chapters')
+        if not chapters_json:
+            return jsonify({"error": "Главы не найдены в БД. Сначала получите главы."}), 400
+        
+        chapters_list = json.loads(chapters_json)
+        
+        # Применяем ручную разметку
+        marked_chapters = ChapterFilter.mark_chapters_manually(chapters_list, garbage_indices)
+        
+        # Разделяем на хорошие и мусорные
+        filtered_chapters = [ch for ch in marked_chapters if not ch.get('is_garbage')]
+        garbage_chapters = [ch for ch in marked_chapters if ch.get('is_garbage')]
+        
+        # Сохраняем отфильтрованные главы в БД
+        filtered_chapters_json = json.dumps(filtered_chapters)
+        app.db.update_media_item_filtered_chapters(unique_id, filtered_chapters_json)
+        
+        # Проверяем совпадение с ожидаемым количеством
+        expected_count = (item.get('episode_end', 0) - item.get('episode_start', 0) + 1)
+        if len(filtered_chapters) == expected_count:
+            app.db.update_media_item_slicing_status(unique_id, 'pending')
+            status_message = f"После ручной разметки количество глав ({len(filtered_chapters)}) совпадает с ожидаемым."
+        else:
+            status_message = f"После ручной разметки количество глав ({len(filtered_chapters)}) НЕ совпадает с ожидаемым ({expected_count})."
+        
+        return jsonify({
+            "chapters": marked_chapters,
+            "filtered_chapters": filtered_chapters,
+            "garbage_chapters": garbage_chapters,
+            "expected_count": expected_count,
+            "status_message": status_message
+        })
+    except Exception as e:
+        app.logger.error("media_api", f"Ошибка ручной разметки глав для UID {unique_id}: {e}", exc_info=True)
+        return jsonify({"error": "Не удалось разметить главы"}), 500
+
+@media_bp.route('/media-items/<string:unique_id>/slice-with-filter', methods=['POST'])
+def create_slice_task_with_filter(unique_id):
+    """
+    Создает задачу на нарезку для указанного медиа-элемента с учетом фильтрации глав.
+    """
+    data = request.get_json() or {}
+    garbage_indices = data.get('garbage_indices', [])
+    
+    try:
+        item = app.db.get_media_item_by_uid(unique_id)
+        if not item:
+            return jsonify({"success": False, "error": "Медиа-элемент не найден"}), 404
+        
+        allowed_statuses = ['none', 'completed_with_errors', 'error']
+        if item.get('slicing_status') not in allowed_statuses:
+            return jsonify({"success": False, "error": "Задача на нарезку уже в очереди или была успешно завершена без ошибок."}), 409
+
+        # Получаем главы
+        chapters_json = item.get('chapters')
+        if not chapters_json:
+            return jsonify({"success": False, "error": "Главы не найдены. Сначала получите главы."}), 400
+        
+        chapters_list = json.loads(chapters_json)
+        
+        # Применяем фильтрацию, если указаны индексы
+        if garbage_indices:
+            marked_chapters = ChapterFilter.mark_chapters_manually(chapters_list, garbage_indices)
+            filtered_chapters = [ch for ch in marked_chapters if not ch.get('is_garbage')]
+        else:
+            # Автоматическая фильтрация
+            filtered_chapters = ChapterFilter.filter_chapters(chapters_list)
+        
+        # Проверяем, что количество глав совпадает с ожидаемым
+        expected_count = (item.get('episode_end', 0) - item.get('episode_start', 0) + 1)
+        if len(filtered_chapters) != expected_count:
+            return jsonify({
+                "success": False,
+                "error": f"Количество отфильтрованных глав ({len(filtered_chapters)}) не совпадает с ожидаемым ({expected_count}).",
+                "filtered_chapters": filtered_chapters,
+                "expected_count": expected_count
+            }), 400
+        
+        # Обновляем главы в БД (только отфильтрованные)
+        filtered_chapters_json = json.dumps(filtered_chapters)
+        app.db.update_media_item_chapters(unique_id, filtered_chapters_json)
+        app.db.update_media_item_filtered_chapters(unique_id, filtered_chapters_json)
+        
+        # Удаляем старые записи о файлах и старую задачу
+        deleted_files_count = app.db.delete_sliced_files_for_source(unique_id)
+        if deleted_files_count > 0:
+            app.logger.info("media_api", f"Удалено {deleted_files_count} старых записей о нарезанных файлах для UID {unique_id} перед повторной нарезкой.")
+        
+        app.db.delete_slicing_task_by_uid(unique_id)
+
+        # Создаем новую задачу в очереди и обновляем статус
+        app.db.create_slicing_task(unique_id, item['series_id'])
+        app.db.update_media_item_slicing_status(unique_id, 'pending')
+        
+        app.slicing_agent._broadcast_queue_update()
+        
+        return jsonify({
+            "success": True,
+            "message": "Задача на нарезку с фильтрацией успешно создана.",
+            "filtered_chapters_count": len(filtered_chapters)
+        })
+    except Exception as e:
+        app.logger.error("media_api", f"Ошибка создания задачи на нарезку с фильтрацией для UID {unique_id}: {e}", exc_info=True)
         return jsonify({"success": False, "error": str(e)}), 500

@@ -1,7 +1,7 @@
 // static/js/components/addSeriesModal.js
 
 const AddSeriesModal = {
-  template: `
+    template: `
     <div class="modal fade" ref="addModal" tabindex="-1" aria-labelledby="addModalLabel" aria-hidden="true">
         <div class="modal-dialog modal-xl">
             <div class="modal-content modern-modal" style="max-height: 90vh; display: flex; flex-direction: column;">
@@ -178,6 +178,43 @@ const AddSeriesModal = {
                             </div>
                         </div>
 
+                        <!-- TMDB Widget -->
+                        <div class="modern-fieldset mt-4">
+                            <div class="fieldset-header"><h6 class="fieldset-title mb-0">Синхронизация с TMDB</h6></div>
+                            <div class="fieldset-content">
+                                <div class="input-group mb-3">
+                                    <input type="text" class="form-control" v-model="tmdbSearchQuery" placeholder="Название сериала" @keyup.enter="searchTMDB">
+                                    <button class="btn btn-outline-primary" type="button" @click="searchTMDB" :disabled="tmdbLoading">
+                                        <span v-if="tmdbLoading" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                                        <span v-else><i class="bi bi-search"></i> Найти</span>
+                                    </button>
+                                </div>
+                                
+                                <div v-if="tmdbResults.length > 0" class="list-group mb-3" style="max-height: 200px; overflow-y: auto;">
+                                    <button type="button" class="list-group-item list-group-item-action" 
+                                        v-for="res in tmdbResults" 
+                                        :class="{active: tmdbSelected && tmdbSelected.id === res.id}"
+                                        @click="selectTMDBSeries(res)">
+                                        <div class="d-flex w-100 justify-content-between">
+                                            <h6 class="mb-1">{{ res.name }} <small>({{ res.year }})</small></h6>
+                                            <small>ID: {{ res.id }}</small>
+                                        </div>
+                                        <small>{{ res.original_name }}</small>
+                                    </button>
+                                </div>
+
+                                <div v-if="tmdbSelected" class="alert alert-success d-flex align-items-center">
+                                    <i class="bi bi-check-circle-fill me-2"></i>
+                                    <div class="flex-grow-1">
+                                        Выбран: <strong>{{ tmdbSelected.name }}</strong>
+                                        <br>
+                                        <small>Сезон {{ tmdbSeasonNumber }}: {{ tmdbEpisodeCount }} эпизодов</small>
+                                    </div>
+                                    <button type="button" class="btn-close" @click="clearTMDBSelection"></button>
+                                </div>
+                            </div>
+                        </div>
+
                         <div class="mt-4" v-if="sourceType === 'torrent' && parserData && parserData.torrents.length > 0">
                             <h6>Доступные торренты ({{ parserData.torrents.length }})</h6>
                             <div class="div-table table-site-torrents">
@@ -215,308 +252,402 @@ const AddSeriesModal = {
         </div>
     </div>
   `,
-  data() {
-    return { 
-        modal: null, 
-        // --- ИЗМЕНЕНИЕ: Добавлен vk_search_mode ---
-        newSeries: { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null, vk_search_mode: 'search' }, 
-        isSeasonless: false,
-        urlError: '', 
-        parsing: false, 
-        parsed: false, 
-        site: '', 
-        parserData: null, 
-        episodeQualityOptions: {}, 
-        isQualityOptionsReady: false, 
-        debounceTimeout: null,
-        showValidation: false,
-        sourceType: 'torrent',
-        vkChannelUrl: '',
-        vkQuery: '',
-        parserProfiles: [],
-        trackerInfo: null,
-    };
-  },
-    emits: ['series-added', 'show-toast'],
-  computed: {
-    shouldShowValidation() {
-        // Показываем валидацию если:
-        // 1. Была попытка отправки формы
-        if (this.showValidation) return true; 
-        // 2. Выбран режим VK
-        if (this.sourceType === 'vk_video') return true; 
-        // 3. В режиме торрента URL уже успешно распознан
-        if (this.sourceType === 'torrent' && this.parsed) return true; 
-        
-        return false;
-    },
-    // --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью исправленная логика валидации ---
-    isSeasonValid() { 
-        if (this.isSeasonless || this.sourceType === 'vk_video') return true;
-        return /^s\d{2}$/.test(this.newSeries.season.trim()); 
-    },
-    canAddSeries() { 
-        const isBaseInfoValid = !!this.newSeries.name && !!this.newSeries.name_en && !!this.newSeries.save_path;
-        if (this.sourceType === 'vk_video') {
-            const isVkSpecificValid = !!this.vkChannelUrl && !!this.newSeries.parser_profile_id;
-            const isSearchModeValid = this.newSeries.vk_search_mode === 'search' ? !!this.vkQuery : true;
-            return isBaseInfoValid && isVkSpecificValid && isSearchModeValid;
-        }
-        return this.parsed && isBaseInfoValid && this.isSeasonValid; 
-    },
-    sortedQualityOptionsKeys() {
-        if (!this.site.includes('astar')) return [];
-        return sortEpisodeKeys(Object.keys(this.episodeQualityOptions));
-    },
-    
-    // Вычисляемые свойства для классов валидации
-    urlValidationClasses() {
-        if (!this.shouldShowValidation) return {};
-
-        // Если парсер вернул явную ошибку, поле невалидно
-        if (this.urlError) {
-            return { 'is-valid': false, 'is-invalid': true };
-        }
-
-        let isValid = false;
-        if (this.sourceType === 'vk_video') {
-            // В режиме VK поле URL считается валидным, если из него удалось извлечь ссылку на канал.
-            // Валидность поискового запроса проверяется в его собственном поле.
-            isValid = !!this.vkChannelUrl;
-        } else { // В режиме торрента
-            isValid = this.parsed;
-        }
-        
-        return { 'is-valid': isValid, 'is-invalid': !isValid };
-    },
-    vkChannelUrlClasses() {
-        if (!this.shouldShowValidation) return {};
-        return { 'is-valid': !!this.vkChannelUrl, 'is-invalid': !this.vkChannelUrl };
-    },
-    vkQueryClasses() {
-        if (!this.shouldShowValidation || this.newSeries.vk_search_mode !== 'search') return {};
-        return { 'is-valid': !!this.vkQuery, 'is-invalid': !this.vkQuery };
-    },
-    parserProfileClasses() {
-        if (!this.shouldShowValidation) return {};
-        return { 'is-valid': !!this.newSeries.parser_profile_id, 'is-invalid': !this.newSeries.parser_profile_id };
-    },
-    nameClasses() {
-        if (!this.shouldShowValidation) return {};
-        return { 'is-valid': !!this.newSeries.name, 'is-invalid': !this.newSeries.name };
-    },
-    nameEnClasses() {
-        if (!this.shouldShowValidation) return {};
-        return { 'is-valid': !!this.newSeries.name_en, 'is-invalid': !this.newSeries.name_en };
-    },
-    savePathClasses() {
-        if (!this.shouldShowValidation) return {};
-        return { 'is-valid': !!this.newSeries.save_path, 'is-invalid': !this.newSeries.save_path };
-    },
-    seasonClasses() {
-        if (!this.shouldShowValidation || this.isSeasonless || this.sourceType === 'vk_video') return {};
-        return { 'is-valid': this.isSeasonValid, 'is-invalid': !this.isSeasonValid };
-    },
-     // Для выпадающих списков
-    parserProfileOptions() {
-        const options = this.parserProfiles.map(p => ({ text: p.name, value: p.id }));
-        return [{ text: 'Выберите профиль...', value: null }, ...options];
-    },
-    qualityOptionsAnilibria() {
-         if (!this.episodeQualityOptions.all) return [];
-         return this.episodeQualityOptions.all.map(q => ({ text: q, value: q }));
-    },
-    // --- КОНЕЦ ИЗМЕНЕНИЙ ---
-  },
-  methods: {
-    async open() {
-      this.newSeries = { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null, vk_search_mode: 'search' };
-      this.isSeasonless = false;
-      this.urlError = ''; 
-      this.parsing = false; 
-      this.parsed = false; 
-      this.site = '';
-      this.parserData = null; 
-      this.episodeQualityOptions = {}; 
-      this.isQualityOptionsReady = false;
-      this.showValidation = false;
-      this.sourceType = 'torrent';
-      this.vkChannelUrl = '';
-      this.vkQuery = '';
-      this.parserProfiles = [];
-      
-      if (!this.modal) { this.modal = new bootstrap.Modal(this.$refs.addModal); }
-      this.modal.show();
-      await this.loadParserProfiles();
-    },
-    close() { this.modal.hide(); },
-    async loadParserProfiles() {
-        try {
-            const response = await fetch('/api/parser-profiles');
-            if (!response.ok) throw new Error('Ошибка загрузки профилей парсера');
-            this.parserProfiles = await response.json();
-        } catch (error) {
-            this.$emit('show-toast', error.message, 'danger');
-        }
-    },
-    autoCorrectSlash(event, modelKey, fieldKey = null) {
-        const start = event.target.selectionStart;
-        const correctedValue = event.target.value.replace(/\\/g, '/');
-    
-        if (fieldKey) {
-            this[modelKey][fieldKey] = correctedValue;
-        } else {
-            this[modelKey] = correctedValue;
-        }
-    
-        this.$nextTick(() => {
-            event.target.value = correctedValue;
-            event.target.setSelectionRange(start, start);
-    });
-    },
-
-    debounceParseUrl() {
-        clearTimeout(this.debounceTimeout);
-        this.debounceTimeout = setTimeout(() => { this.handleUrlInput(); }, 500);
-    },
-    handleUrlInput() {
-        this.urlError = '';
-        this.parsed = false;
-        if (!this.newSeries.url) {
-            this.sourceType = 'torrent';
-            return;
+    data() {
+        return {
+            modal: null,
+            // --- ИЗМЕНЕНИЕ: Добавлен vk_search_mode ---
+            newSeries: { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null, vk_search_mode: 'search' },
+            isSeasonless: false,
+            urlError: '',
+            parsing: false,
+            parsed: false,
+            site: '',
+            parserData: null,
+            episodeQualityOptions: {},
+            isQualityOptionsReady: false,
+            debounceTimeout: null,
+            showValidation: false,
+            sourceType: 'torrent',
+            vkChannelUrl: '',
+            vkQuery: '',
+            parserProfiles: [],
+            trackerInfo: null,
+            // --- TMDB DATA ---
+            tmdbSearchQuery: '',
+            tmdbResults: [],
+            tmdbSelected: null,
+            tmdbLoading: false,
+            tmdbEpisodeCount: 0,
+            tmdbSeasonDetails: [],
         };
-
-        if (this.newSeries.url.includes('vkvideo.ru')) {
-            this.sourceType = 'vk_video';
-            this.parsed = false;
-            try {
-                const url = new URL(this.newSeries.url);
-                this.vkChannelUrl = `${url.protocol}//${url.hostname}${url.pathname}`;
-                this.vkQuery = url.searchParams.get('q') || '';
-            } catch(e) {
-                this.urlError = 'Некорректный URL для VK Video';
-                this.vkChannelUrl = '';
-                this.vkQuery = '';
-            }
-        } else {
-            this.sourceType = 'torrent';
-            this.parseTorrentUrl();
-        }
     },
-    async parseTorrentUrl() {
-        this.parsing = true;
-        try {
-            const urlObject = new URL(this.newSeries.url);
-            this.site = urlObject.hostname.replace(/^(www\.)/g, '');
-        } catch (e) {
-            this.urlError = 'Некорректный URL';
+    emits: ['series-added', 'show-toast'],
+    computed: {
+        shouldShowValidation() {
+            // Показываем валидацию если:
+            // 1. Была попытка отправки формы
+            if (this.showValidation) return true;
+            // 2. Выбран режим VK
+            if (this.sourceType === 'vk_video') return true;
+            // 3. В режиме торрента URL уже успешно распознан
+            if (this.sourceType === 'torrent' && this.parsed) return true;
+
+            return false;
+        },
+        // --- НАЧАЛО ИЗМЕНЕНИЙ: Полностью исправленная логика валидации ---
+        isSeasonValid() {
+            if (this.isSeasonless || this.sourceType === 'vk_video') return true;
+            return /^s\d{2}$/.test(this.newSeries.season.trim());
+        },
+        canAddSeries() {
+            const isBaseInfoValid = !!this.newSeries.name && !!this.newSeries.name_en && !!this.newSeries.save_path;
+            if (this.sourceType === 'vk_video') {
+                const isVkSpecificValid = !!this.vkChannelUrl && !!this.newSeries.parser_profile_id;
+                const isSearchModeValid = this.newSeries.vk_search_mode === 'search' ? !!this.vkQuery : true;
+                return isBaseInfoValid && isVkSpecificValid && isSearchModeValid;
+            }
+            return this.parsed && isBaseInfoValid && this.isSeasonValid;
+        },
+        sortedQualityOptionsKeys() {
+            if (!this.site.includes('astar')) return [];
+            return sortEpisodeKeys(Object.keys(this.episodeQualityOptions));
+        },
+        tmdbSeasonNumber() {
+            if (this.isSeasonless) return 1;
+            const match = this.newSeries.season.match(/^s(\d+)$/i);
+            return match ? parseInt(match[1], 10) : 1;
+        },
+
+        // Вычисляемые свойства для классов валидации
+        urlValidationClasses() {
+            if (!this.shouldShowValidation) return {};
+
+            // Если парсер вернул явную ошибку, поле невалидно
+            if (this.urlError) {
+                return { 'is-valid': false, 'is-invalid': true };
+            }
+
+            let isValid = false;
+            if (this.sourceType === 'vk_video') {
+                // В режиме VK поле URL считается валидным, если из него удалось извлечь ссылку на канал.
+                // Валидность поискового запроса проверяется в его собственном поле.
+                isValid = !!this.vkChannelUrl;
+            } else { // В режиме торрента
+                isValid = this.parsed;
+            }
+
+            return { 'is-valid': isValid, 'is-invalid': !isValid };
+        },
+        vkChannelUrlClasses() {
+            if (!this.shouldShowValidation) return {};
+            return { 'is-valid': !!this.vkChannelUrl, 'is-invalid': !this.vkChannelUrl };
+        },
+        vkQueryClasses() {
+            if (!this.shouldShowValidation || this.newSeries.vk_search_mode !== 'search') return {};
+            return { 'is-valid': !!this.vkQuery, 'is-invalid': !this.vkQuery };
+        },
+        parserProfileClasses() {
+            if (!this.shouldShowValidation) return {};
+            return { 'is-valid': !!this.newSeries.parser_profile_id, 'is-invalid': !this.newSeries.parser_profile_id };
+        },
+        nameClasses() {
+            if (!this.shouldShowValidation) return {};
+            return { 'is-valid': !!this.newSeries.name, 'is-invalid': !this.newSeries.name };
+        },
+        nameEnClasses() {
+            if (!this.shouldShowValidation) return {};
+            return { 'is-valid': !!this.newSeries.name_en, 'is-invalid': !this.newSeries.name_en };
+        },
+        savePathClasses() {
+            if (!this.shouldShowValidation) return {};
+            return { 'is-valid': !!this.newSeries.save_path, 'is-invalid': !this.newSeries.save_path };
+        },
+        seasonClasses() {
+            if (!this.shouldShowValidation || this.isSeasonless || this.sourceType === 'vk_video') return {};
+            return { 'is-valid': this.isSeasonValid, 'is-invalid': !this.isSeasonValid };
+        },
+        // Для выпадающих списков
+        parserProfileOptions() {
+            const options = this.parserProfiles.map(p => ({ text: p.name, value: p.id }));
+            return [{ text: 'Выберите профиль...', value: null }, ...options];
+        },
+        qualityOptionsAnilibria() {
+            if (!this.episodeQualityOptions.all) return [];
+            return this.episodeQualityOptions.all.map(q => ({ text: q, value: q }));
+        },
+        // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+    },
+    methods: {
+        async open() {
+            this.newSeries = { url: '', save_path: '', name: '', name_en: '', season: 's01', qualityByEpisodes: {}, parser_profile_id: null, vk_search_mode: 'search' };
+            this.isSeasonless = false;
+            this.urlError = '';
             this.parsing = false;
-            return;
-        }
-        try {
-            const response = await fetch('/api/parse_url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: this.newSeries.url }) });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Ошибка парсинга URL');
-            
-            this.trackerInfo = data.tracker_info;
+            this.parsed = false;
+            this.site = '';
+            this.parserData = null;
+            this.episodeQualityOptions = {};
+            this.isQualityOptionsReady = false;
+            this.showValidation = false;
+            this.sourceType = 'torrent';
+            this.vkChannelUrl = '';
+            this.vkQuery = '';
+            this.parserProfiles = [];
+            // --- TMDB RESET ---
+            this.tmdbSearchQuery = '';
+            this.tmdbResults = [];
+            this.tmdbSelected = null;
+            this.tmdbLoading = false;
+            this.tmdbEpisodeCount = 0;
+            this.tmdbSeasonDetails = [];
 
-            this.newSeries.name = data.title.ru || '';
-            this.newSeries.name_en = data.title.en || '';
-            this.parserData = data;
-            Object.keys(this.episodeQualityOptions).forEach(key => delete this.episodeQualityOptions[key]);
-            Object.keys(this.newSeries.qualityByEpisodes).forEach(key => delete this.newSeries.qualityByEpisodes[key]);
-            
-            if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
-                this.episodeQualityOptions.all = [...new Set(data.torrents.filter(t => t.quality).map(t => t.quality))];
-                this.newSeries.qualityByEpisodes.all = this.episodeQualityOptions.all[0] || '';
-            } else if (this.site.includes('astar')) {
-                const episodeVersions = {};
-                data.torrents.forEach(t => {
-                    if (t.episodes) {
-                        if (!episodeVersions[t.episodes]) episodeVersions[t.episodes] = [];
-                        if (t.quality) episodeVersions[t.episodes].push(t.quality);
-                    }
-                });
-                Object.assign(this.episodeQualityOptions, episodeVersions);
-                this.sortedQualityOptionsKeys.forEach(episodes => {
-                    const options = this.episodeQualityOptions[episodes];
-                    this.newSeries.qualityByEpisodes[episodes] = options.find(q => q !== 'old') || options[0] || '';
-                });
-            } else if (this.site.includes('rutracker')) {
-                // Для RuTracker также может быть доступна информация о качестве
-                this.episodeQualityOptions.all = [...new Set(data.torrents.filter(t => t.quality).map(t => t.quality))];
-                if (this.episodeQualityOptions.all.length > 0) {
-                    this.newSeries.qualityByEpisodes.all = this.episodeQualityOptions.all[0] || '';
-                }
+            if (!this.modal) { this.modal = new bootstrap.Modal(this.$refs.addModal); }
+            this.modal.show();
+            await this.loadParserProfiles();
+        },
+        close() { this.modal.hide(); },
+        async loadParserProfiles() {
+            try {
+                const response = await fetch('/api/parser-profiles');
+                if (!response.ok) throw new Error('Ошибка загрузки профилей парсера');
+                this.parserProfiles = await response.json();
+            } catch (error) {
+                this.$emit('show-toast', error.message, 'danger');
             }
-            this.isQualityOptionsReady = true;
-            this.parsed = true;
-            this.showValidation = true;
-        } catch (error) {
-            this.urlError = error.message;
-            // Даже при ошибке парсинга, если домен определен как торрент-трекер, мы все равно показываем поля
-            // Оставляем this.parsed = false, но не скрываем форму
-        } finally { this.parsing = false; }
-    },
-    async addSeries() {
-        this.showValidation = true;
-        if (!this.canAddSeries) {
-            this.$emit('show-toast', 'Пожалуйста, заполните все обязательные поля корректно.', 'danger');
-            return;
-        }
+        },
+        autoCorrectSlash(event, modelKey, fieldKey = null) {
+            const start = event.target.selectionStart;
+            const correctedValue = event.target.value.replace(/\\/g, '/');
 
-        try {
-            let qualityString = '';
-            let payload = {
-                ...this.newSeries,
-                site: this.site,
-                season: this.isSeasonless ? '' : this.newSeries.season,
+            if (fieldKey) {
+                this[modelKey][fieldKey] = correctedValue;
+            } else {
+                this[modelKey] = correctedValue;
+            }
+
+            this.$nextTick(() => {
+                event.target.value = correctedValue;
+                event.target.setSelectionRange(start, start);
+            });
+        },
+
+        debounceParseUrl() {
+            clearTimeout(this.debounceTimeout);
+            this.debounceTimeout = setTimeout(() => { this.handleUrlInput(); }, 500);
+        },
+        handleUrlInput() {
+            this.urlError = '';
+            this.parsed = false;
+            if (!this.newSeries.url) {
+                this.sourceType = 'torrent';
+                return;
             };
 
-            if (this.sourceType === 'vk_video') {
-                payload.source_type = 'vk_video';
-                payload.url = `${this.vkChannelUrl}|${this.vkQuery}`;
-                payload.site = 'vkvideo.ru';
-                // --- ИЗМЕНЕНИЕ: vk_search_mode уже есть в payload из newSeries ---
-            } else {
-                payload.source_type = 'torrent';
-                if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
-                    qualityString = this.newSeries.qualityByEpisodes.all;
-                } else if (this.site.includes('astar')) {
-                    const qualitiesToSave = this.sortedQualityOptionsKeys
-                        .filter(episodes => this.episodeQualityOptions[episodes].length > 1)
-                        .map(episodes => this.newSeries.qualityByEpisodes[episodes]);
-                    
-                    const singleVersionQualities = new Set(
-                        this.sortedQualityOptionsKeys
-                            .filter(episodes => this.episodeQualityOptions[episodes].length === 1)
-                            .map(episodes => this.episodeQualityOptions[episodes][0])
-                    );
-                    qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
-                } else if (this.site.includes('rutracker')) {
-                    // Для RuTracker сохраняем выбранное качество, если оно есть
-                    qualityString = this.newSeries.qualityByEpisodes.all || '';
+            if (this.newSeries.url.includes('vkvideo.ru')) {
+                this.sourceType = 'vk_video';
+                this.parsed = false;
+                try {
+                    const url = new URL(this.newSeries.url);
+                    this.vkChannelUrl = `${url.protocol}//${url.hostname}${url.pathname}`;
+                    this.vkQuery = url.searchParams.get('q') || '';
+                } catch (e) {
+                    this.urlError = 'Некорректный URL для VK Video';
+                    this.vkChannelUrl = '';
+                    this.vkQuery = '';
                 }
-                payload.quality = qualityString;
-                payload.torrents = this.parserData ? this.parserData.torrents : [];
+            } else {
+                this.sourceType = 'torrent';
+                this.parseTorrentUrl();
             }
-            
-            const response = await fetch('/api/series', { 
-                method: 'POST', 
-                headers: { 'Content-Type': 'application/json' }, 
-                body: JSON.stringify(payload) 
-            });
-            const data = await response.json();
-            if (!response.ok) throw new Error(data.error || 'Ошибка добавления сериала');
-            
-            this.$emit('series-added');
-            this.$emit('show-toast', 'Сериал успешно добавлен', 'success');
-            this.close();
-        } catch (error) { 
-            this.urlError = error.message; 
-            this.$emit('show-toast', error.message, 'danger');
+        },
+        async parseTorrentUrl() {
+            this.parsing = true;
+            try {
+                const urlObject = new URL(this.newSeries.url);
+                this.site = urlObject.hostname.replace(/^(www\.)/g, '');
+            } catch (e) {
+                this.urlError = 'Некорректный URL';
+                this.parsing = false;
+                return;
+            }
+            try {
+                const response = await fetch('/api/parse_url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: this.newSeries.url }) });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Ошибка парсинга URL');
+
+                this.trackerInfo = data.tracker_info;
+
+                this.newSeries.name = data.title.ru || '';
+                this.newSeries.name_en = data.title.en || '';
+                this.parserData = data;
+                Object.keys(this.episodeQualityOptions).forEach(key => delete this.episodeQualityOptions[key]);
+                Object.keys(this.newSeries.qualityByEpisodes).forEach(key => delete this.newSeries.qualityByEpisodes[key]);
+
+                if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
+                    this.episodeQualityOptions.all = [...new Set(data.torrents.filter(t => t.quality).map(t => t.quality))];
+                    this.newSeries.qualityByEpisodes.all = this.episodeQualityOptions.all[0] || '';
+                } else if (this.site.includes('astar')) {
+                    const episodeVersions = {};
+                    data.torrents.forEach(t => {
+                        if (t.episodes) {
+                            if (!episodeVersions[t.episodes]) episodeVersions[t.episodes] = [];
+                            if (t.quality) episodeVersions[t.episodes].push(t.quality);
+                        }
+                    });
+                    Object.assign(this.episodeQualityOptions, episodeVersions);
+                    this.sortedQualityOptionsKeys.forEach(episodes => {
+                        const options = this.episodeQualityOptions[episodes];
+                        this.newSeries.qualityByEpisodes[episodes] = options.find(q => q !== 'old') || options[0] || '';
+                    });
+                } else if (this.site.includes('rutracker')) {
+                    // Для RuTracker также может быть доступна информация о качестве
+                    this.episodeQualityOptions.all = [...new Set(data.torrents.filter(t => t.quality).map(t => t.quality))];
+                    if (this.episodeQualityOptions.all.length > 0) {
+                        this.newSeries.qualityByEpisodes.all = this.episodeQualityOptions.all[0] || '';
+                    }
+                }
+                this.isQualityOptionsReady = true;
+                this.parsed = true;
+                this.showValidation = true;
+            } catch (error) {
+                this.urlError = error.message;
+                // Даже при ошибке парсинга, если домен определен как торрент-трекер, мы все равно показываем поля
+                // Оставляем this.parsed = false, но не скрываем форму
+            } finally { this.parsing = false; }
+        },
+        async addSeries() {
+            this.showValidation = true;
+            if (!this.canAddSeries) {
+                this.$emit('show-toast', 'Пожалуйста, заполните все обязательные поля корректно.', 'danger');
+                return;
+            }
+
+            try {
+                let qualityString = '';
+                let payload = {
+                    ...this.newSeries,
+                    site: this.site,
+                    season: this.isSeasonless ? '' : this.newSeries.season,
+                };
+
+                // --- TMDB Payload ---
+                if (this.tmdbSelected) {
+                    payload.tmdb_data = {
+                        tmdb_id: this.tmdbSelected.id,
+                        tmdb_season_number: this.tmdbSeasonNumber,
+                        total_episodes: this.tmdbEpisodeCount,
+                        poster_path: this.tmdbSelected.poster_path,
+                        series_name: this.tmdbSelected.name
+                    };
+                }
+
+                if (this.sourceType === 'vk_video') {
+                    payload.source_type = 'vk_video';
+                    payload.url = `${this.vkChannelUrl}|${this.vkQuery}`;
+                    payload.site = 'vkvideo.ru';
+                    // --- ИЗМЕНЕНИЕ: vk_search_mode уже есть в payload из newSeries ---
+                } else {
+                    payload.source_type = 'torrent';
+                    if (this.site.includes('anilibria') || this.site.includes('aniliberty')) {
+                        qualityString = this.newSeries.qualityByEpisodes.all;
+                    } else if (this.site.includes('astar')) {
+                        const qualitiesToSave = this.sortedQualityOptionsKeys
+                            .filter(episodes => this.episodeQualityOptions[episodes].length > 1)
+                            .map(episodes => this.newSeries.qualityByEpisodes[episodes]);
+
+                        const singleVersionQualities = new Set(
+                            this.sortedQualityOptionsKeys
+                                .filter(episodes => this.episodeQualityOptions[episodes].length === 1)
+                                .map(episodes => this.episodeQualityOptions[episodes][0])
+                        );
+                        qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
+                    } else if (this.site.includes('rutracker')) {
+                        // Для RuTracker сохраняем выбранное качество, если оно есть
+                        qualityString = this.newSeries.qualityByEpisodes.all || '';
+                    }
+                    payload.quality = qualityString;
+                    payload.torrents = this.parserData ? this.parserData.torrents : [];
+                }
+
+                const response = await fetch('/api/series', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+                const data = await response.json();
+                if (!response.ok) throw new Error(data.error || 'Ошибка добавления сериала');
+
+                this.$emit('series-added');
+                this.$emit('show-toast', 'Сериал успешно добавлен', 'success');
+                this.close();
+            } catch (error) {
+                this.urlError = error.message;
+                this.$emit('show-toast', error.message, 'danger');
+            }
+        },
+        // --- TMDB Methods ---
+        async searchTMDB() {
+            if (!this.tmdbSearchQuery) {
+                // Если пусто, пробуем подставить текущее название
+                this.tmdbSearchQuery = this.newSeries.name || this.newSeries.name_en;
+            }
+            if (!this.tmdbSearchQuery) return;
+
+            this.tmdbLoading = true;
+            this.tmdbResults = [];
+            try {
+                const response = await fetch('/api/tmdb/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: this.tmdbSearchQuery })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    this.tmdbResults = data.results;
+                } else {
+                    console.error("TMDB Search Error:", data.error);
+                    this.$emit('show-toast', `Ошибка поиска TMDB: ${data.error}`, 'warning');
+                }
+            } catch (error) {
+                console.error("TMDB Search Error:", error);
+            } finally {
+                this.tmdbLoading = false;
+            }
+        },
+        async selectTMDBSeries(series) {
+            this.tmdbSelected = series;
+            // Загружаем детали для получения сезонов
+            try {
+                const response = await fetch(`/api/tmdb/details/${series.id}`);
+                const data = await response.json();
+                if (data.success) {
+                    this.tmdbSeasonDetails = data.seasons;
+                    this.updateTMDBEpisodeCount();
+                }
+            } catch (error) {
+                console.error("TMDB Details Error:", error);
+            }
+        },
+        clearTMDBSelection() {
+            this.tmdbSelected = null;
+            this.tmdbSeasonDetails = [];
+            this.tmdbEpisodeCount = 0;
+        },
+        updateTMDBEpisodeCount() {
+            if (!this.tmdbSelected || !this.tmdbSeasonDetails.length) return;
+
+            const season = this.tmdbSeasonDetails.find(s => s.season_number === this.tmdbSeasonNumber);
+            this.tmdbEpisodeCount = season ? season.episode_count : 0;
+        }
+    },
+    watch: {
+        'newSeries.season': function () {
+            this.updateTMDBEpisodeCount();
+        },
+        'newSeries.name': function (val) {
+            if (!this.tmdbSearchQuery && !this.tmdbSelected) {
+                this.tmdbSearchQuery = val;
+            }
         }
     }
-  }
 };

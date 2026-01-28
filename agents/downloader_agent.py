@@ -86,6 +86,9 @@ class DownloaderAgent(threading.Thread):
                     self.db.update_media_item_download_status(unique_id, 'completed')
                     self.db.delete_download_task(task_id)
                     self.db.update_series(series_id, {'last_scan_time': datetime.now(timezone.utc)})
+                    
+                    # Синхронизируем статусы VK-сериала после успешной загрузки
+                    self.status_manager.sync_vk_statuses(series_id)
                 else:
                     self.db.update_download_task_status(task_id, 'error', error_message=error_msg)
                     self.db.update_media_item_download_status(unique_id, 'error')

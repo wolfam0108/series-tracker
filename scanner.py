@@ -21,7 +21,9 @@ from filename_formatter import FilenameFormatter
 from status_manager import StatusManager
 from logic.task_creator import create_renaming_tasks_for_series
 from logic.metadata_processor import build_final_metadata
+from logic.metadata_processor import build_final_metadata
 from utils.tracker_resolver import TrackerResolver
+from utils.tmdb_client import TMDBClient
 
 def generate_torrent_id(link, date_time):
     """Генерирует уникальный ID для торрента на основе его ссылки и даты."""
@@ -58,6 +60,32 @@ def perform_series_scan(series_id: int, status_manager: StatusManager, flask_app
         status_manager.set_status(series_id, 'scanning', True)
 
         try:
+            # --- ЭТАП 0: СИНХРОНИЗАЦИЯ С TMDB (Best Effort, Throttled) ---
+            try:
+                tmdb_client = TMDBClient(flask_app.db, flask_app.logger)
+                if tmdb_client.token:
+                    current_mapping = flask_app.db.get_tmdb_mapping(series_id)
+                    
+                    # 1. Если привязки нет - НЕ ищем автоматически при каждом сканировании.
+                    # Это слишком накладно и замедляет старт. 
+                    # Пользователь теперь может привязать вручную через виджет.
+                    # Можно добавить логику "первого сканирования", но пока просто пропускаем.
+                    
+                    # 2. Если привязка есть - обновляем данные
+                    # Строго в рамках процесса сканирования (по расписанию или вручную), без самодеятельности с таймерами.
+                    if current_mapping:
+                        # Обновляем кол-во эпизодов
+                        ep_count = tmdb_client.get_season_episode_count(current_mapping['tmdb_id'], current_mapping['tmdb_season_number'])
+                        if ep_count > 0: # Даже если кол-во не изменилось, обновляем last_updated
+                            flask_app.db.add_or_update_tmdb_mapping(series_id, {'total_episodes': ep_count})
+                            flask_app.logger.info("scanner", f"TMDB: Обновление данных для ID {series_id}. Эпизодов: {ep_count}")
+
+            except Exception as e:
+                flask_app.logger.error("scanner", f"Ошибка при синхронизации TMDB для series_id {series_id}: {e}")
+
+            except Exception as e:
+                flask_app.logger.error("scanner", f"Ошибка при синхронизации TMDB для series_id {series_id}: {e}") # Не прерываем основное сканирование
+            
             # --- ЭТАП 1: ЗАПУСК ЗАДАЧИ НА ПЕРЕОБРАБОТКУ (если необходимо) ---
             task_type = 'mass_torrent_reprocess' if series['source_type'] == 'torrent' else 'mass_vk_reprocess'
             task_data = {'series_id': series_id, 'task_type': task_type}

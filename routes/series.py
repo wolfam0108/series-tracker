@@ -34,7 +34,18 @@ def get_series():
             s['last_scan_time'] = s['last_scan_time'].isoformat()
         # Добавляем новый ОБЩИЙ флаг занятости
         s['is_busy'] = s['id'] in busy_ids
-            
+        
+        # --- TMDB INFO ---
+        tmdb_info = app.db.get_tmdb_mapping(s['id'])
+        if tmdb_info:
+             if tmdb_info.get('last_updated'):
+                  tmdb_info['last_updated'] = tmdb_info['last_updated'].isoformat()
+             s['tmdb_info'] = tmdb_info
+        else:
+             s['tmdb_info'] = None
+
+        s['downloaded_episodes_count'] = app.db.get_downloaded_episode_count(s['id'])
+
     return jsonify(series_list)
 
 @series_bp.route('', methods=['POST'])
@@ -43,6 +54,10 @@ def add_series():
     app.logger.info("series_api", f"Добавление нового сериала: {data.get('name')}")
     series_id = app.db.add_series(data)
     
+    # --- TMDB INTEGRATION ---
+    if tmdb_data := data.get('tmdb_data'):
+        app.db.add_or_update_tmdb_mapping(series_id, tmdb_data)
+        
     if data.get('source_type', 'torrent') == 'torrent':
         if torrents := data.get('torrents'):
             for torrent in torrents:
@@ -75,6 +90,15 @@ def get_series_details(series_id):
             resolver = TrackerResolver(app.db)
             tracker_info = resolver.get_tracker_by_url(series['url'])
             series['tracker_info'] = tracker_info
+
+        # --- TMDB INFO ---
+        tmdb_info = app.db.get_tmdb_mapping(series_id)
+        if tmdb_info:
+             if tmdb_info.get('last_updated'):
+                 tmdb_info['last_updated'] = tmdb_info['last_updated'].isoformat()
+             series['tmdb_info'] = tmdb_info
+        else:
+             series['tmdb_info'] = None
         
     return jsonify(series) if series else (jsonify({"error": "Сериал не найден"}), 404)
 
@@ -423,6 +447,11 @@ def update_series(series_id):
         payload.pop('last_scan_time', None)
         # Исключаем только save_path и last_scan_time, но оставляем season для корректной обработки многосезонности
         app.db.update_series(series_id, payload)
+        
+        # --- TMDB UPDATE ---
+        if tmdb_data := data.get('tmdb_data'):
+            app.db.add_or_update_tmdb_mapping(series_id, tmdb_data)
+
         app.logger.info("series_api", f"Базовые свойства для series_id {series_id} обновлены.")
 
         # --- ШАГ 2: Создаем задачу на перемещение (если путь изменился) ---

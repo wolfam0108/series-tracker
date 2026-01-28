@@ -62,7 +62,18 @@ class SlicingAgent(threading.Thread):
             
             # Собираем абсолютный путь для работы с файловой системой
             absolute_source_file = os.path.join(series['save_path'], relative_source_file)
-            chapters = json.loads(media_item['chapters'])
+            
+            # Используем отфильтрованные главы, если они есть, иначе оригинальные
+            chapters_json = media_item.get('chapters_filtered') or media_item.get('chapters')
+            chapters = json.loads(chapters_json)
+            
+            # Логируем информацию о главах перед нарезкой
+            self.logger.info("slicing_agent", f"Начинаем нарезку для UID {unique_id}. Глав в файле: {len(chapters)}")
+            for i, chapter in enumerate(chapters):
+                is_garbage = chapter.get('is_garbage', False)
+                reason = chapter.get('garbage_reason', '')
+                status = "МУСОР" if is_garbage else "АКТИВНАЯ"
+                self.logger.info("slicing_agent", f"Глава {i+1}: {chapter['time']} - {chapter['title']} [{status}]{' (' + reason + ')' if reason else ''}")
             
             if not os.path.exists(absolute_source_file):
                 raise FileNotFoundError(f"Исходный файл не найден по абсолютному пути: {absolute_source_file}")
@@ -101,6 +112,11 @@ class SlicingAgent(threading.Thread):
             ffmpeg_executable = get_executable_path('ffmpeg')
 
             for i, chapter in enumerate(chapters):
+                # Пропускаем мусорные главы
+                if chapter.get('is_garbage', False):
+                    self.logger.info("slicing_agent", f"Пропускаем мусорную главу {i+1}: {chapter['title']}")
+                    continue
+                
                 episode_number = media_item['episode_start'] + i
                 if progress.get(str(episode_number)) == 'completed':
                     continue
@@ -147,6 +163,9 @@ class SlicingAgent(threading.Thread):
             self.db.update_media_item_slicing_status(unique_id, 'completed')
             self.db.set_media_item_ignored_status_by_uid(unique_id, True)
             self.logger.info("slicing_agent", f"Компиляция {unique_id} помечена как обработанная и игнорируемая.")
+            
+            # Синхронизируем статусы VK-сериала после завершения нарезки
+            self.status_manager.sync_vk_statuses(series_id)
 
             delete_source_enabled = self.db.get_setting('slicing_delete_source_file', 'false') == 'true'
             if delete_source_enabled:
@@ -166,6 +185,9 @@ class SlicingAgent(threading.Thread):
             self.db.update_slicing_task(task_id, {'status': 'error', 'error_message': str(e)})
             self.db.update_media_item_slicing_status(unique_id, 'error')
             self.status_manager.set_status(series_id, 'error', True)
+            
+            # Синхронизируем статусы VK-сериала после ошибки
+            self.status_manager.sync_vk_statuses(series_id)
         finally:
             self.status_manager.set_status(series_id, 'slicing', False)
             self._broadcast_queue_update()

@@ -61,7 +61,8 @@ def get_all_auth():
         "qbittorrent": app.db.get_auth("qbittorrent"),
         "kinozal": app.db.get_auth("kinozal"),
         "vk": app.db.get_auth("vk"),
-        "rutracker": app.db.get_auth("rutracker")
+        "rutracker": app.db.get_auth("rutracker"),
+        "tmdb": {"token": app.db.get_setting("tmdb_token", "")}
     })
 
 @settings_bp.route('/auth', methods=['POST'])
@@ -76,6 +77,8 @@ def save_all_auth():
             app.db.add_auth('vk', username='vk_token', password=vk_data.get('token'))
         if rutracker_data := data.get('rutracker'):
             app.db.add_auth('rutracker', rutracker_data.get('username'), rutracker_data.get('password'))
+        if tmdb_data := data.get('tmdb'):
+            app.db.set_setting('tmdb_token', tmdb_data.get('token', ''))
         return jsonify({"success": True})
     except Exception as e:
         app.logger.error("auth_api", "Ошибка сохранения данных авторизации", exc_info=True)

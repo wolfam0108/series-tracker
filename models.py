@@ -1,6 +1,6 @@
 from datetime import datetime, timezone
 from sqlalchemy import Column, Integer, Text, Boolean, ForeignKey, DateTime, func, Float
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import declarative_base, relationship, backref
 
 Base = declarative_base()
 
@@ -147,6 +147,7 @@ class MediaItem(Base):
     final_filename = Column(Text, nullable=True)
     
     chapters = Column(Text, nullable=True) # Поле для хранения глав в формате JSON
+    chapters_filtered = Column(Text, nullable=True) # Поле для хранения отфильтрованных глав в формате JSON
     slicing_status = Column(Text, default='none', nullable=False) # none, pending, slicing, completed, error
     is_available = Column(Boolean, default=True, nullable=False)
 
@@ -247,3 +248,15 @@ class Tracker(Base):
     parser_class = Column(Text, nullable=False) # Имя класса-парсера
     auth_type = Column(Text, default='none', nullable=False)
     ui_features = Column(Text, default='{}') # JSON-объект с флагами для UI
+
+class SeriesTMDB(Base):
+    __tablename__ = 'series_tmdb_mappings'
+    series_id = Column(Integer, ForeignKey('series.id'), primary_key=True)
+    tmdb_id = Column(Integer, nullable=False)
+    tmdb_season_number = Column(Integer, nullable=False)
+    total_episodes = Column(Integer, default=0)
+    last_updated = Column(DateTime, default=lambda: datetime.now(timezone.utc))
+    poster_path = Column(Text, nullable=True)
+    series_name = Column(Text, nullable=True) # Название из TMDB для сверки
+    
+    series = relationship("Series", backref=backref("tmdb_info", uselist=False, cascade="all, delete-orphan"))

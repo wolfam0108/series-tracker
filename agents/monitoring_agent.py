@@ -330,7 +330,8 @@ class MonitoringAgent(threading.Thread):
             self.logger.info("monitoring_agent", "Выполнение первоначальной проверки статусов файлов...")
             self._periodic_filesystem_sync()
             self.logger.info("monitoring_agent", "Первоначальная проверка завершена.")
-            self.handle_startup_scan()
+            self.logger.info("monitoring_agent", "Первоначальная проверка завершена.")
+            # self.handle_startup_scan() # Отключено по запросу пользователя: никаких сканирований при старте
 
         while not self.shutdown_flag.is_set():
             # Ожидаем сигнала на остановку или таймаута

@@ -14,7 +14,7 @@ from models import (
     Torrent, Setting, AgentTask, ScanTask,
     ParserProfile, ParserRule, ParserRuleCondition, MediaItem, DownloadTask,
     SlicingTask, SlicedFile, TorrentFile, RelocationTask,
-    RenamingTask, Tracker
+    RenamingTask, Tracker, SeriesTMDB
 )
 
 class Database:
@@ -31,6 +31,7 @@ class Database:
             self._debug_check_and_migrate_tables_individually()
         
         self._run_path_migration_if_needed()
+        self._run_chapters_filter_migration_if_needed()
 
         self._seed_trackers_if_empty()
 
@@ -215,8 +216,12 @@ class Database:
         with self.Session() as session:
             series = session.query(Series).filter_by(id=series_id).first()
             if series:
+                # Получаем список реальных колонок таблицы
+                allowed_columns = {c.name for c in Series.__table__.columns}
+                
                 for key, value in data.items():
-                    if hasattr(series, key) and key != 'id':
+                    # Обновляем ТОЛЬКО если ключ является колонкой и не равен 'id'
+                    if key in allowed_columns and key != 'id':
                         setattr(series, key, value)
                 session.commit()
 
@@ -290,6 +295,7 @@ class Database:
                 session.query(MediaItem).filter_by(series_id=series_id).delete(synchronize_session=False)
                 session.query(SlicedFile).filter_by(series_id=series_id).delete(synchronize_session=False)
                 session.query(DownloadTask).filter_by(series_id=series_id).delete(synchronize_session=False)
+                session.query(SeriesTMDB).filter_by(series_id=series_id).delete(synchronize_session=False) # Manual deletion of TMDB mapping
 
                 # Теперь удаляем сам сериал
                 session.delete(series)
@@ -798,6 +804,57 @@ class Database:
                 session.delete(task)
                 session.commit()
 
+    def get_downloaded_episode_count(self, series_id: int) -> int:
+        """Возвращает количество загруженных эпизодов для сериала."""
+        with self.Session() as session:
+            series = session.query(Series).filter_by(id=series_id).first()
+            if not series: return 0
+            
+            if series.source_type == 'vk_video':
+                # Считаем завершенные MediaItems (у которых есть финальное имя файла)
+                return session.query(MediaItem).filter(
+                    MediaItem.series_id == series_id,
+                    MediaItem.final_filename.isnot(None)
+                ).count()
+            else:
+                # Считаем TorrentFile
+                # Нам нужны файлы, которые считаются "эпизодами".
+                # Обычно это те, которые переименованы (renamed).
+                return session.query(TorrentFile).join(Torrent).filter(
+                    Torrent.series_id == series_id,
+                    TorrentFile.status == 'renamed'
+                ).count()
+
+    # --- TMDB METHODS ---
+    def get_tmdb_mapping(self, series_id: int) -> Optional[Dict[str, Any]]:
+        with self.Session() as session:
+            mapping = session.query(SeriesTMDB).filter_by(series_id=series_id).first()
+            if not mapping: return None
+            return {c.name: getattr(mapping, c.name) for c in mapping.__table__.columns}
+
+    def add_or_update_tmdb_mapping(self, series_id: int, tmdb_data: Dict[str, Any]):
+        """
+        tmdb_data expects: tmdb_id, tmdb_season_number, total_episodes, poster_path, series_name
+        """
+        with self.Session() as session:
+            mapping = session.query(SeriesTMDB).filter_by(series_id=series_id).first()
+            if mapping:
+                for key, value in tmdb_data.items():
+                    if hasattr(mapping, key):
+                        setattr(mapping, key, value)
+                mapping.last_updated = datetime.now(timezone.utc)
+            else:
+                new_mapping = SeriesTMDB(
+                    series_id=series_id,
+                    tmdb_id=tmdb_data.get('tmdb_id'),
+                    tmdb_season_number=tmdb_data.get('tmdb_season_number'),
+                    total_episodes=tmdb_data.get('total_episodes', 0),
+                    poster_path=tmdb_data.get('poster_path'),
+                    series_name=tmdb_data.get('series_name')
+                )
+                session.add(new_mapping)
+            session.commit()
+
     def requeue_stuck_downloads(self) -> int:
         with self.Session() as session:
             # --- ИЗМЕНЕНИЕ: Ищем задачи со статусом 'downloading' И 'error' ---
@@ -844,6 +901,14 @@ class Database:
             item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
             if item:
                 item.chapters = chapters_json
+                session.commit()
+
+    def update_media_item_filtered_chapters(self, unique_id: str, filtered_chapters_json: str):
+        """Сохраняет отфильтрованное оглавление для медиа-элемента."""
+        with self.Session() as session:
+            item = session.query(MediaItem).filter_by(unique_id=unique_id).first()
+            if item:
+                item.chapters_filtered = filtered_chapters_json
                 session.commit()
 
     def register_downloaded_media_item(self, unique_id: str, filename: str):
@@ -1430,6 +1495,41 @@ class Database:
 
             except Exception as e:
                 self.logger.error("db_migration", f"КРИТИЧЕСКАЯ ОШИБКА во время миграции путей: {e}. Все изменения отменены.", exc_info=True)
+                session.rollback()
+
+    def _run_chapters_filter_migration_if_needed(self):
+        """
+        Выполняет единоразовую миграцию для добавления поля chapters_filtered.
+        """
+        with self.Session() as session:
+            try:
+                migration_flag = session.query(Setting).filter_by(key='chapters_filter_migration_completed').first()
+                if migration_flag and migration_flag.value == 'true':
+                    # Миграция уже была успешно выполнена, ничего не делаем.
+                    return
+
+                self.logger.warning("db_migration", "Обнаружена необходимость миграции фильтрации глав. Запуск добавления поля chapters_filtered...")
+
+                # Проверяем наличие колонки chapters_filtered в таблице media_items
+                inspector = inspect(self.engine)
+                columns = inspector.get_columns('media_items')
+                has_chapters_filtered = any(col['name'] == 'chapters_filtered' for col in columns)
+
+                if not has_chapters_filtered:
+                    # Добавляем колонку chapters_filtered
+                    session.execute(text('ALTER TABLE media_items ADD COLUMN chapters_filtered TEXT'))
+                    self.logger.info("db_migration", "Добавлена колонка chapters_filtered в таблицу media_items")
+                else:
+                    self.logger.info("db_migration", "Колонка chapters_filtered уже существует в таблице media_items")
+
+                # Устанавливаем флаг, что миграция завершена
+                session.merge(Setting(key='chapters_filter_migration_completed', value='true'))
+                
+                session.commit()
+                self.logger.warning("db_migration", "Миграция фильтрации глав успешно завершена!")
+
+            except Exception as e:
+                self.logger.error("db_migration", f"КРИТИЧЕСКАЯ ОШИБКА во время миграции фильтрации глав: {e}. Все изменения отменены.", exc_info=True)
                 session.rollback()
 
     def create_relocation_task(self, series_id: int, new_path: str) -> bool:

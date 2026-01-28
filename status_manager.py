@@ -142,22 +142,26 @@ class StatusManager:
         planned_items = self.db.get_media_items_by_plan_statuses(series_id, ['in_plan_single', 'in_plan_compilation'])
         # ВСЕ медиа-элементы для этого сериала, чтобы проверить наличие уже готовых
         all_items = self.db.get_media_items_for_series(series_id)
+        
+        # Фильтруем элементы, исключая те, что проигнорированы пользователем
+        active_planned_items = [item for item in planned_items if not item.get('is_ignored_by_user', False)]
+        active_all_items = [item for item in all_items if not item.get('is_ignored_by_user', False)]
 
         # Шаг 2: Вычисляем состояние всех флагов, используя правильные источники данных
         final_flags = {
-            # Эти статусы зависят только от элементов в плане
-            'downloading': any(item['status'] == 'downloading' for item in planned_items),
-            'slicing': any(item['slicing_status'] == 'slicing' for item in planned_items),
-            'error': any(item['status'] == 'error' or item['slicing_status'] == 'error' for item in planned_items),
+            # Эти статусы зависят только от элементов в плане, которые не проигнорированы
+            'downloading': any(item['status'] == 'downloading' for item in active_planned_items),
+            'slicing': any(item['slicing_status'] == 'slicing' for item in active_planned_items),
+            'error': any(item['status'] == 'error' or item['slicing_status'] == 'error' for item in active_planned_items),
             
-            # Статус 'Готов' зависит от ВСЕХ элементов, а не только от тех, что в плане
-            'ready': any(item['status'] == 'completed' for item in all_items)
+            # Статус 'Готов' зависит от ВСЕХ элементов, которые не проигнорированы
+            'ready': any(item['status'] == 'completed' for item in active_all_items)
         }
         
         # Шаг 3: Определяем статус 'waiting' на основе других активных состояний
         has_active_tasks = final_flags['downloading'] or final_flags['slicing'] or final_flags['error']
         # Статус 'Ожидание' выставляется, если есть ожидающие файлы И нет других активных задач
-        final_flags['waiting'] = any(item['status'] == 'pending' for item in planned_items) and not has_active_tasks
+        final_flags['waiting'] = any(item['status'] == 'pending' for item in active_planned_items) and not has_active_tasks
 
         # Шаг 4: Выполняем одно атомарное обновление в БД
         self.db.update_vk_series_status_flags(series_id, final_flags)

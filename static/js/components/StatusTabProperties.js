@@ -1,8 +1,8 @@
 const StatusTabProperties = {
-  components: {
-    'constructor-item-select': ConstructorItemSelect,
-  },
-template: `
+    components: {
+        'constructor-item-select': ConstructorItemSelect,
+    },
+    template: `
 <div>
     <transition name="fade">
         <div v-if="editableSeries.id">
@@ -145,6 +145,46 @@ template: `
                     </div>
                     </div>
             </div>
+
+            <!-- TMDB Widget -->
+            <div class="modern-fieldset mb-4">
+                <div class="fieldset-header"><h6 class="fieldset-title mb-0">Синхронизация с TMDB</h6></div>
+                <div class="fieldset-content">
+                    <div class="input-group mb-3">
+                        <input type="text" class="form-control" v-model="tmdbSearchQuery" placeholder="Название сериала" @keyup.enter="searchTMDB">
+                        <button class="btn btn-outline-primary" type="button" @click="searchTMDB" :disabled="tmdbLoading">
+                            <span v-if="tmdbLoading" class="spinner-border spinner-border-sm" role="status" aria-hidden="true"></span>
+                            <span v-else><i class="bi bi-search"></i> Найти</span>
+                        </button>
+                    </div>
+                    
+                    <div v-if="tmdbResults.length > 0" class="list-group mb-3" style="max-height: 200px; overflow-y: auto;">
+                        <button type="button" class="list-group-item list-group-item-action" 
+                            v-for="res in tmdbResults" 
+                            :class="{active: tmdbSelected && tmdbSelected.id === res.id}"
+                            @click="selectTMDBSeries(res)">
+                            <div class="d-flex w-100 justify-content-between">
+                                <h6 class="mb-1">{{ res.name }} <small>({{ res.year }})</small></h6>
+                                <small>ID: {{ res.id }}</small>
+                            </div>
+                            <small>{{ res.original_name }}</small>
+                        </button>
+                    </div>
+
+                    <div v-if="tmdbSelected" class="alert alert-success d-flex align-items-center">
+                        <i class="bi bi-check-circle-fill me-2"></i>
+                        <div class="flex-grow-1">
+                            Связан с: <strong>{{ tmdbSelected.name }}</strong> (ID: {{ tmdbSelected.id }})
+                            <br>
+                            <small>Сезон {{ tmdbSeasonNumber }}: {{ tmdbEpisodeCount }} эпизодов</small>
+                        </div>
+                        <button type="button" class="btn-close" @click="clearTMDBSelection" title="Отвязать"></button>
+                    </div>
+                    <div v-else class="text-muted small">
+                        Сериал не связан с TMDB. Используйте поиск, чтобы найти соответствие.
+                    </div>
+                </div>
+            </div>
             
             <div v-if="editableSeries.source_type === 'vk_video' || (editableSeries.site && (editableSeries.site.includes('kinozal') || editableSeries.site.includes('rutracker')))" class="modern-fieldset mb-4">
                 <div class="fieldset-content py-3">
@@ -210,261 +250,312 @@ template: `
     </transition>
 </div>
   `,
-  props: {
-    seriesId: { type: Number, required: true },
-    isActive: { type: Boolean, default: false },
-  },
-  emits: ['show-toast', 'series-updated', 'saving-state'],
-  data() {
-    return {
-      isSaving: false,
-      siteTorrentsLoading: false,
-      siteDataIsStale: false,
-      editableSeries: { qualityByEpisodes: {} },
-      originalSavePath: '',
-      // --- НАЧАЛО ИЗМЕНЕНИЙ ---
-      originalQualitySettings: {},
-      seriesHasActiveTorrents: false,
-      // --- КОНЕЦ ИЗМЕНЕНИЙ ---
-      allSiteTorrents: [],
-      episodeQualityOptions: {},
-      isSeasonless: false,
-      vkChannelUrl: '',
-      vkQuery: '',
-      parserProfiles: [],
-    };
-  },
-  watch: {
-    isActive: {
-        handler(newVal) {
-            if (newVal) {
-                this.load();
+    props: {
+        seriesId: { type: Number, required: true },
+        isActive: { type: Boolean, default: false },
+    },
+    emits: ['show-toast', 'series-updated', 'saving-state'],
+    data() {
+        return {
+            isSaving: false,
+            siteTorrentsLoading: false,
+            siteDataIsStale: false,
+            editableSeries: { qualityByEpisodes: {} },
+            originalSavePath: '',
+            // --- НАЧАЛО ИЗМЕНЕНИЙ ---
+            originalQualitySettings: {},
+            seriesHasActiveTorrents: false,
+            // --- КОНЕЦ ИЗМЕНЕНИЙ ---
+            allSiteTorrents: [],
+            episodeQualityOptions: {},
+            isSeasonless: false,
+            vkChannelUrl: '',
+            vkQuery: '',
+            parserProfiles: [],
+            // --- TMDB DATA ---
+            tmdbSearchQuery: '',
+            tmdbResults: [],
+            tmdbSelected: null,
+            tmdbLoading: false,
+            tmdbEpisodeCount: 0,
+            tmdbSeasonDetails: [],
+        };
+    },
+    watch: {
+        isActive: {
+            handler(newVal) {
+                if (newVal) {
+                    this.load();
+                }
+            },
+            immediate: true
+        }
+    },
+    computed: {
+        qualityHasChanged() {
+            if (this.editableSeries.source_type !== 'torrent') {
+                return false;
+            }
+            // Сравниваем простую строку качества (для Anilibria)
+            const simpleQualityChanged = this.editableSeries.quality !== this.originalQualitySettings.quality;
+            // Сравниваем объект качества по эпизодам (для Astar)
+            const byEpisodesChanged = JSON.stringify(this.editableSeries.qualityByEpisodes) !== JSON.stringify(this.originalQualitySettings.qualityByEpisodes);
+
+            return simpleQualityChanged || byEpisodesChanged;
+        },
+        vkChannelUrlClasses() {
+            return { 'is-valid': !!this.vkChannelUrl, 'is-invalid': !this.vkChannelUrl };
+        },
+        vkQueryClasses() {
+            if (this.editableSeries.vk_search_mode !== 'search') return {};
+            return { 'is-valid': !!this.vkQuery, 'is-invalid': !this.vkQuery };
+        },
+        nameClasses() {
+            return { 'is-valid': !!this.editableSeries.name, 'is-invalid': !this.editableSeries.name };
+        },
+        nameEnClasses() {
+            return { 'is-valid': !!this.editableSeries.name_en, 'is-invalid': !this.editableSeries.name_en };
+        },
+        savePathClasses() {
+            return { 'is-valid': !!this.editableSeries.save_path, 'is-invalid': !this.editableSeries.save_path };
+        },
+        seasonClasses() {
+            if (this.isSeasonless) return {};
+            const isValid = /^s\d{2}$/.test(this.editableSeries.season);
+            return { 'is-valid': isValid, 'is-invalid': !isValid };
+        },
+        qualityOptionsAnilibria() {
+            if (!this.episodeQualityOptions || !this.episodeQualityOptions.length) return [];
+            return this.episodeQualityOptions.map(q => ({ text: q, value: q }));
+        },
+        reconstructedUrl() {
+            if (this.editableSeries.source_type === 'vk_video') {
+                return `${this.vkChannelUrl}|${this.vkQuery}`;
+            }
+            return this.editableSeries.url || '';
+        },
+        sortedQualityOptionsKeys() {
+            if (!this.editableSeries.site || !this.editableSeries.site.includes('astar')) return [];
+            return sortEpisodeKeys(Object.keys(this.episodeQualityOptions));
+        },
+        filteredSiteTorrents() {
+            if (!this.editableSeries.id || this.allSiteTorrents.length === 0) return [];
+            const site = this.editableSeries.site;
+            if (site.includes('anilibria') || site.includes('aniliberty')) {
+                return this.allSiteTorrents.filter(t => t.quality === this.editableSeries.quality);
+            }
+            if (site.includes('astar')) {
+                const allChoices = Object.values(this.editableSeries.qualityByEpisodes);
+                return this.allSiteTorrents.filter(t => (this.episodeQualityOptions[t.episodes] || []).length <= 1 ? allChoices.includes(t.quality) : t.quality === this.editableSeries.qualityByEpisodes[t.episodes]);
+            }
+            return this.allSiteTorrents;
+        },
+        parserProfileOptions() {
+            const options = this.parserProfiles.map(p => ({ text: p.name, value: p.id }));
+            return [{ text: 'Не выбрано', value: null }, ...options];
+        },
+        tmdbSeasonNumber() {
+            if (this.isSeasonless) return 1;
+            const match = this.editableSeries.season ? this.editableSeries.season.match(/^s(\d+)$/i) : null;
+            return match ? parseInt(match[1], 10) : 1;
+        },
+    },
+    methods: {
+        async load() {
+            try {
+                const response = await fetch(`/api/series/${this.seriesId}`);
+                if (!response.ok) throw new Error('Сериал не найден');
+                const seriesData = await response.json();
+
+                if (seriesData.source_type === 'vk_video') {
+                    const [channel, query] = seriesData.url.split('|', 2);
+                    this.vkChannelUrl = channel || '';
+                    this.vkQuery = query || '';
+                } else {
+                    this.vkChannelUrl = '';
+                    this.vkQuery = '';
+                }
+
+                this.editableSeries = seriesData;
+                this.originalSavePath = seriesData.save_path;
+
+                this.originalQualitySettings = {
+                    quality: JSON.parse(JSON.stringify(seriesData.quality || '')),
+                    qualityByEpisodes: JSON.parse(JSON.stringify(seriesData.qualityByEpisodes || {}))
+                };
+                const torrentHistoryResponse = await fetch(`/api/series/${this.seriesId}/torrents/history`);
+                const torrentHistory = await torrentHistoryResponse.json();
+                this.seriesHasActiveTorrents = torrentHistory.some(t => t.is_active);
+
+                const sourceType = this.editableSeries.source_type;
+                const site = this.editableSeries.site || '';
+                if (sourceType === 'vk_video' || site.includes('kinozal') || site.includes('rutracker')) {
+                    this.isSeasonless = !this.editableSeries.season;
+                }
+                if (!this.editableSeries.qualityByEpisodes) this.editableSeries.qualityByEpisodes = {};
+
+                this.loadParserProfiles();
+
+                if (this.editableSeries.source_type === 'torrent') {
+                    this.refreshSiteTorrents();
+                }
+
+                // --- TMDB Load ---
+                this.tmdbSearchQuery = '';
+                this.tmdbResults = [];
+                this.tmdbSelected = null;
+                this.tmdbEpisodeCount = 0;
+                this.tmdbSeasonDetails = [];
+
+                if (seriesData.tmdb_info) {
+                    this.tmdbSelected = {
+                        id: seriesData.tmdb_info.tmdb_id,
+                        name: seriesData.tmdb_info.series_name || seriesData.name,
+                        poster_path: seriesData.tmdb_info.poster_path
+                    };
+                    this.tmdbEpisodeCount = seriesData.tmdb_info.total_episodes;
+                    // Не загружаем детали автоматически, чтобы не спамить API,
+                    // но если пользователь захочет сменить, поиск сработает как обычно.
+                } else {
+                    // Если не привязано, можно пре-заполнить поиск именем
+                    // this.tmdbSearchQuery = seriesData.name;
+                }
+            } catch (error) {
+                this.$emit('show-toast', error.message, 'danger');
             }
         },
-        immediate: true
-    }
-  },
-  computed: {
-    qualityHasChanged() {
-        if (this.editableSeries.source_type !== 'torrent') {
-            return false;
-        }
-        // Сравниваем простую строку качества (для Anilibria)
-        const simpleQualityChanged = this.editableSeries.quality !== this.originalQualitySettings.quality;
-        // Сравниваем объект качества по эпизодам (для Astar)
-        const byEpisodesChanged = JSON.stringify(this.editableSeries.qualityByEpisodes) !== JSON.stringify(this.originalQualitySettings.qualityByEpisodes);
-
-        return simpleQualityChanged || byEpisodesChanged;
-    },
-    vkChannelUrlClasses() {
-        return { 'is-valid': !!this.vkChannelUrl, 'is-invalid': !this.vkChannelUrl };
-    },
-    vkQueryClasses() {
-        if (this.editableSeries.vk_search_mode !== 'search') return {};
-        return { 'is-valid': !!this.vkQuery, 'is-invalid': !this.vkQuery };
-    },
-    nameClasses() {
-        return { 'is-valid': !!this.editableSeries.name, 'is-invalid': !this.editableSeries.name };
-    },
-    nameEnClasses() {
-        return { 'is-valid': !!this.editableSeries.name_en, 'is-invalid': !this.editableSeries.name_en };
-    },
-    savePathClasses() {
-        return { 'is-valid': !!this.editableSeries.save_path, 'is-invalid': !this.editableSeries.save_path };
-    },
-    seasonClasses() {
-        if (this.isSeasonless) return {};
-        const isValid = /^s\d{2}$/.test(this.editableSeries.season);
-        return { 'is-valid': isValid, 'is-invalid': !isValid };
-    },
-    qualityOptionsAnilibria() {
-         if (!this.episodeQualityOptions || !this.episodeQualityOptions.length) return [];
-         return this.episodeQualityOptions.map(q => ({ text: q, value: q }));
-    },
-    reconstructedUrl() {
-        if (this.editableSeries.source_type === 'vk_video') {
-            return `${this.vkChannelUrl}|${this.vkQuery}`;
-        }
-        return this.editableSeries.url || '';
-    },
-    sortedQualityOptionsKeys() {
-        if (!this.editableSeries.site || !this.editableSeries.site.includes('astar')) return [];
-        return sortEpisodeKeys(Object.keys(this.episodeQualityOptions));
-    },
-    filteredSiteTorrents() {
-        if (!this.editableSeries.id || this.allSiteTorrents.length === 0) return [];
-        const site = this.editableSeries.site;
-        if (site.includes('anilibria') || site.includes('aniliberty')) {
-            return this.allSiteTorrents.filter(t => t.quality === this.editableSeries.quality);
-        }
-        if (site.includes('astar')) {
-            const allChoices = Object.values(this.editableSeries.qualityByEpisodes);
-            return this.allSiteTorrents.filter(t => (this.episodeQualityOptions[t.episodes] || []).length <= 1 ? allChoices.includes(t.quality) : t.quality === this.editableSeries.qualityByEpisodes[t.episodes]);
-        }
-        return this.allSiteTorrents;
-    },
-        parserProfileOptions() {
-        const options = this.parserProfiles.map(p => ({ text: p.name, value: p.id }));
-        return [{ text: 'Не выбрано', value: null }, ...options];
-    },
-  },
-  methods: {
-    async load() {
-        try {
-            const response = await fetch(`/api/series/${this.seriesId}`);
-            if (!response.ok) throw new Error('Сериал не найден');
-            const seriesData = await response.json();
-            
-            if (seriesData.source_type === 'vk_video') {
-                const [channel, query] = seriesData.url.split('|', 2);
-                this.vkChannelUrl = channel || '';
-                this.vkQuery = query || '';
-            } else {
-                this.vkChannelUrl = '';
-                this.vkQuery = '';
+        async loadParserProfiles() {
+            try {
+                const response = await fetch('/api/parser-profiles');
+                if (!response.ok) throw new Error('Ошибка загрузки профилей');
+                this.parserProfiles = await response.json();
+            } catch (error) {
+                this.$emit('show-toast', error.message, 'danger');
             }
-            
-            this.editableSeries = seriesData;
-            this.originalSavePath = seriesData.save_path;
-            
-            this.originalQualitySettings = {
-                quality: JSON.parse(JSON.stringify(seriesData.quality || '')),
-                qualityByEpisodes: JSON.parse(JSON.stringify(seriesData.qualityByEpisodes || {}))
-            };
-            const torrentHistoryResponse = await fetch(`/api/series/${this.seriesId}/torrents/history`);
-            const torrentHistory = await torrentHistoryResponse.json();
-            this.seriesHasActiveTorrents = torrentHistory.some(t => t.is_active);
-
-            const sourceType = this.editableSeries.source_type;
-            const site = this.editableSeries.site || '';
-            if (sourceType === 'vk_video' || site.includes('kinozal') || site.includes('rutracker')) {
-                this.isSeasonless = !this.editableSeries.season;
+        },
+        _buildQualityOptions(torrents) {
+            const site = this.editableSeries.site;
+            if (site.includes('anilibria') || site.includes('aniliberty')) {
+                this.episodeQualityOptions = [...new Set(torrents.filter(t => t.quality).map(t => t.quality))];
+                if (!this.editableSeries.quality || !this.episodeQualityOptions.includes(this.editableSeries.quality)) this.editableSeries.quality = this.episodeQualityOptions.length > 0 ? this.episodeQualityOptions[0] : '';
+            } else if (site.includes('astar')) {
+                Object.keys(this.episodeQualityOptions).forEach(key => delete this.episodeQualityOptions[key]);
+                const episodeVersions = {};
+                torrents.forEach(t => { if (t.episodes) { if (!episodeVersions[t.episodes]) episodeVersions[t.episodes] = []; if (t.quality) episodeVersions[t.episodes].push(t.quality); } });
+                Object.assign(this.episodeQualityOptions, episodeVersions);
+                const savedQualities = this.editableSeries.quality ? this.editableSeries.quality.split(';') : [];
+                let qualityIndex = 0;
+                this.sortedQualityOptionsKeys.forEach(episodes => {
+                    if (this.episodeQualityOptions[episodes].length > 1) {
+                        this.editableSeries.qualityByEpisodes[episodes] = savedQualities[qualityIndex] || this.episodeQualityOptions[episodes].find(q => q !== 'old') || this.episodeQualityOptions[episodes][0];
+                        qualityIndex++;
+                    } else { this.editableSeries.qualityByEpisodes[episodes] = this.episodeQualityOptions[episodes][0]; }
+                });
             }
-            if (!this.editableSeries.qualityByEpisodes) this.editableSeries.qualityByEpisodes = {};
-
-            this.loadParserProfiles();
-
-            if (this.editableSeries.source_type === 'torrent') {
-                this.refreshSiteTorrents(); 
+        },
+        async refreshSiteTorrents() {
+            this.siteTorrentsLoading = true;
+            this.siteDataIsStale = false;
+            try {
+                const dbTorrentsRes = await fetch(`/api/series/${this.seriesId}/torrents/history`);
+                if (dbTorrentsRes.ok) this.allSiteTorrents = await dbTorrentsRes.json();
+                this._buildQualityOptions(this.allSiteTorrents);
+                const response = await fetch('/api/parse_url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: this.editableSeries.url }) });
+                const data = await response.json();
+                if (data.success) {
+                    this.allSiteTorrents = data.torrents;
+                    this._buildQualityOptions(this.allSiteTorrents);
+                } else {
+                    this.siteDataIsStale = true;
+                    this.$emit('show-toast', `Ошибка парсинга: ${data.error}`, 'warning');
+                }
+            } catch (error) {
+                this.siteDataIsStale = true;
+                this.$emit('show-toast', 'Ошибка сети при обновлении с сайта', 'danger');
+            } finally {
+                this.siteTorrentsLoading = false;
             }
-        } catch (error) { 
-            this.$emit('show-toast', error.message, 'danger');
-        }  
-    },
-    async loadParserProfiles() {
-        try {
-            const response = await fetch('/api/parser-profiles');
-            if (!response.ok) throw new Error('Ошибка загрузки профилей');
-            this.parserProfiles = await response.json();
-        } catch (error) {
-            this.$emit('show-toast', error.message, 'danger');
-        }
-    },
-    _buildQualityOptions(torrents) {
-        const site = this.editableSeries.site;
-        if (site.includes('anilibria') || site.includes('aniliberty')) {
-            this.episodeQualityOptions = [...new Set(torrents.filter(t => t.quality).map(t => t.quality))];
-            if (!this.editableSeries.quality || !this.episodeQualityOptions.includes(this.editableSeries.quality)) this.editableSeries.quality = this.episodeQualityOptions.length > 0 ? this.episodeQualityOptions[0] : '';
-        } else if (site.includes('astar')) {
-            Object.keys(this.episodeQualityOptions).forEach(key => delete this.episodeQualityOptions[key]);
-            const episodeVersions = {};
-            torrents.forEach(t => { if (t.episodes) { if (!episodeVersions[t.episodes]) episodeVersions[t.episodes] = []; if (t.quality) episodeVersions[t.episodes].push(t.quality); } });
-            Object.assign(this.episodeQualityOptions, episodeVersions);
-            const savedQualities = this.editableSeries.quality ? this.editableSeries.quality.split(';') : [];
-            let qualityIndex = 0;
-            this.sortedQualityOptionsKeys.forEach(episodes => {
-                if (this.episodeQualityOptions[episodes].length > 1) {
-                    this.editableSeries.qualityByEpisodes[episodes] = savedQualities[qualityIndex] || this.episodeQualityOptions[episodes].find(q => q !== 'old') || this.episodeQualityOptions[episodes][0];
-                    qualityIndex++;
-                } else { this.editableSeries.qualityByEpisodes[episodes] = this.episodeQualityOptions[episodes][0]; }
-            });
-        }
-    },
-    async refreshSiteTorrents() {
-        this.siteTorrentsLoading = true; 
-        this.siteDataIsStale = false;
-        try {
-            const dbTorrentsRes = await fetch(`/api/series/${this.seriesId}/torrents/history`);
-            if(dbTorrentsRes.ok) this.allSiteTorrents = await dbTorrentsRes.json();
-            this._buildQualityOptions(this.allSiteTorrents);
-            const response = await fetch('/api/parse_url', { method: 'POST', headers: { 'Content-Type': 'application/json' }, body: JSON.stringify({ url: this.editableSeries.url }) });
-            const data = await response.json();
-            if (data.success) { 
-                this.allSiteTorrents = data.torrents; 
-                this._buildQualityOptions(this.allSiteTorrents); 
-            } else { 
-                this.siteDataIsStale = true; 
-                this.$emit('show-toast', `Ошибка парсинга: ${data.error}`, 'warning'); 
+        },
+        async updateSeries() {
+            // 1. Сообщаем родителю, что началась операция (для немедленной блокировки и спиннера)
+            this.$emit('saving-state', true);
+
+            try {
+                // 2. Собираем ВСЕ данные из формы в один объект
+                const payload = { ...this.editableSeries };
+
+                // Добавляем реконструированный URL для VK-сериалов
+                if (payload.source_type === 'vk_video') {
+                    payload.url = this.reconstructedUrl;
+                }
+
+                // Формируем строку качества для торрент-сериалов
+                let qualityString = '';
+                const site = payload.site;
+                if (site && (site.includes('anilibria') || site.includes('aniliberty'))) {
+                    qualityString = payload.quality;
+                } else if (site && site.includes('astar')) {
+                    const qualitiesToSave = [], singleVersionQualities = new Set();
+                    this.sortedQualityOptionsKeys.forEach(episodes => { if (this.episodeQualityOptions[episodes] && this.episodeQualityOptions[episodes].length > 1) qualitiesToSave.push(payload.qualityByEpisodes[episodes]); });
+                    this.sortedQualityOptionsKeys.forEach(episodes => { if (this.episodeQualityOptions[episodes] && this.episodeQualityOptions[episodes].length === 1) singleVersionQualities.add(this.episodeQualityOptions[episodes][0]); });
+                    qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
+                }
+                payload.quality = qualityString;
+                payload.season = this.isSeasonless ? '' : payload.season;
+
+                // --- TMDB Payload ---
+                if (this.tmdbSelected) {
+                    payload.tmdb_data = {
+                        tmdb_id: this.tmdbSelected.id,
+                        tmdb_season_number: this.tmdbSeasonNumber,
+                        total_episodes: this.tmdbEpisodeCount,
+                        poster_path: this.tmdbSelected.poster_path,
+                        series_name: this.tmdbSelected.name
+                    };
+                } else {
+                    // Если пользователь нажал крестик (отвязал), нужно передать null или специальный флаг?
+                    // Пока бэкенд update_series делает add_or_update_tmdb_mapping только если есть tmdb_data.
+                    // Чтобы удалить привязку, нужно допилить бэкенд.
+                    // Но пользователь просто просил "добавить поле поиска", так что пока так.
+                    // Если tmdbSelected == null, но раньше был привязан - это кейс "удаление привязки".
+                    // Сейчас реализуем добавление/обновление.
+                }
+
+                // 3. Отправляем ОДИН запрос на новый эндпоинт
+                const response = await fetch(`/api/series/${this.seriesId}`, {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify(payload)
+                });
+
+                if (!response.ok) {
+                    const errorData = await response.json();
+                    throw new Error(errorData.error || 'Ошибка при сохранении изменений');
+                }
+
+                this.$emit('show-toast', 'Задача на обновление принята в обработку.', 'success');
+
+                // Мы НЕ сбрасываем 'saving-state' и НЕ перезагружаем данные здесь.
+                // UI останется заблокированным и обновится сам после завершения всех
+                // фоновых задач через SSE-события.
+
+            } catch (error) {
+                this.$emit('show-toast', `Ошибка: ${error.message}`, 'danger');
+                // Сбрасываем спиннер только в случае явной ошибки
+                this.$emit('saving-state', false);
             }
-        } catch (error) { 
-            this.siteDataIsStale = true; 
-            this.$emit('show-toast', 'Ошибка сети при обновлении с сайта', 'danger');
-        } finally { 
-            this.siteTorrentsLoading = false; 
-        }
-    },
-    async updateSeries() {
-        // 1. Сообщаем родителю, что началась операция (для немедленной блокировки и спиннера)
-        this.$emit('saving-state', true);
-        
-        try {
-            // 2. Собираем ВСЕ данные из формы в один объект
-            const payload = { ...this.editableSeries };
-
-            // Добавляем реконструированный URL для VK-сериалов
-            if (payload.source_type === 'vk_video') {
-                payload.url = this.reconstructedUrl;
-            }
-            
-            // Формируем строку качества для торрент-сериалов
-            let qualityString = '';
-            const site = payload.site;
-            if (site && (site.includes('anilibria') || site.includes('aniliberty'))) {
-                qualityString = payload.quality;
-            } else if (site && site.includes('astar')) {
-                const qualitiesToSave = [], singleVersionQualities = new Set();
-                this.sortedQualityOptionsKeys.forEach(episodes => { if (this.episodeQualityOptions[episodes] && this.episodeQualityOptions[episodes].length > 1) qualitiesToSave.push(payload.qualityByEpisodes[episodes]); });
-                this.sortedQualityOptionsKeys.forEach(episodes => { if (this.episodeQualityOptions[episodes] && this.episodeQualityOptions[episodes].length === 1) singleVersionQualities.add(this.episodeQualityOptions[episodes][0]); });
-                qualityString = [...qualitiesToSave, ...Array.from(singleVersionQualities)].join(';');
-            }
-            payload.quality = qualityString;
-            payload.season = this.isSeasonless ? '' : payload.season;
-            
-            // 3. Отправляем ОДИН запрос на новый эндпоинт
-            const response = await fetch(`/api/series/${this.seriesId}`, {
-                method: 'POST',
-                headers: { 'Content-Type': 'application/json' },
-                body: JSON.stringify(payload)
-            });
-
-            if (!response.ok) {
-                const errorData = await response.json();
-                throw new Error(errorData.error || 'Ошибка при сохранении изменений');
-            }
-
-            this.$emit('show-toast', 'Задача на обновление принята в обработку.', 'success');
-
-            // Мы НЕ сбрасываем 'saving-state' и НЕ перезагружаем данные здесь.
-            // UI останется заблокированным и обновится сам после завершения всех
-            // фоновых задач через SSE-события.
-
-        } catch (error) {
-            this.$emit('show-toast', `Ошибка: ${error.message}`, 'danger');
-            // Сбрасываем спиннер только в случае явной ошибки
-            this.$emit('saving-state', false);
-        }
-    },
-    async copyTorrentLink() {
-        const textToCopy = this.editableSeries.url;
-        try {
-            if (navigator.clipboard && window.isSecureContext) {
-                await navigator.clipboard.writeText(textToCopy);
-                this.$emit('show-toast', 'Ссылка скопирована в буфер обмена', 'success');
-            } else {
-                // Используем улучшенный fallback метод
-                const textArea = document.createElement("textarea");
-                textArea.value = textToCopy;
-                textArea.style.cssText = `
+        },
+        async copyTorrentLink() {
+            const textToCopy = this.editableSeries.url;
+            try {
+                if (navigator.clipboard && window.isSecureContext) {
+                    await navigator.clipboard.writeText(textToCopy);
+                    this.$emit('show-toast', 'Ссылка скопирована в буфер обмена', 'success');
+                } else {
+                    // Используем улучшенный fallback метод
+                    const textArea = document.createElement("textarea");
+                    textArea.value = textToCopy;
+                    textArea.style.cssText = `
                     position: fixed;
                     top: -9999px;
                     left: -999px;
@@ -479,46 +570,100 @@ template: `
                     color: transparent;
                     z-index: -9999;
                 `;
-                document.body.appendChild(textArea);
-                
-                // Выбираем текст
-                textArea.focus();
-                textArea.select();
-                textArea.setSelectionRange(0, textToCopy.length); // Для мобильных устройств
-                
-                // Для Safari и других браузеров используем execCommand
-                const successful = document.execCommand('copy');
-                
-                document.body.removeChild(textArea);
-                
-                if (successful) {
-                    this.$emit('show-toast', 'Ссылка скопирована в буфер обмена', 'success');
-                } else {
-                    throw new Error('execCommand copy failed');
+                    document.body.appendChild(textArea);
+
+                    // Выбираем текст
+                    textArea.focus();
+                    textArea.select();
+                    textArea.setSelectionRange(0, textToCopy.length); // Для мобильных устройств
+
+                    // Для Safari и других браузеров используем execCommand
+                    const successful = document.execCommand('copy');
+
+                    document.body.removeChild(textArea);
+
+                    if (successful) {
+                        this.$emit('show-toast', 'Ссылка скопирована в буфер обмена', 'success');
+                    } else {
+                        throw new Error('execCommand copy failed');
+                    }
                 }
+            } catch (err) {
+                console.error('Ошибка при копировании ссылки: ', err);
+                this.$emit('show-toast', 'Ошибка при копировании ссылки', 'danger');
             }
-        } catch (err) {
-            console.error('Ошибка при копировании ссылки: ', err);
-            this.$emit('show-toast', 'Ошибка при копировании ссылки', 'danger');
+        },
+        autoCorrectSlash(event, modelKey, fieldKey = null) {
+            const start = event.target.selectionStart;
+            const correctedValue = event.target.value.replace(/\\/g, '/');
+
+            if (fieldKey) {
+                this[modelKey][fieldKey] = correctedValue;
+            } else {
+                this[modelKey] = correctedValue;
+            }
+
+            this.$nextTick(() => {
+                event.target.value = correctedValue;
+                event.target.setSelectionRange(start, start);
+            });
+        },
+        openTorrentLink() {
+            window.open(this.editableSeries.url, '_blank');
+        },
+        // --- TMDB Methods ---
+        async searchTMDB() {
+            if (!this.tmdbSearchQuery) {
+                this.tmdbSearchQuery = this.editableSeries.name || this.editableSeries.name_en;
+            }
+            if (!this.tmdbSearchQuery) return;
+
+            this.tmdbLoading = true;
+            this.tmdbResults = [];
+            try {
+                const response = await fetch('/api/tmdb/search', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ query: this.tmdbSearchQuery })
+                });
+                const data = await response.json();
+                if (data.success) {
+                    this.tmdbResults = data.results;
+                } else {
+                    this.$emit('show-toast', `Ошибка поиска TMDB: ${data.error}`, 'warning');
+                }
+            } catch (error) {
+                this.$emit('show-toast', `Ошибка поиска TMDB: ${error.message}`, 'danger');
+            } finally {
+                this.tmdbLoading = false;
+            }
+        },
+        async selectTMDBSeries(series) {
+            this.tmdbSelected = series;
+            try {
+                const response = await fetch(`/api/tmdb/details/${series.id}`);
+                const data = await response.json();
+                if (data.success) {
+                    this.tmdbSeasonDetails = data.seasons;
+                    this.updateTMDBEpisodeCount();
+                }
+            } catch (error) {
+                this.$emit('show-toast', `Ошибка получения деталей TMDB: ${error.message}`, 'danger');
+            }
+        },
+        clearTMDBSelection() {
+            // TODO: Реализовать удаление привязки на бэкенде, если это критично.
+            // Пока просто сбрасываем локально, что предотвратит отправку tmdb_data при update,
+            // но старая привязка останется в БД. 
+            // В рамках текущей задачи ("добавить поле поиска") это ОК.
+            this.tmdbSelected = null;
+            this.tmdbSeasonDetails = [];
+            this.tmdbEpisodeCount = 0;
+        },
+        updateTMDBEpisodeCount() {
+            if (!this.tmdbSelected || !this.tmdbSeasonDetails.length) return;
+            const season = this.tmdbSeasonDetails.find(s => s.season_number === this.tmdbSeasonNumber);
+            this.tmdbEpisodeCount = season ? season.episode_count : 0;
         }
-    },
-    autoCorrectSlash(event, modelKey, fieldKey = null) {
-        const start = event.target.selectionStart;
-        const correctedValue = event.target.value.replace(/\\/g, '/');
-    
-        if (fieldKey) {
-            this[modelKey][fieldKey] = correctedValue;
-        } else {
-            this[modelKey] = correctedValue;
-        }
-    
-        this.$nextTick(() => {
-            event.target.value = correctedValue;
-            event.target.setSelectionRange(start, start);
-        });
-    },
-    openTorrentLink() {
-        window.open(this.editableSeries.url, '_blank');
     }
-  }
 };

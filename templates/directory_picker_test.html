@@ -1,0 +1,512 @@
+<!DOCTYPE html>
+<html lang="ru">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Directory Picker Test</title>
+    <style>
+        body {
+            font-family: Arial, sans-serif;
+            background-color: #f5f5f5;
+            margin: 0;
+            padding: 20px;
+        }
+        .container {
+            max-width: 800px;
+            margin: 0 auto;
+            background: white;
+            padding: 2rem;
+            border-radius: 8px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+        }
+        .test-section {
+            margin-bottom: 2rem;
+            padding-bottom: 2rem;
+            border-bottom: 1px solid #e9ecef;
+        }
+        .test-section:last-child {
+            border-bottom: none;
+            margin-bottom: 0;
+            padding-bottom: 0;
+        }
+        .test-title {
+            font-size: 1.25rem;
+            font-weight: 600;
+            margin-bottom: 1rem;
+            color: #2c3e50;
+        }
+        .test-description {
+            color: #6c757d;
+            margin-bottom: 1.5rem;
+        }
+        .form-group {
+            margin-bottom: 1rem;
+        }
+        .form-group label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 500;
+        }
+        /* Стили для файлового браузера */
+        .file-browser {
+            position: absolute;
+            background-color: #fff;
+            border: 1px solid #ccc;
+            border-radius: 4px;
+            box-shadow: 0 2px 10px rgba(0, 0, 0, 0.1);
+            overflow: hidden;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s ease;
+            width: 400px;
+            max-height: 300px;
+            z-index: 1000;
+        }
+        .file-browser.open {
+            opacity: 1;
+            visibility: visible;
+        }
+        .file-browser-header {
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-bottom: 1px solid #ccc;
+            font-weight: 500;
+        }
+        .file-browser-content {
+            max-height: 200px;
+            overflow-y: auto;
+        }
+        .file-browser-item {
+            padding: 8px 12px;
+            cursor: pointer;
+            border-bottom: 1px solid #eee;
+        }
+        .file-browser-item:hover {
+            background-color: #f8f9fa;
+        }
+        .file-browser-item:last-child {
+            border-bottom: none;
+        }
+        .file-browser-footer {
+            padding: 10px;
+            background-color: #f8f9fa;
+            border-top: 1px solid #ccc;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+        .file-browser-footer button {
+            padding: 4px 12px;
+            border: 1px solid #ccc;
+            background-color: #fff;
+            cursor: pointer;
+            border-radius: 3px;
+        }
+        .file-browser-footer button:hover {
+            background-color: #f8f9fa;
+        }
+        .file-browser-footer button.select {
+            background-color: #007bff;
+            color: white;
+            border-color: #007bff;
+        }
+        .file-browser-footer button.select:hover {
+            background-color: #0056b3;
+        }
+        .current-path {
+            font-size: 0.875rem;
+            color: #666;
+            white-space: nowrap;
+            overflow: hidden;
+            text-overflow: ellipsis;
+            max-width: 200px;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <h1>Directory Picker Test</h1>
+        <p>Тестовая страница для поэтапной разработки компонента выбора директории.</p>
+        
+        <div class="test-section">
+            <h2 class="test-title">Этап 2: Поле ввода пути</h2>
+            <p class="test-description">Добавление поля ввода для пути сохранения.</p>
+            
+            <div class="form-group">
+                <label for="savePath">Путь сохранения:</label>
+                <input type="text" id="savePath" name="savePath" placeholder="/home/Series" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+            </div>
+        </div>
+        
+        <div class="test-section">
+            <h2 class="test-title">Этап 3: Файловый браузер</h2>
+            <p class="test-description">Добавление файлового браузера для выбора директории.</p>
+            
+            <div class="form-group">
+                <label for="savePath2">Путь сохранения с браузером:</label>
+                <input type="text" id="savePath2" name="savePath2" placeholder="/home/Series" style="width: 100%; padding: 8px; border: 1px solid #ccc; border-radius: 4px;">
+                <small style="color: #666; font-size: 0.875rem;">Начните вводить путь (например: /home/Ani) и откройте браузер для автодополнения</small>
+            </div>
+        </div>
+    </div>
+    
+    <!-- Файловый браузер (скрытый по умолчанию) -->
+    <div class="file-browser" id="fileBrowser">
+        <div class="file-browser-header">
+            Выберите директорию
+        </div>
+        <div class="file-browser-content" id="fileBrowserContent">
+            <!-- Директории будут загружены динамически -->
+        </div>
+        <div class="file-browser-footer">
+            <div class="current-path" id="currentPath">/</div>
+            <div>
+                <button id="cancelBtn">Отмена</button>
+                <button id="selectBtn" class="select">Выбрать</button>
+            </div>
+        </div>
+    </div>
+    
+    <script>
+        // Глобальные переменные
+        let activeInput = null;
+        let currentPath = '/';
+        let selectedPath = '/';
+        let isInputFocused = false;
+        
+        // Функция открытия файлового браузера
+        function openFileBrowser(event) {
+            activeInput = event.target;
+            const browser = document.getElementById('fileBrowser');
+            const triggerRect = event.target.getBoundingClientRect();
+            
+            // Получаем текущее значение из поля ввода
+            let inputValue = event.target.value || '/';
+            
+            // Убеждаемся, что путь начинается с / и добавляем завершающий слеш
+            if (!inputValue.startsWith('/')) {
+                inputValue = '/';
+            }
+            if (!inputValue.endsWith('/')) {
+                inputValue = inputValue + '/';
+            }
+            
+            // Устанавливаем текущий путь из поля ввода
+            currentPath = inputValue;
+            selectedPath = currentPath;
+            
+            // Позиционируем браузер под полем ввода
+            browser.style.top = `${triggerRect.bottom + window.scrollY}px`;
+            browser.style.left = `${triggerRect.left + window.scrollX}px`;
+            browser.style.width = `${triggerRect.width}px`;
+            
+            // Показываем браузер
+            browser.classList.add('open');
+            
+            // Загружаем директории
+            loadDirectories(currentPath);
+        }
+        
+        // Функция загрузки директорий (через API)
+        async function loadDirectories(path) {
+            const content = document.getElementById('fileBrowserContent');
+            content.innerHTML = '<div class="file-browser-item">Загрузка...</div>';
+            
+            try {
+                // Убираем завершающий слеш для запроса к API
+                let requestPath = path.endsWith('/') ? path.slice(0, -1) : path;
+                
+                // Проверяем, содержит ли путь неполное имя директории (нет завершающего слеша)
+                if (!path.endsWith('/')) {
+                    const lastSlash = path.lastIndexOf('/');
+                    if (lastSlash > 0) {
+                        const parentPath = path.substring(0, lastSlash);
+                        const partialName = path.substring(lastSlash + 1);
+                        
+                        // Запрашиваем родительскую директорию для автодополнения
+                        const response = await fetch(`/api/directories?path=${encodeURIComponent(parentPath)}`);
+                        
+                        if (response.ok) {
+                            const data = await response.json();
+                            if (!data.error && data.items) {
+                                content.innerHTML = '';
+                                
+                                // Добавляем кнопку "Назад"
+                                if (parentPath !== '/') {
+                                    const backItem = document.createElement('div');
+                                    backItem.className = 'file-browser-item';
+                                    backItem.textContent = '..';
+                                    backItem.addEventListener('click', (event) => {
+                                        event.stopPropagation();
+                                        navigateBack();
+                                    });
+                                    content.appendChild(backItem);
+                                }
+                                
+                                // Фильтруем директории по частичному совпадению
+                                const filteredDirs = data.items.filter(dir =>
+                                    dir.name.toLowerCase().startsWith(partialName.toLowerCase())
+                                );
+                                
+                                if (filteredDirs.length > 0) {
+                                    // Добавляем совпадающие директории
+                                    filteredDirs.forEach(dir => {
+                                        const item = document.createElement('div');
+                                        item.className = 'file-browser-item';
+                                        item.textContent = dir.name;
+                                        item.addEventListener('click', (event) => {
+                                            event.stopPropagation();
+                                            navigateToDirectory(dir.path);
+                                        });
+                                        content.appendChild(item);
+                                    });
+                                } else {
+                                    content.innerHTML = '<div class="file-browser-item">Нет совпадений</div>';
+                                }
+                                
+                                // Обновляем текущий путь
+                                document.getElementById('currentPath').textContent = parentPath;
+                                return;
+                            }
+                        }
+                    }
+                }
+                
+                // Запрос к API для получения реальных директорий
+                const response = await fetch(`/api/directories?path=${encodeURIComponent(requestPath)}`);
+                
+                if (!response.ok) {
+                    // Если путь не существует, пробуем найти родительскую директорию и отфильтровать
+                    const lastSlash = requestPath.lastIndexOf('/');
+                    if (lastSlash > 0) {
+                        const parentPath = requestPath.substring(0, lastSlash);
+                        const partialName = requestPath.substring(lastSlash + 1);
+                        
+                        const parentResponse = await fetch(`/api/directories?path=${encodeURIComponent(parentPath)}`);
+                        if (parentResponse.ok) {
+                            const parentData = await parentResponse.json();
+                            if (!parentData.error && parentData.items) {
+                                content.innerHTML = '';
+                                
+                                // Добавляем кнопку "Назад"
+                                if (parentPath !== '/') {
+                                    const backItem = document.createElement('div');
+                                    backItem.className = 'file-browser-item';
+                                    backItem.textContent = '..';
+                                    backItem.addEventListener('click', (event) => {
+                                        event.stopPropagation();
+                                        navigateBack();
+                                    });
+                                    content.appendChild(backItem);
+                                }
+                                
+                                // Фильтруем директории по частичному совпадению
+                                const filteredDirs = parentData.items.filter(dir =>
+                                    dir.name.toLowerCase().startsWith(partialName.toLowerCase())
+                                );
+                                
+                                if (filteredDirs.length > 0) {
+                                    // Добавляем совпадающие директории
+                                    filteredDirs.forEach(dir => {
+                                        const item = document.createElement('div');
+                                        item.className = 'file-browser-item';
+                                        item.textContent = dir.name;
+                                        item.addEventListener('click', (event) => {
+                                            event.stopPropagation();
+                                            navigateToDirectory(dir.path);
+                                        });
+                                        content.appendChild(item);
+                                    });
+                                } else {
+                                    content.innerHTML = '<div class="file-browser-item">Нет совпадений</div>';
+                                }
+                                
+                                // Обновляем текущий путь
+                                document.getElementById('currentPath').textContent = parentPath;
+                                return;
+                            }
+                        }
+                    }
+                    
+                    throw new Error('Ошибка при загрузке директорий');
+                }
+                
+                const data = await response.json();
+                content.innerHTML = '';
+                
+                // Проверяем наличие ошибки
+                if (data.error) {
+                    content.innerHTML = `<div class="file-browser-item">${data.error}</div>`;
+                    return;
+                }
+                
+                // Добавляем кнопку "Назад" если не в корневом каталоге
+                if (requestPath !== '/') {
+                    const backItem = document.createElement('div');
+                    backItem.className = 'file-browser-item';
+                    backItem.textContent = '..';
+                    backItem.addEventListener('click', (event) => {
+                        event.stopPropagation(); // Предотвращаем всплытие события
+                        navigateBack();
+                    });
+                    content.appendChild(backItem);
+                }
+                
+                // Добавляем директории
+                data.items.forEach(dir => {
+                    const item = document.createElement('div');
+                    item.className = 'file-browser-item';
+                    item.textContent = dir.name;
+                    item.addEventListener('click', (event) => {
+                        event.stopPropagation(); // Предотвращаем всплытие события
+                        navigateToDirectory(dir.path);
+                    });
+                    content.appendChild(item);
+                });
+                
+                // Обновляем текущий путь
+                document.getElementById('currentPath').textContent = requestPath;
+                
+            } catch (error) {
+                content.innerHTML = `<div class="file-browser-item">Ошибка: ${error.message}</div>`;
+            }
+        }
+        
+        // Функция навигации в директорию
+        async function navigateToDirectory(path) {
+            // Добавляем завершающий слеш к пути
+            const pathWithSlash = path.endsWith('/') ? path : path + '/';
+            currentPath = pathWithSlash;
+            selectedPath = pathWithSlash;
+            
+            // Обновляем поле ввода при навигации в каталог
+            if (activeInput) {
+                activeInput.value = pathWithSlash;
+            }
+            
+            // Проверяем, является ли директория конечной (нет поддиректорий)
+            try {
+                const response = await fetch(`/api/directories?path=${encodeURIComponent(path)}`);
+                if (response.ok) {
+                    const data = await response.json();
+                    if (!data.error && data.items && data.items.length === 0) {
+                        // Если директория пустая (конечная), выбираем её и закрываем браузер
+                        closeFileBrowser();
+                        return;
+                    }
+                }
+            } catch (error) {
+                console.error('Ошибка проверки директории:', error);
+            }
+            
+            await loadDirectories(pathWithSlash);
+        }
+        
+        // Функция навигации назад
+        async function navigateBack() {
+            // Убираем завершающий слеш перед обработкой
+            const pathWithoutSlash = currentPath.endsWith('/') ? currentPath.slice(0, -1) : currentPath;
+            const parentPath = pathWithoutSlash.substring(0, pathWithoutSlash.lastIndexOf('/'));
+            if (parentPath) {
+                // Добавляем завершающий слеш к родительскому пути
+                const parentPathWithSlash = parentPath.endsWith('/') ? parentPath : parentPath + '/';
+                currentPath = parentPathWithSlash;
+                selectedPath = parentPathWithSlash;
+                
+                // Обновляем поле ввода при навигации назад
+                if (activeInput) {
+                    activeInput.value = parentPathWithSlash;
+                }
+                
+                await loadDirectories(parentPathWithSlash);
+            }
+        }
+        
+        // Функция закрытия файлового браузера
+        function closeFileBrowser() {
+            document.getElementById('fileBrowser').classList.remove('open');
+        }
+        
+        // Функция подтверждения выбора
+        function confirmSelection() {
+            if (activeInput) {
+                activeInput.value = selectedPath;
+            }
+            closeFileBrowser();
+        }
+        
+        // Функция обработки клика вне браузера
+        function handleClickOutside(event) {
+            const browser = document.getElementById('fileBrowser');
+            if (browser.classList.contains('open') &&
+                !browser.contains(event.target) &&
+                (!activeInput || !activeInput.contains(event.target))) {
+                closeFileBrowser();
+            }
+        }
+        
+        // Функция обработки клика на элементах файлового браузера
+        function handleBrowserItemClick(event) {
+            event.stopPropagation(); // Предотвращаем всплытие события
+        }
+        
+        // Добавляем обработчики событий после загрузки DOM
+        document.addEventListener('DOMContentLoaded', function() {
+            // Обработчик для поля ввода с браузером
+            const savePath2Input = document.getElementById('savePath2');
+            if (savePath2Input) {
+                savePath2Input.addEventListener('click', openFileBrowser);
+                
+                // Добавляем обработчик для динамического обновления при вводе текста
+                savePath2Input.addEventListener('input', function(event) {
+                    const browser = document.getElementById('fileBrowser');
+                    if (browser.classList.contains('open')) {
+                        let inputValue = event.target.value;
+                        // Обновляем по тексту только если поле в фокусе ИЛИ если браузер открыт
+                        if (isInputFocused || browser.classList.contains('open')) {
+                            // Проверяем, что путь не пустой и начинается с /
+                            if (inputValue && inputValue.startsWith('/')) {
+                                // Добавляем завершающий слеш если его нет
+                                if (!inputValue.endsWith('/')) {
+                                    inputValue = inputValue + '/';
+                                }
+                                // Обновляем selectedPath и загружаем директории для автодополнения
+                                selectedPath = inputValue;
+                                // Проверяем, что путь не заканчивается на слеш после добавления
+                                // Это предотвращает отправку запросов с неполными путями
+                                if (selectedPath.endsWith('/') || selectedPath.indexOf('/') === selectedPath.lastIndexOf('/')) {
+                                    loadDirectories(selectedPath);
+                                }
+                            }
+                        }
+                    }
+                });
+                
+                // Добавляем обработчики для фокуса/блюра поля ввода
+                savePath2Input.addEventListener('focus', function() {
+                    isInputFocused = true;
+                });
+                
+                savePath2Input.addEventListener('blur', function() {
+                    isInputFocused = false;
+                });
+            }
+            
+            // Обработчики для кнопок файлового браузера
+            const cancelBtn = document.getElementById('cancelBtn');
+            const selectBtn = document.getElementById('selectBtn');
+            
+            if (cancelBtn) {
+                cancelBtn.addEventListener('click', closeFileBrowser);
+            }
+            
+            if (selectBtn) {
+                selectBtn.addEventListener('click', confirmSelection);
+            }
+            
+            // Обработчик для клика вне файлового браузера
+            document.addEventListener('click', handleClickOutside);
+        });
+    </script>
+</body>
+</html>
